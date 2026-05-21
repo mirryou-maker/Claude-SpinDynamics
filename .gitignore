@@ -1,0 +1,28 @@
+﻿# Build outputs
+build/
+out/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Editor
+.vscode/
+
+# Simulation output files
+*.vtk
+*.vts
+*.ovf
+
+# Compiled artifacts (root-level test files)
+*.exe
+*.obj
+*.pyd
+
+# Windows / system artifacts
+%programdata%/
+
+# Claude Code internal files
+.claude/
