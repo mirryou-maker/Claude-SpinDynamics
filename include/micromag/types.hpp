@@ -39,4 +39,9 @@ struct Vec3 {
 
 constexpr Vec3 operator*(Real s, const Vec3& v) { return v * s; }
 
+namespace constants {
+inline constexpr Real pi  = 3.14159265358979323846;
+inline constexpr Real mu_0 = 4.0 * pi * 1e-7;  // [T·m/A]
+}  // namespace constants
+
 }  // namespace micromag

@@ -3,6 +3,9 @@ find_package(Catch2 3 CONFIG REQUIRED)
 add_executable(unit_tests
     test_grid.cpp
     test_field.cpp
+    test_zeeman.cpp
+    test_anisotropy.cpp
+    test_exchange.cpp
 )
 
 target_link_libraries(unit_tests

@@ -39,6 +39,11 @@ add_library(micromag_core
     src/grid.cpp
     src/field.cpp
     src/vtk_writer.cpp
+    src/material.cpp
+    src/effective_field.cpp
+    src/zeeman.cpp
+    src/anisotropy.cpp
+    src/exchange.cpp
 )
 target_include_directories(micromag_core
     PUBLIC
@@ -47,9 +52,12 @@ target_include_directories(micromag_core
 )
 target_compile_features(micromag_core PUBLIC cxx_std_20)
 
-# Demo executable -----------------------------------------------------------
+# Demo executables ----------------------------------------------------------
 add_executable(hello_micromag apps/hello_micromag.cpp)
 target_link_libraries(hello_micromag PRIVATE micromag_core)
+
+add_executable(field_demo apps/field_demo.cpp)
+target_link_libraries(field_demo PRIVATE micromag_core)
 
 # Python bindings -----------------------------------------------------------
 if(MICROMAG_BUILD_PYTHON)

@@ -6,6 +6,11 @@
 #include "micromag/grid.hpp"
 #include "micromag/field.hpp"
 #include "micromag/vtk_writer.hpp"
+#include "micromag/material.hpp"
+#include "micromag/effective_field.hpp"
+#include "micromag/zeeman.hpp"
+#include "micromag/anisotropy.hpp"
+#include "micromag/exchange.hpp"
 
 namespace py = pybind11;
 using namespace micromag;
@@ -55,4 +60,48 @@ PYBIND11_MODULE(_micromag, m) {
 
     m.def("write_vtk_legacy", &write_vtk_legacy,
           py::arg("filename"), py::arg("field"), py::arg("field_name") = "m");
+
+    // ------------------------------------------------------------------
+    // Phase 1b: Material + Effective fields
+    // ------------------------------------------------------------------
+
+    py::class_<Material>(m, "Material")
+        .def(py::init<>())
+        .def_readwrite("Ms",          &Material::Ms)
+        .def_readwrite("A_exchange",  &Material::A_exchange)
+        .def_readwrite("K_uniaxial",  &Material::K_uniaxial)
+        .def_readwrite("easy_axis",   &Material::easy_axis)
+        .def_readwrite("alpha",       &Material::alpha)
+        .def_static("permalloy", &Material::permalloy)
+        .def_static("cobalt",    &Material::cobalt)
+        .def_static("iron",      &Material::iron);
+
+    py::enum_<BoundaryCondition>(m, "BoundaryCondition")
+        .value("Neumann",  BoundaryCondition::Neumann)
+        .value("Periodic", BoundaryCondition::Periodic);
+
+    py::class_<IEffectiveField, std::shared_ptr<IEffectiveField>>(m, "IEffectiveField")
+        .def("accumulate", &IEffectiveField::accumulate)
+        .def("energy",     &IEffectiveField::energy)
+        .def_property_readonly("name", &IEffectiveField::name);
+
+    py::class_<ZeemanField, IEffectiveField, std::shared_ptr<ZeemanField>>(m, "ZeemanField")
+        .def(py::init<const Vec3&>(), py::arg("H_ext") = Vec3{0, 0, 0})
+        .def_property("H_ext", &ZeemanField::H_ext, &ZeemanField::set_H_ext);
+
+    py::class_<UniaxialAnisotropyField, IEffectiveField,
+               std::shared_ptr<UniaxialAnisotropyField>>(m, "UniaxialAnisotropyField")
+        .def(py::init<>());
+
+    py::class_<ExchangeField, IEffectiveField, std::shared_ptr<ExchangeField>>(m, "ExchangeField")
+        .def(py::init<BoundaryCondition>(), py::arg("bc") = BoundaryCondition::Neumann)
+        .def_property("boundary", &ExchangeField::boundary, &ExchangeField::set_boundary);
+
+    py::class_<EffectiveFieldSum>(m, "EffectiveFieldSum")
+        .def(py::init<>())
+        .def("add",          &EffectiveFieldSum::add)
+        .def("compute",      &EffectiveFieldSum::compute)
+        .def("total_energy", &EffectiveFieldSum::total_energy)
+        .def_property_readonly("terms",     &EffectiveFieldSum::terms)
+        .def_property_readonly("num_terms", &EffectiveFieldSum::num_terms);
 }
