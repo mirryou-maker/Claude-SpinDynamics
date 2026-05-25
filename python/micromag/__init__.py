@@ -13,6 +13,10 @@ from _micromag import (
     UniaxialAnisotropyField,
     ExchangeField,
     EffectiveFieldSum,
+    # Phase 1c
+    gamma_0,
+    llg_torque,
+    RK4Integrator,
 )
 
 __all__ = [
@@ -20,6 +24,7 @@ __all__ = [
     "Material", "BoundaryCondition", "IEffectiveField",
     "ZeemanField", "UniaxialAnisotropyField", "ExchangeField",
     "EffectiveFieldSum",
+    "gamma_0", "llg_torque", "RK4Integrator",
 ]
 
 __version__ = "0.1.0"

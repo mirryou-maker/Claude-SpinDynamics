@@ -11,6 +11,7 @@
 #include "micromag/zeeman.hpp"
 #include "micromag/anisotropy.hpp"
 #include "micromag/exchange.hpp"
+#include "micromag/integrator.hpp"
 
 namespace py = pybind11;
 using namespace micromag;
@@ -104,4 +105,19 @@ PYBIND11_MODULE(_micromag, m) {
         .def("total_energy", &EffectiveFieldSum::total_energy)
         .def_property_readonly("terms",     &EffectiveFieldSum::terms)
         .def_property_readonly("num_terms", &EffectiveFieldSum::num_terms);
+
+    // ------------------------------------------------------------------
+    // Phase 1c: LLG integrator
+    // ------------------------------------------------------------------
+
+    m.attr("gamma_0") = gamma_0;
+
+    m.def("llg_torque", &llg_torque,
+          py::arg("m"), py::arg("H"), py::arg("alpha"));
+
+    py::class_<RK4Integrator>(m, "RK4Integrator")
+        .def(py::init<Real>(), py::arg("dt") = Real{1e-13})
+        .def("step", &RK4Integrator::step,
+             py::arg("m"), py::arg("mat"), py::arg("heff"))
+        .def_property("dt", &RK4Integrator::dt, &RK4Integrator::set_dt);
 }

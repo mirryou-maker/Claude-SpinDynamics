@@ -44,6 +44,7 @@ add_library(micromag_core
     src/zeeman.cpp
     src/anisotropy.cpp
     src/exchange.cpp
+    src/integrator.cpp
 )
 target_include_directories(micromag_core
     PUBLIC
@@ -58,6 +59,9 @@ target_link_libraries(hello_micromag PRIVATE micromag_core)
 
 add_executable(field_demo apps/field_demo.cpp)
 target_link_libraries(field_demo PRIVATE micromag_core)
+
+add_executable(llg_demo apps/llg_demo.cpp)
+target_link_libraries(llg_demo PRIVATE micromag_core)
 
 # Python bindings -----------------------------------------------------------
 if(MICROMAG_BUILD_PYTHON)
