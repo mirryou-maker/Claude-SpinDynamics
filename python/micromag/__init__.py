@@ -17,6 +17,11 @@ from _micromag import (
     gamma_0,
     llg_torque,
     RK4Integrator,
+    # Phase 1d
+    ISpinTorque,
+    SlonczewskiSTT,
+    SpinOrbitTorque,
+    SpinTorqueSum,
 )
 
 __all__ = [
@@ -25,6 +30,7 @@ __all__ = [
     "ZeemanField", "UniaxialAnisotropyField", "ExchangeField",
     "EffectiveFieldSum",
     "gamma_0", "llg_torque", "RK4Integrator",
+    "ISpinTorque", "SlonczewskiSTT", "SpinOrbitTorque", "SpinTorqueSum",
 ]
 
 __version__ = "0.1.0"

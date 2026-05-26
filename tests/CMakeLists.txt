@@ -7,6 +7,7 @@ add_executable(unit_tests
     test_anisotropy.cpp
     test_exchange.cpp
     test_llg.cpp
+    test_spin_torque.cpp
 )
 
 target_link_libraries(unit_tests

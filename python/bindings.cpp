@@ -12,6 +12,7 @@
 #include "micromag/anisotropy.hpp"
 #include "micromag/exchange.hpp"
 #include "micromag/integrator.hpp"
+#include "micromag/spin_torque.hpp"
 
 namespace py = pybind11;
 using namespace micromag;
@@ -110,14 +111,60 @@ PYBIND11_MODULE(_micromag, m) {
     // Phase 1c: LLG integrator
     // ------------------------------------------------------------------
 
-    m.attr("gamma_0") = gamma_0;
+    m.attr("gamma_0") = constants::gamma_0;
 
     m.def("llg_torque", &llg_torque,
           py::arg("m"), py::arg("H"), py::arg("alpha"));
 
     py::class_<RK4Integrator>(m, "RK4Integrator")
         .def(py::init<Real>(), py::arg("dt") = Real{1e-13})
-        .def("step", &RK4Integrator::step,
-             py::arg("m"), py::arg("mat"), py::arg("heff"))
+        .def("step",
+             [](RK4Integrator& self, VectorField3D& mv, const Material& mat,
+                const EffectiveFieldSum& heff, SpinTorqueSum* stt) {
+                 self.step(mv, mat, heff, stt);
+             },
+             py::arg("m"), py::arg("mat"), py::arg("heff"),
+             py::arg("stt") = nullptr)
         .def_property("dt", &RK4Integrator::dt, &RK4Integrator::set_dt);
+
+    // ------------------------------------------------------------------
+    // Phase 1d: Spin Transfer Torque + Spin-Orbit Torque
+    // ------------------------------------------------------------------
+
+    py::class_<ISpinTorque, std::shared_ptr<ISpinTorque>>(m, "ISpinTorque")
+        .def("accumulate", &ISpinTorque::accumulate)
+        .def_property_readonly("name", &ISpinTorque::name);
+
+    py::class_<SlonczewskiSTT, ISpinTorque, std::shared_ptr<SlonczewskiSTT>>(
+            m, "SlonczewskiSTT")
+        .def(py::init<Real, Real, Real, Vec3, Real>(),
+             py::arg("J"), py::arg("P"), py::arg("d"), py::arg("p"),
+             py::arg("beta") = Real{0.0})
+        .def("a_J",        &SlonczewskiSTT::a_J)
+        .def_property("J",    &SlonczewskiSTT::J,    &SlonczewskiSTT::set_J)
+        .def_property("P",    &SlonczewskiSTT::P,    &SlonczewskiSTT::set_P)
+        .def_property("beta", &SlonczewskiSTT::beta, &SlonczewskiSTT::set_beta)
+        .def_property_readonly("d", &SlonczewskiSTT::d)
+        .def_property_readonly("p", &SlonczewskiSTT::p);
+
+    py::class_<SpinOrbitTorque, ISpinTorque, std::shared_ptr<SpinOrbitTorque>>(
+            m, "SpinOrbitTorque")
+        .def(py::init<Real, Real, Real, Vec3, Real, Real>(),
+             py::arg("J_c"), py::arg("theta_SH"), py::arg("d_fm"),
+             py::arg("sigma"),
+             py::arg("eta_DL") = Real{1.0},
+             py::arg("eta_FL") = Real{0.0})
+        .def("a_SOT",      &SpinOrbitTorque::a_SOT)
+        .def_property("J_c",      &SpinOrbitTorque::J_c,      &SpinOrbitTorque::set_J_c)
+        .def_property("theta_SH", &SpinOrbitTorque::theta_SH, &SpinOrbitTorque::set_theta_SH)
+        .def_property("eta_DL",   &SpinOrbitTorque::eta_DL,   &SpinOrbitTorque::set_eta_DL)
+        .def_property("eta_FL",   &SpinOrbitTorque::eta_FL,   &SpinOrbitTorque::set_eta_FL)
+        .def_property_readonly("d_fm",  &SpinOrbitTorque::d_fm)
+        .def_property_readonly("sigma", &SpinOrbitTorque::sigma);
+
+    py::class_<SpinTorqueSum>(m, "SpinTorqueSum")
+        .def(py::init<>())
+        .def("add",   &SpinTorqueSum::add)
+        .def_property_readonly("terms",     &SpinTorqueSum::terms)
+        .def_property_readonly("num_terms", &SpinTorqueSum::num_terms);
 }

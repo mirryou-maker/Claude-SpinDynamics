@@ -32,25 +32,34 @@ void axpy(const VectorField3D& base, Real scale,
 }  // namespace
 
 void RK4Integrator::step(VectorField3D& m, const Material& mat,
-                          const EffectiveFieldSum& heff) {
+                          const EffectiveFieldSum& heff,
+                          const SpinTorqueSum* stt) {
     ensure_scratch(m.grid());
     const Real alpha = mat.alpha;
     const Real h     = dt_;
 
+    // k1 = f(m)
     heff.compute(m, mat, *H_);
     torque_field(m, *H_, alpha, *k1_);
+    if (stt) stt->accumulate(m, mat, *k1_);
 
+    // k2 = f(m + h/2 k1)
     axpy(m, h * 0.5, *k1_, *m_tmp_);
     heff.compute(*m_tmp_, mat, *H_);
     torque_field(*m_tmp_, *H_, alpha, *k2_);
+    if (stt) stt->accumulate(*m_tmp_, mat, *k2_);
 
+    // k3 = f(m + h/2 k2)
     axpy(m, h * 0.5, *k2_, *m_tmp_);
     heff.compute(*m_tmp_, mat, *H_);
     torque_field(*m_tmp_, *H_, alpha, *k3_);
+    if (stt) stt->accumulate(*m_tmp_, mat, *k3_);
 
+    // k4 = f(m + h k3)
     axpy(m, h, *k3_, *m_tmp_);
     heff.compute(*m_tmp_, mat, *H_);
     torque_field(*m_tmp_, *H_, alpha, *k4_);
+    if (stt) stt->accumulate(*m_tmp_, mat, *k4_);
 
     const Real c = h / 6.0;
     for (Index i = 0; i < m.size(); ++i)

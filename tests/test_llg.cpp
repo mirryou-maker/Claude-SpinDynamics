@@ -37,7 +37,7 @@ TEST_CASE("LLG torque: expected magnitude (no damping)", "[llg]") {
     // |dm/dt| = γ₀ μ₀ |H| for m ⊥ H, α = 0
     const Real H0 = 1e5;
     Vec3 t = llg_torque({1, 0, 0}, {0, 0, H0}, 0.0);
-    Real expected = gamma_0 * constants::mu_0 * H0;
+    Real expected = constants::gamma_0 * constants::mu_0 * H0;
     REQUIRE_THAT(t.norm(), WithinRel(expected, 1e-10));
 }
 
@@ -76,7 +76,7 @@ TEST_CASE("RK4: undamped precession quarter period", "[integrator]") {
     mat.alpha = 0.0;
 
     const Real H0    = 1e6;
-    const Real omega = gamma_0 * constants::mu_0 * H0;
+    const Real omega = constants::gamma_0 * constants::mu_0 * H0;
     const Real dt    = constants::pi / (2.0 * omega) / 1000.0;  // T/4 / 1000
 
     EffectiveFieldSum heff;
@@ -101,7 +101,7 @@ TEST_CASE("RK4: undamped precession full period returns to start", "[integrator]
     mat.alpha = 0.0;
 
     const Real H0    = 1e6;
-    const Real omega = gamma_0 * constants::mu_0 * H0;
+    const Real omega = constants::gamma_0 * constants::mu_0 * H0;
     const Real dt    = 2.0 * constants::pi / omega / 2000.0;  // T / 2000
 
     EffectiveFieldSum heff;

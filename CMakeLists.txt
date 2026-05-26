@@ -45,6 +45,7 @@ add_library(micromag_core
     src/anisotropy.cpp
     src/exchange.cpp
     src/integrator.cpp
+    src/spin_torque.cpp
 )
 target_include_directories(micromag_core
     PUBLIC
@@ -62,6 +63,9 @@ target_link_libraries(field_demo PRIVATE micromag_core)
 
 add_executable(llg_demo apps/llg_demo.cpp)
 target_link_libraries(llg_demo PRIVATE micromag_core)
+
+add_executable(stt_sot_demo apps/stt_sot_demo.cpp)
+target_link_libraries(stt_sot_demo PRIVATE micromag_core)
 
 # Python bindings -----------------------------------------------------------
 if(MICROMAG_BUILD_PYTHON)
