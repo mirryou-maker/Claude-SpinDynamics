@@ -10,6 +10,7 @@ add_executable(unit_tests
     test_spin_torque.cpp
     test_demag.cpp
     diag_step1.cpp
+    test_rk45.cpp
 )
 
 target_link_libraries(unit_tests
