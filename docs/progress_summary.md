@@ -153,12 +153,104 @@ cmake --build build/windows-msvc --config Release
 
 ---
 
+## RK45 구현 완료 (c882018)
+
+**성능**: RK4 197s → RK45 55.7s = **3.5배 가속**  
+- 3,532 accepted / 79 rejected steps (vs RK4 20,000)  
+- FSAL(First Same As Last) 최적화 포함 — 6→5 effective evals/step
+
+---
+
 ## 다음 단계 후보
 
 | 우선순위 | 작업 | 설명 |
 |---------|------|------|
-| ★★★ | **RK45 적응 시간-단계** | 오차 제어 포함 — α=0.02 시뮬레이션 효율 10–100배 향상 |
-| ★★☆ | **SP#4 완전 수렴** | sp4.exe를 2–3 ns로 연장, `<my>/<mz>` 수렴 확인 |
-| ★★☆ | **SP#4 Field B (190°)** | 비전환(non-switching) 시나리오 검증 |
-| ★☆☆ | **Python 바인딩 정비** | DemagField를 Python에서 직접 호출 가능하도록 |
-| ★☆☆ | **Phase 3: CUDA** | cuFFT 기반 GPU demag 가속 |
+| ★★☆ | **SP#4 Field B (190°)** | 비전환(non-switching) 시나리오 — theta만 변경하면 완성 |
+| ★★☆ | **SP#4 완전 수렴** | 2–3 ns 연장, `<mx>` → -0.9862 수렴 확인 |
+| ★★☆ | **Python 바인딩 정비** | DemagField + RK45 Python 노출 |
+| ★☆☆ | **Phase 3: CUDA** | cuFFT GPU demag 가속 |
+| 📋 **계획 추가** | **유한 온도 마이크로마그네틱스** | 아래 상세 설명 참조 |
+
+---
+
+## 유한 온도 마이크로마그네틱스 — 계획 (미구현)
+
+### 왜 RK45를 사용할 수 없나
+
+유한 온도에서는 **확률론적 LLG (SLLG, Stochastic LLG)**를 사용:
+
+```
+dm/dt = -γ'μ₀ m×[H_eff + H_th] - γ'αμ₀ m×(m×[H_eff + H_th])
+```
+
+열 노이즈 진폭 (`σ ∝ 1/√Δt`):
+```
+σ = sqrt(2α k_B T / (μ₀ Ms γ V Δt))
+```
+
+| 제약 | 이유 |
+|------|------|
+| **고정 Δt 필수** | H_th ∝ 1/√Δt — Δt 변경 시 물리 통계 자체가 변함 |
+| **오차 추정 불가** | 랜덤 노이즈가 수치 오차를 압도 → RK45의 오차 추정치 무의미 |
+| **SDE ≠ ODE** | Itô/Stratonovich 확률 미분방정식은 결정론적 적응법 적용 불가 |
+
+→ **Euler-Maruyama**(1차) 또는 **Heun 방법**(2차, 표준)만 사용 가능.
+
+### 구현 계획
+
+#### Phase T1 — 열 노이즈 소스 (`thermal_field.hpp`)
+
+```cpp
+class ThermalField : public IEffectiveField {
+    // H_th[i] = N(0,1) * sqrt(2α k_B T / (μ₀ Ms γ V dt))
+    // 매 스텝마다 독립 가우시안 벡터 생성 (std::normal_distribution)
+    void accumulate(const VectorField3D& m, const Material& mat,
+                    VectorField3D& H_out) const override;
+    void set_temperature(Real T_K);
+    void set_dt(Real dt);   // dt 변경 시 σ 재계산
+};
+```
+
+#### Phase T2 — 고정-단계 스토캐스틱 Heun 적분기 (`integrator_heun.cpp`)
+
+Stratonovich 해석에서의 Heun (예측자-수정자):
+```
+m̃ = m + dt * f(m, H_th^n)          # predictor
+m_{n+1} = m + dt/2 * [f(m, H_th^n) + f(m̃, H_th^n)]  # corrector
+```
+- H_th^n은 한 스텝 동안 고정 (같은 노이즈 재사용)
+- 결정론적 항은 2차 정확도, 노이즈 항은 Stratonovich 수렴
+
+```cpp
+class HeunIntegrator {
+    explicit HeunIntegrator(Real dt, unsigned seed = 42);
+    void step(VectorField3D& m, const Material& mat,
+              const EffectiveFieldSum& heff,
+              ThermalField& thermal);
+    void set_temperature(Real T_K);
+};
+```
+
+#### Phase T3 — 검증 및 응용
+
+| 검증 항목 | 방법 |
+|-----------|------|
+| **열 평형** | T=300K, 단일 입자 → `<m²_z>` = k_BT/(μ₀MsKV) 확인 |
+| **퀴리 온도** | T 증가 → `<|m|>` 감소, T_C에서 → 0 (평균장 이론과 비교) |
+| **열 안정화 에너지 KV/k_BT** | KV/k_BT >> 1이면 안정, << 1이면 초상자성 |
+| **Néel-Brown 이완 시간** | τ = τ₀ exp(KV/k_BT) (Arrhenius) 검증 |
+| **열적 전환 (SP#4-T)** | SP#4 + T=300K → 전환 확률 분포 측정 |
+
+#### 주요 물리 응용
+
+- **초상자성 (superparamagnetism)**: 나노입자의 열 안정성 분석
+- **열적 자화 반전**: 스핀 토크 + 온도 의존 전환 전류 계산
+- **자기 녹화**: HAMR (Heat-Assisted Magnetic Recording) 시뮬레이션
+- **스핀 칼로리트로닉스**: 온도 구배가 있는 자화 동역학
+
+#### 구현 시 주의사항
+
+1. 난수 생성기: `std::mt19937` + `std::normal_distribution<Real>` (재현성을 위해 seed 고정 가능)
+2. 병렬화: 각 셀의 H_th는 독립 — OpenMP로 쉽게 병렬화 가능
+3. 단위계: T_K [K], σ [A/m], dt [s] 단위 혼합 오류 주의
+4. 적분기 선택: Heun(Stratonovich) 권장 — 열 평형에서 올바른 분포 생성
