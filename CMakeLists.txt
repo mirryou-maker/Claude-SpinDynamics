@@ -88,6 +88,9 @@ target_link_libraries(thermal_equilibrium PRIVATE micromag_core)
 add_executable(thermal_neel_brown apps/thermal_neel_brown.cpp)
 target_link_libraries(thermal_neel_brown PRIVATE micromag_core)
 
+add_executable(sp4_thermal apps/sp4_thermal.cpp)
+target_link_libraries(sp4_thermal PRIVATE micromag_core)
+
 # Python bindings -----------------------------------------------------------
 if(MICROMAG_BUILD_PYTHON)
     find_package(pybind11 CONFIG REQUIRED)
