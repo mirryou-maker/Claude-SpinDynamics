@@ -5,6 +5,7 @@ project(micromag
     DESCRIPTION "Micromagnetic simulator"
     LANGUAGES CXX
 )
+# CUDA language is enabled later (conditionally) via enable_language(CUDA)
 
 # C++ standard --------------------------------------------------------------
 set(CMAKE_CXX_STANDARD 20)
@@ -17,8 +18,9 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 # UTF-8 source encoding (avoid C4819 on Korean Windows) ---------------------
+# Restrict to CXX only — nvcc does not accept /utf-8 as a direct flag
 if(MSVC)
-    add_compile_options(/utf-8)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/utf-8>)
 endif()
 
 # Position-independent code (needed for pybind11) ---------------------------
@@ -32,7 +34,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # Options -------------------------------------------------------------------
 option(MICROMAG_BUILD_PYTHON "Build Python bindings"     ON)
 option(MICROMAG_BUILD_TESTS  "Build unit tests"          ON)
-option(MICROMAG_USE_CUDA     "Enable CUDA backend (later phase)" OFF)
+option(MICROMAG_USE_CUDA     "Enable CUDA/cuFFT GPU demag backend" OFF)
 
 # FFTW3 (required for demagnetisation field) --------------------------------
 find_package(FFTW3 CONFIG REQUIRED)
@@ -90,6 +92,49 @@ target_link_libraries(thermal_neel_brown PRIVATE micromag_core)
 
 add_executable(sp4_thermal apps/sp4_thermal.cpp)
 target_link_libraries(sp4_thermal PRIVATE micromag_core)
+
+# CUDA/cuFFT GPU backend (Phase 3) -----------------------------------------
+if(MICROMAG_USE_CUDA)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED COMPONENTS cufft)
+
+    set(CMAKE_CUDA_STANDARD 17)
+    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+    # Separate CUDA library — keeps nvcc and MSVC compilation units isolated
+    add_library(micromag_cuda
+        src/demag_cuda.cu
+    )
+    target_include_directories(micromag_cuda
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(micromag_cuda
+        PUBLIC
+            micromag_core
+            CUDA::cufft
+    )
+    set_target_properties(micromag_cuda PROPERTIES
+        CUDA_ARCHITECTURES native          # auto-detect installed GPU arch
+        CUDA_SEPARABLE_COMPILATION OFF
+    )
+    # Suppress C4819 (unicode) warnings in CUDA host compilation on Korean Windows
+    if(MSVC)
+        target_compile_options(micromag_cuda PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>)
+    endif()
+    # Propagate the MICROMAG_CUDA flag so headers can guard GPU code
+    target_compile_definitions(micromag_cuda PUBLIC MICROMAG_CUDA=1)
+    target_compile_definitions(micromag_core PUBLIC MICROMAG_CUDA=1)
+
+    # SP#4 GPU benchmark app
+    add_executable(sp4_gpu apps/sp4_gpu.cpp)
+    target_link_libraries(sp4_gpu PRIVATE micromag_cuda)
+
+    message(STATUS "  CUDA toolkit:  ${CUDAToolkit_VERSION}")
+    message(STATUS "  cuFFT:         found")
+endif()
 
 # Python bindings -----------------------------------------------------------
 if(MICROMAG_BUILD_PYTHON)

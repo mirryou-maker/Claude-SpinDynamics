@@ -30,6 +30,16 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
+        },
+        {
+            "name": "windows-msvc-cuda",
+            "inherits": "windows-msvc",
+            "displayName": "Windows MSVC + CUDA GPU",
+            "description": "MSVC + vcpkg + CUDA/cuFFT for GPU demag",
+            "binaryDir": "${sourceDir}/build/windows-msvc-cuda",
+            "cacheVariables": {
+                "MICROMAG_USE_CUDA": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -42,6 +52,11 @@
             "name": "windows-msvc-debug",
             "configurePreset": "windows-msvc-debug",
             "configuration": "Debug"
+        },
+        {
+            "name": "windows-msvc-cuda",
+            "configurePreset": "windows-msvc-cuda",
+            "configuration": "Release"
         }
     ],
     "testPresets": [
