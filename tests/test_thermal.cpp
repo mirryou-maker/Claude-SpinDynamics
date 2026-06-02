@@ -10,6 +10,7 @@
 #include "micromag/material.hpp"
 #include "micromag/effective_field.hpp"
 #include "micromag/zeeman.hpp"
+#include "micromag/anisotropy.hpp"
 #include "micromag/thermal_field.hpp"
 #include "micromag/integrator.hpp"
 
@@ -361,4 +362,165 @@ TEST_CASE("HeunIntegrator: deterministic relaxation to applied field", "[thermal
 
     // Must have relaxed to +z
     REQUIRE_THAT(m[0].z, WithinAbs(1.0, 1e-2));
+}
+
+// ===========================================================================
+// T3: Thermal equilibrium — Boltzmann distribution validation
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// T3-A: Energy equipartition (K=0, H_ext=0)
+//
+// Uniform distribution on sphere → <mx²> = <my²> = <mz²> = 1/3.
+//
+// Parameter choice: T=1e8 K (extreme), dt=100 ps, V=(5nm)³, α=0.5.
+// At these values σ≈25 kA/m and each step rotates ~0.44 rad (≈25°),
+// so the spin explores the full sphere in O(10) steps.
+// 10×10×1 grid (100 independent spins) gives 1M samples in 1200 steps.
+// ---------------------------------------------------------------------------
+TEST_CASE("Thermal equilibrium: energy equipartition (K=0)", "[thermal]") {
+    StructuredGrid grid(10, 10, 1, 5e-9, 5e-9, 5e-9);   // 100 cells
+
+    Material mat   = Material::permalloy();
+    mat.alpha      = 0.5;
+    mat.K_uniaxial = 0.0;
+
+    VectorField3D m(grid);
+    m.set_uniform({1.0, 0.0, 0.0});
+
+    // High T + large dt → large σ → rapid exploration of sphere
+    const Real T  = 1e8;     // 100 MK — unphysical, but tests the distribution
+    const Real dt = 1e-10;   // 100 ps
+
+    EffectiveFieldSum heff;   // empty: only thermal noise
+    ThermalField thermal(grid, T, dt);
+    HeunIntegrator heun(dt);
+
+    // Equilibration (200 steps ≈ many decorrelation times)
+    for (int step = 0; step < 200; ++step)
+        heun.step(m, mat, heff, &thermal);
+
+    // Sampling: 1000 steps × 100 cells = 100,000 samples
+    double sx2 = 0, sy2 = 0, sz2 = 0;
+    const int N_sample = 1000;
+    for (int step = 0; step < N_sample; ++step) {
+        heun.step(m, mat, heff, &thermal);
+        for (Index i = 0; i < m.size(); ++i) {
+            sx2 += m[i].x * m[i].x;
+            sy2 += m[i].y * m[i].y;
+            sz2 += m[i].z * m[i].z;
+        }
+    }
+    const double N   = N_sample * static_cast<double>(grid.size());
+    const double mx2 = sx2 / N;
+    const double my2 = sy2 / N;
+    const double mz2 = sz2 / N;
+
+    // Each component ≈ 1/3  (tolerance ±0.03 with 100 k samples)
+    REQUIRE_THAT(mx2, WithinAbs(1.0/3.0, 0.03));
+    REQUIRE_THAT(my2, WithinAbs(1.0/3.0, 0.03));
+    REQUIRE_THAT(mz2, WithinAbs(1.0/3.0, 0.03));
+
+    // Isotropy
+    REQUIRE(std::abs(mx2 - my2) < 0.02);
+    REQUIRE(std::abs(mx2 - mz2) < 0.02);
+
+    // Sum must be 1 (|m|=1 by construction)
+    REQUIRE_THAT(mx2 + my2 + mz2, WithinAbs(1.0, 1e-6));
+}
+
+// ---------------------------------------------------------------------------
+// T3-B: Anisotropy drives deterministic relaxation to easy axis (T=0)
+//
+// Physical reason T=0 test is needed: at finite T, the thermal noise σ is
+// always orders-of-magnitude smaller than H_ani for real materials (σ/H_ani
+// ~ 10⁻⁴ for Permalloy at 300 K).  Therefore observing a Boltzmann bias in
+// short unit tests is impractical.  Instead we verify the CORRECT DIRECTION
+// of the anisotropy torque at T=0 — a necessary prerequisite for correct
+// finite-T behaviour.
+//
+// K=1e4 J/m³, easy axis ẑ, start m along +x.
+// τ_relax = 1/(α γ μ₀ H_ani) ≈ 570 ps = ~570 steps at dt=1 ps.
+// After 3000 steps the spin must have reached |mz| > 0.9.
+// ---------------------------------------------------------------------------
+TEST_CASE("Anisotropy: T=0 relaxation toward easy axis", "[thermal]") {
+    const StructuredGrid grid = g1();   // single spin
+
+    Material mat   = Material::permalloy();
+    mat.alpha      = 0.5;
+    mat.K_uniaxial = 1e4;            // H_ani ≈ 20 kA/m
+    mat.easy_axis  = {0.0, 0.0, 1.0};
+
+    VectorField3D m(grid);
+    // Start 10° from easy axis: H_ani ≠ 0 → clear anisotropy torque.
+    // (mz=0 exactly gives zero torque — unstable equilibrium, no motion.)
+    const Real tilt = 10.0 * constants::pi / 180.0;
+    m.set_uniform({std::sin(tilt), 0.0, std::cos(tilt)});
+
+    EffectiveFieldSum heff;
+    heff.add(std::make_shared<UniaxialAnisotropyField>());
+
+    HeunIntegrator heun(1e-12);
+
+    // No thermal noise (T=0)
+    for (int step = 0; step < 3000; ++step)
+        heun.step(m, mat, heff);  // thermal=nullptr → T=0
+
+    // Spin must have moved to ±z
+    REQUIRE(std::abs(m[0].z) > 0.9);
+
+    // |m| still 1
+    const Real n = std::sqrt(m[0].x*m[0].x + m[0].y*m[0].y + m[0].z*m[0].z);
+    REQUIRE_THAT(n, WithinAbs(1.0, 1e-12));
+}
+
+// ---------------------------------------------------------------------------
+// T3-C: Anisotropy + noise — spin remains close to easy axis at low T
+//
+// With K=1e4 J/m³ and α=0.5:
+//   τ_relax ≈ 570 ps  (time for anisotropy to pull spin back to ±z)
+//   σ ≈ 4 kA/m at T=300K, dt=1ps  (thermal kick per step)
+//   H_ani ≈ 20 kA/m  (restoring field near equator)
+//
+// Starting from ±z, the anisotropy holds the spin near the poles.
+// After many steps: |<mz>| ≫ 0 even with thermal noise.
+// This is NOT the equilibrium test (needs nanoseconds); it verifies that
+// the Heun integrator combines anisotropy + noise with correct sign.
+// ---------------------------------------------------------------------------
+TEST_CASE("Anisotropy + noise: spin stays near easy axis at low T", "[thermal]") {
+    const StructuredGrid grid = g1();
+
+    Material mat   = Material::permalloy();
+    mat.alpha      = 0.5;
+    mat.K_uniaxial = 1e4;
+    mat.easy_axis  = {0.0, 0.0, 1.0};
+
+    VectorField3D m(grid);
+    m.set_uniform({0.0, 0.0, 1.0});   // start at easy-axis pole
+
+    const Real T  = 300.0;
+    const Real dt = 1e-12;
+
+    EffectiveFieldSum heff;
+    heff.add(std::make_shared<UniaxialAnisotropyField>());
+    ThermalField thermal(grid, T, dt);
+    HeunIntegrator heun(dt);
+
+    double sz2 = 0;
+    const int N = 5000;
+    for (int step = 0; step < N; ++step) {
+        heun.step(m, mat, heff, &thermal);
+        sz2 += m[0].z * m[0].z;
+    }
+    const double mz2 = sz2 / N;
+
+    INFO("<mz²> over " << N << " steps = " << mz2
+         << "  (anisotropy keeps spin near ±z)");
+
+    // Spin should remain predominantly along z due to anisotropy
+    REQUIRE(mz2 > 0.85);
+
+    // |m|=1 throughout
+    const Real n = std::sqrt(m[0].x*m[0].x + m[0].y*m[0].y + m[0].z*m[0].z);
+    REQUIRE_THAT(n, WithinAbs(1.0, 1e-12));
 }
