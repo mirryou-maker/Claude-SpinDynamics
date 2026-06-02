@@ -6,6 +6,9 @@
 #include "effective_field.hpp"
 #include "spin_torque.hpp"
 
+// Forward declaration — include thermal_field.hpp if you need ThermalField directly
+namespace micromag { class ThermalField; }
+
 namespace micromag {
 
 // Per-cell LLG torque (Landau-Lifshitz form):
@@ -85,6 +88,41 @@ private:
     Real error_norm(const VectorField3D& m,
                     const VectorField3D& m5,
                     const VectorField3D& e) const;
+};
+
+// ---------------------------------------------------------------------------
+// Heun (predictor-corrector) integrator for the stochastic LLG (SLLG).
+//
+// Uses a fixed time step Δt and the Stratonovich Heun scheme:
+//
+//   Predictor:  m̃ = normalize(m + Δt × f(m,  H_eff(m)  + H_th(η^n)))
+//   Corrector:  m' = normalize(m + Δt/2 × [f(m, H_eff(m)+H_th(η^n))
+//                                         + f(m̃,H_eff(m̃)+H_th(η^n))])
+//
+// The SAME thermal noise η^n is used in both stages (Stratonovich convention).
+// Without thermal noise (thermal == nullptr) this is a standard Heun ODE solver.
+//
+// NOTE: Δt MUST remain fixed; do not use RK45 for finite-temperature LLG.
+// ---------------------------------------------------------------------------
+class HeunIntegrator {
+public:
+    explicit HeunIntegrator(Real dt = 1e-13);
+
+    // Advance m by one fixed step.
+    // thermal: if non-null, adds Langevin noise (SLLG).
+    //          if null, pure deterministic Heun (ODE).
+    void step(VectorField3D& m, const Material& mat,
+              const EffectiveFieldSum& heff,
+              ThermalField*           thermal = nullptr,
+              const SpinTorqueSum*    stt     = nullptr);
+
+    Real dt()          const { return dt_; }
+    void set_dt(Real dt)     { dt_ = dt;  }
+
+private:
+    Real dt_;
+    std::unique_ptr<VectorField3D> H_, m_pred_, k1_, k2_;
+    void ensure_scratch(const StructuredGrid& g);
 };
 
 }  // namespace micromag

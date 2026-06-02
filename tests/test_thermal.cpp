@@ -8,7 +8,10 @@
 #include "micromag/grid.hpp"
 #include "micromag/field.hpp"
 #include "micromag/material.hpp"
+#include "micromag/effective_field.hpp"
+#include "micromag/zeeman.hpp"
 #include "micromag/thermal_field.hpp"
+#include "micromag/integrator.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -183,4 +186,179 @@ TEST_CASE("ThermalField: same seed → same sequence", "[thermal]") {
     REQUIRE_THAT(Hb[0].x, WithinAbs(Ha[0].x, 1e-30));
     REQUIRE_THAT(Hb[0].y, WithinAbs(Ha[0].y, 1e-30));
     REQUIRE_THAT(Hb[0].z, WithinAbs(Ha[0].z, 1e-30));
+}
+
+// ===========================================================================
+// T2: HeunIntegrator tests
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// T2-A: |m| = 1 preserved for all cells (with and without noise)
+// ---------------------------------------------------------------------------
+TEST_CASE("HeunIntegrator: |m|=1 preserved without thermal noise", "[thermal]") {
+    StructuredGrid grid(4, 4, 2, 2.5e-9, 2.5e-9, 3.0e-9);
+    VectorField3D m(grid);
+    m.set_uniform({1.0, 0.0, 0.0});
+
+    Material mat = py300();
+    EffectiveFieldSum heff;
+    heff.add(std::make_shared<ZeemanField>(Vec3{0.0, 0.0, 1e5}));
+
+    HeunIntegrator heun(5e-14);
+    for (int step = 0; step < 1000; ++step)
+        heun.step(m, mat, heff);
+
+    for (Index i = 0; i < m.size(); ++i) {
+        const Real n = std::sqrt(m[i].x*m[i].x + m[i].y*m[i].y + m[i].z*m[i].z);
+        REQUIRE_THAT(n, WithinAbs(1.0, 1e-12));
+    }
+}
+
+TEST_CASE("HeunIntegrator: |m|=1 preserved with thermal noise", "[thermal]") {
+    const auto grid = g1();
+    VectorField3D m(grid);
+    m.set_uniform({1.0, 0.0, 0.0});
+
+    Material mat = py300();
+    EffectiveFieldSum heff;
+    heff.add(std::make_shared<ZeemanField>(Vec3{0.0, 0.0, 1e5}));
+
+    ThermalField thermal(grid, 300.0, 5e-14);
+    HeunIntegrator heun(5e-14);
+
+    for (int step = 0; step < 1000; ++step)
+        heun.step(m, mat, heff, &thermal);
+
+    const Real n = std::sqrt(m[0].x*m[0].x + m[0].y*m[0].y + m[0].z*m[0].z);
+    REQUIRE_THAT(n, WithinAbs(1.0, 1e-12));
+}
+
+// ---------------------------------------------------------------------------
+// T2-B: T=0 (σ=0) is equivalent to deterministic Heun ODE
+// ---------------------------------------------------------------------------
+TEST_CASE("HeunIntegrator: T=0 gives same result as no thermal field", "[thermal]") {
+    const auto grid = g1();
+    Material mat = py300();
+    mat.alpha = 0.5;   // strong damping → fast convergence, clean comparison
+
+    Vec3 H0{0.0, 0.0, 5e5};
+    const Real dt = 1e-13;
+    const int N = 200;
+
+    // Run without thermal
+    VectorField3D m_no_th(grid);
+    m_no_th.set_uniform({1.0, 0.0, 0.0});
+    {
+        EffectiveFieldSum heff;
+        heff.add(std::make_shared<ZeemanField>(H0));
+        HeunIntegrator heun(dt);
+        for (int i = 0; i < N; ++i) heun.step(m_no_th, mat, heff);
+    }
+
+    // Run with T=0 thermal (σ=0 → no noise)
+    VectorField3D m_T0(grid);
+    m_T0.set_uniform({1.0, 0.0, 0.0});
+    {
+        EffectiveFieldSum heff;
+        heff.add(std::make_shared<ZeemanField>(H0));
+        ThermalField thermal(grid, 0.0, dt);
+        HeunIntegrator heun(dt);
+        for (int i = 0; i < N; ++i) heun.step(m_T0, mat, heff, &thermal);
+    }
+
+    REQUIRE_THAT(m_T0[0].x, WithinAbs(m_no_th[0].x, 1e-12));
+    REQUIRE_THAT(m_T0[0].y, WithinAbs(m_no_th[0].y, 1e-12));
+    REQUIRE_THAT(m_T0[0].z, WithinAbs(m_no_th[0].z, 1e-12));
+}
+
+// ---------------------------------------------------------------------------
+// T2-C: T>0 gives different result from T=0 (noise has effect)
+// ---------------------------------------------------------------------------
+TEST_CASE("HeunIntegrator: T>0 trajectory differs from T=0", "[thermal]") {
+    const auto grid = g1();
+    Material mat = py300();
+    const Real dt = 5e-14;
+    const int N = 500;
+
+    EffectiveFieldSum heff;
+    heff.add(std::make_shared<ZeemanField>(Vec3{0.0, 0.0, 1e5}));
+
+    VectorField3D m_cold(grid), m_hot(grid);
+    m_cold.set_uniform({1.0, 0.0, 0.0});
+    m_hot.set_uniform({1.0, 0.0, 0.0});
+
+    {
+        ThermalField th(grid, 0.0, dt);       // T=0
+        HeunIntegrator heun(dt);
+        for (int i = 0; i < N; ++i) heun.step(m_cold, mat, heff, &th);
+    }
+    {
+        ThermalField th(grid, 5000.0, dt);    // very hot → large noise
+        HeunIntegrator heun(dt);
+        for (int i = 0; i < N; ++i) heun.step(m_hot, mat, heff, &th);
+    }
+
+    // Trajectories must diverge at high T
+    const bool differs = (std::abs(m_hot[0].x - m_cold[0].x) > 1e-6 ||
+                          std::abs(m_hot[0].y - m_cold[0].y) > 1e-6 ||
+                          std::abs(m_hot[0].z - m_cold[0].z) > 1e-6);
+    REQUIRE(differs);
+}
+
+// ---------------------------------------------------------------------------
+// T2-D: Different seeds → different trajectories (RNG isolation)
+// ---------------------------------------------------------------------------
+TEST_CASE("HeunIntegrator: different seeds give different trajectories", "[thermal]") {
+    const auto grid = g1();
+    Material mat = py300();
+    const Real dt = 5e-14;
+    const int N = 100;
+
+    EffectiveFieldSum heff;
+    heff.add(std::make_shared<ZeemanField>(Vec3{0.0, 0.0, 1e5}));
+
+    VectorField3D m_a(grid), m_b(grid);
+    m_a.set_uniform({1.0, 0.0, 0.0});
+    m_b.set_uniform({1.0, 0.0, 0.0});
+
+    {
+        ThermalField th(grid, 300.0, dt, 11);
+        HeunIntegrator heun(dt);
+        for (int i = 0; i < N; ++i) heun.step(m_a, mat, heff, &th);
+    }
+    {
+        ThermalField th(grid, 300.0, dt, 99);  // different seed
+        HeunIntegrator heun(dt);
+        for (int i = 0; i < N; ++i) heun.step(m_b, mat, heff, &th);
+    }
+
+    const bool differs = (m_a[0].x != m_b[0].x ||
+                          m_a[0].y != m_b[0].y ||
+                          m_a[0].z != m_b[0].z);
+    REQUIRE(differs);
+}
+
+// ---------------------------------------------------------------------------
+// T2-E: Deterministic Heun converges correctly (m → Ĥ under damping)
+// ---------------------------------------------------------------------------
+TEST_CASE("HeunIntegrator: deterministic relaxation to applied field", "[thermal]") {
+    const auto grid = g1();
+    Material mat = py300();
+    mat.alpha = 0.5;   // strong damping
+
+    VectorField3D m(grid);
+    m.set_uniform({1.0, 0.0, 0.0});   // start ⊥ field
+
+    EffectiveFieldSum heff;
+    heff.add(std::make_shared<ZeemanField>(Vec3{0.0, 0.0, 1e6}));
+
+    const Real dt_h = 5e-14;
+    HeunIntegrator heun(dt_h);
+    for (int step = 0; step < 10000; ++step) {
+        heun.step(m, mat, heff);
+        if (std::abs(m[0].z - 1.0) < 1e-3) break;
+    }
+
+    // Must have relaxed to +z
+    REQUIRE_THAT(m[0].z, WithinAbs(1.0, 1e-2));
 }

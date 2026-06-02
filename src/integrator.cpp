@@ -1,6 +1,7 @@
 #include <cmath>
 #include <stdexcept>
 #include "micromag/integrator.hpp"
+#include "micromag/thermal_field.hpp"
 
 namespace micromag {
 
@@ -288,6 +289,61 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
             throw std::runtime_error(
                 "RK45: step size reached minimum — solution may be stiff");
     }
+}
+
+// ===========================================================================
+// HeunIntegrator  —  fixed-Δt stochastic Heun for SLLG
+// ===========================================================================
+
+HeunIntegrator::HeunIntegrator(Real dt) : dt_(dt) {}
+
+void HeunIntegrator::ensure_scratch(const StructuredGrid& g) {
+    if (H_) return;
+    H_      = std::make_unique<VectorField3D>(g);
+    m_pred_ = std::make_unique<VectorField3D>(g);
+    k1_     = std::make_unique<VectorField3D>(g);
+    k2_     = std::make_unique<VectorField3D>(g);
+}
+
+void HeunIntegrator::step(VectorField3D& m, const Material& mat,
+                           const EffectiveFieldSum& heff,
+                           ThermalField*            thermal,
+                           const SpinTorqueSum*     stt) {
+    ensure_scratch(m.grid());
+    const Real alpha = mat.alpha;
+    const Real h     = dt_;
+
+    // ---- Generate new thermal noise η^n (once per step) ----
+    if (thermal) thermal->resample(mat);
+
+    // ---- Predictor ----
+    // H = H_eff(m) + H_th(η^n)
+    heff.compute(m, mat, *H_);
+    if (thermal) thermal->accumulate(m, mat, *H_);
+
+    // k1 = f(m, H)
+    torque_field(m, *H_, alpha, *k1_);
+    if (stt) stt->accumulate(m, mat, *k1_);
+
+    // m_pred = normalize(m + h*k1)
+    for (Index i = 0; i < m.size(); ++i)
+        (*m_pred_)[i] = m[i] + (*k1_)[i] * h;
+    m_pred_->normalize();
+
+    // ---- Corrector ----
+    // H = H_eff(m_pred) + H_th(η^n)  ← SAME noise (Stratonovich)
+    heff.compute(*m_pred_, mat, *H_);
+    if (thermal) thermal->accumulate(*m_pred_, mat, *H_);
+
+    // k2 = f(m_pred, H)
+    torque_field(*m_pred_, *H_, alpha, *k2_);
+    if (stt) stt->accumulate(*m_pred_, mat, *k2_);
+
+    // m = normalize(m + h/2*(k1+k2))
+    const Real hh = h * 0.5;
+    for (Index i = 0; i < m.size(); ++i)
+        m[i] = m[i] + ((*k1_)[i] + (*k2_)[i]) * hh;
+    m.normalize();
 }
 
 }  // namespace micromag
