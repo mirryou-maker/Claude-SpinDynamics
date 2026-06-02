@@ -34,6 +34,9 @@ option(MICROMAG_BUILD_PYTHON "Build Python bindings"     ON)
 option(MICROMAG_BUILD_TESTS  "Build unit tests"          ON)
 option(MICROMAG_USE_CUDA     "Enable CUDA backend (later phase)" OFF)
 
+# FFTW3 (required for demagnetisation field) --------------------------------
+find_package(FFTW3 CONFIG REQUIRED)
+
 # Core library --------------------------------------------------------------
 add_library(micromag_core
     src/grid.cpp
@@ -46,6 +49,7 @@ add_library(micromag_core
     src/exchange.cpp
     src/integrator.cpp
     src/spin_torque.cpp
+    src/demag.cpp
 )
 target_include_directories(micromag_core
     PUBLIC
@@ -53,6 +57,7 @@ target_include_directories(micromag_core
         $<INSTALL_INTERFACE:include>
 )
 target_compile_features(micromag_core PUBLIC cxx_std_20)
+target_link_libraries(micromag_core PUBLIC FFTW3::fftw3)
 
 # Demo executables ----------------------------------------------------------
 add_executable(hello_micromag apps/hello_micromag.cpp)
