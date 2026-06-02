@@ -20,6 +20,7 @@ namespace micromag {
 
 // f(x,y,z) = antiderivative used for diagonal components N_xx.
 double DemagField::newell_f(double x, double y, double z) {
+    x = std::abs(x); y = std::abs(y); z = std::abs(z);
     double x2 = x * x, y2 = y * y, z2 = z * z;
     double r  = std::sqrt(x2 + y2 + z2);
     if (r == 0.0) return 0.0;
@@ -27,15 +28,15 @@ double DemagField::newell_f(double x, double y, double z) {
     double val = 0.0;
     // Term: y*(z²-x²)/2 * asinh(y/sqrt(x²+z²))
     double d_xz = std::sqrt(x2 + z2);
-    if (d_xz > 0.0) val += y * (z2 - x2) / 6.0 * std::asinh(y / d_xz);
-    // Term: z*(y²-x²)/6 * asinh(z/sqrt(x²+y²))
+    if (d_xz > 0.0) val += y * (z2 - x2) * 0.5 * std::asinh(y / d_xz);
+    // Term: z*(y²-x²)/2 * asinh(z/sqrt(x²+y²))
     double d_xy = std::sqrt(x2 + y2);
-    if (d_xy > 0.0) val += z * (y2 - x2) / 6.0 * std::asinh(z / d_xy);
-    // Term: -xyz/6 * atan(y*z/(x*r))
+    if (d_xy > 0.0) val += z * (y2 - x2) * 0.5 * std::asinh(z / d_xy);
+    // Term: -xyz * atan(y*z/(x*r))
     // Use std::atan (range -π/2..π/2), NOT atan2.  Newell (1993) eq. (B2)
     // uses the standard arctangent; atan2 gives wrong values for x < 0,
     // shifting the result by ±π and corrupting the 8-corner alternating sum.
-    if (std::abs(x) > 0.0) val -= x * y * z / 3.0 * std::atan(y * z / (x * r));
+    if (std::abs(x) > 0.0) val -= x * y * z * std::atan(y * z / (x * r));
     // Term: (2x²-y²-z²)*r/6
     val += (2.0 * x2 - y2 - z2) * r / 6.0;
     return val;
@@ -43,6 +44,7 @@ double DemagField::newell_f(double x, double y, double z) {
 
 // g(x,y,z) = antiderivative used for off-diagonal component N_xy.
 double DemagField::newell_g(double x, double y, double z) {
+    z = std::abs(z);
     double x2 = x * x, y2 = y * y, z2 = z * z;
     double r  = std::sqrt(x2 + y2 + z2);
     if (r == 0.0) return 0.0;
@@ -69,38 +71,41 @@ double DemagField::newell_g(double x, double y, double z) {
 }
 
 // Closed-form integral for diagonal tensor component N_xx(x,y,z,dx,dy,dz).
-// Uses an 8-corner alternating sum of the antiderivative f.
+// Uses the exact Newell (1993) 6D double-cell integral (64-term alternating sum).
 double DemagField::nxx(double x, double y, double z,
                         double dx, double dy, double dz) {
-    // Sum over corners (+/-) of the cell boundary.
+    const int nx = static_cast<int>(std::round(x / dx));
+    const int ny = static_cast<int>(std::round(y / dy));
+    const int nz = static_cast<int>(std::round(z / dz));
     double sum = 0.0;
-    for (int sx : {-1, 1})
-    for (int sy : {-1, 1})
-    for (int sz : {-1, 1}) {
-        double cx = x + sx * dx * 0.5;
-        double cy = y + sy * dy * 0.5;
-        double cz = z + sz * dz * 0.5;
-        int sign  = sx * sy * sz;   // alternating
-        sum += sign * newell_f(cx, cy, cz);
+    for (int ia : {0, 1}) for (int ib : {0, 1}) for (int ic : {0, 1})
+    for (int id : {0, 1}) for (int ie : {0, 1}) for (int ig : {0, 1}) {
+        const int sign = ((ia + ib + ic + id + ie + ig) % 2 == 0) ? 1 : -1;
+        sum += sign * newell_f(
+            (nx + ia - id) * dx,
+            (ny + ib - ie) * dy,
+            (nz + ic - ig) * dz);
     }
-    // Normalise by cell volume and -1/(4π).
-    return -sum / (4.0 * constants::pi * dx * dy * dz);
+    return +sum / (4.0 * constants::pi * dx * dy * dz);
 }
 
 // Closed-form integral for off-diagonal component N_xy(x,y,z,dx,dy,dz).
+// Uses the exact Newell (1993) 6D double-cell integral (64-term alternating sum).
 double DemagField::nxy(double x, double y, double z,
                         double dx, double dy, double dz) {
+    const int nx = static_cast<int>(std::round(x / dx));
+    const int ny = static_cast<int>(std::round(y / dy));
+    const int nz = static_cast<int>(std::round(z / dz));
     double sum = 0.0;
-    for (int sx : {-1, 1})
-    for (int sy : {-1, 1})
-    for (int sz : {-1, 1}) {
-        double cx = x + sx * dx * 0.5;
-        double cy = y + sy * dy * 0.5;
-        double cz = z + sz * dz * 0.5;
-        int sign  = sx * sy * sz;
-        sum += sign * newell_g(cx, cy, cz);
+    for (int ia : {0, 1}) for (int ib : {0, 1}) for (int ic : {0, 1})
+    for (int id : {0, 1}) for (int ie : {0, 1}) for (int ig : {0, 1}) {
+        const int sign = ((ia + ib + ic + id + ie + ig) % 2 == 0) ? 1 : -1;
+        sum += sign * newell_g(
+            (nx + ia - id) * dx,
+            (ny + ib - ie) * dy,
+            (nz + ic - ig) * dz);
     }
-    return -sum / (4.0 * constants::pi * dx * dy * dz);
+    return +sum / (4.0 * constants::pi * dx * dy * dz);
 }
 
 // ---------------------------------------------------------------------------
