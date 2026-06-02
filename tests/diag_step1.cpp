@@ -18,6 +18,7 @@ using Catch::Matchers::WithinAbs;
 // --- Standalone Newell formulas (copied from demag.cpp for independent verification) ---
 
 static double local_newell_f(double x, double y, double z) {
+    x = std::abs(x); y = std::abs(y); z = std::abs(z);   // 6D formula requires abs
     double x2=x*x, y2=y*y, z2=z*z;
     double r = std::sqrt(x2+y2+z2);
     if (r == 0.0) return 0.0;
@@ -31,15 +32,19 @@ static double local_newell_f(double x, double y, double z) {
     return val;
 }
 
+// 6D double-cell integral: corners at (n+ia-id)*dx, sign=(-1)^(ia+ib+ic+id+ie+ig)
 static double local_nxx(double x, double y, double z, double dx, double dy, double dz) {
+    const int nx = static_cast<int>(std::round(x / dx));
+    const int ny = static_cast<int>(std::round(y / dy));
+    const int nz = static_cast<int>(std::round(z / dz));
     double sum = 0.0;
-    for (int sx : {-1,1}) for (int sy : {-1,1}) for (int sz : {-1,1}) {
-        double cx = x + sx*dx*0.5;
-        double cy = y + sy*dy*0.5;
-        double cz = z + sz*dz*0.5;
-        sum += sx*sy*sz * local_newell_f(cx, cy, cz);
+    for (int ia : {0,1}) for (int ib : {0,1}) for (int ic : {0,1})
+    for (int id : {0,1}) for (int ie : {0,1}) for (int ig : {0,1}) {
+        const int sign = ((ia+ib+ic+id+ie+ig) % 2 == 0) ? 1 : -1;
+        sum += sign * local_newell_f(
+            (nx+ia-id)*dx, (ny+ib-ie)*dy, (nz+ic-ig)*dz);
     }
-    return -sum / (4.0 * 3.14159265358979323846 * dx * dy * dz);
+    return +sum / (4.0 * 3.14159265358979323846 * dx * dy * dz);
 }
 
 // N_zz(x,y,z) = nxx(z, y, x, dz, dy, dx)
@@ -49,18 +54,23 @@ static double local_Nzz(double x, double y, double z, double dx, double dy, doub
 
 // --- Tests ---
 
-TEST_CASE("DIAG1-A: nxx(0,0,0) self-term = 0 for cubic cell", "[diag]") {
+TEST_CASE("DIAG1-A: nxx(0,0,0) self-term = 1/3 for cubic cell", "[diag]") {
+    // With the 6D double-cell integral the self-demagnetisation factor of
+    // a cubic cell is exactly 1/3 (isotropic).
     double a = 5e-9;
     double val = local_nxx(0, 0, 0, a, a, a);
-    INFO("nxx(0,0,0,a,a,a) = " << val << "  (expected exactly 0 by 8-corner cancellation)");
-    REQUIRE_THAT(val, WithinAbs(0.0, 1e-30));
+    INFO("nxx(0,0,0,a,a,a) = " << val << "  (expected 1/3 = " << 1.0/3.0 << ")");
+    REQUIRE_THAT(val, WithinRel(1.0/3.0, 0.01));
 }
 
 TEST_CASE("DIAG1-B: nxx adjacent cubic cell along x is negative", "[diag]") {
+    // nxx(a,0,0): contribution of a z-axis-aligned source cell at (a,0,0)
+    // to K_zz at origin.  The z-component of a z-dipole field along its
+    // own axis is positive (H_z > 0), which reduces the demagnetising effect,
+    // so K_zz < 0 for this neighbour.  Analytic 6D value ≈ -0.135.
     double a = 5e-9;
     double val = local_nxx(a, 0, 0, a, a, a);
-    INFO("nxx(a,0,0,a,a,a) = " << val << "  (should be negative ~-0.0505)");
-    // Known result: for two adjacent unit cubes, Nxx(1,0,0) < 0
+    INFO("nxx(a,0,0,a,a,a) = " << val << "  (expected negative ~-0.135)");
     REQUIRE(val < 0.0);
     REQUIRE(val > -0.2);  // sanity bound
 }
