@@ -50,6 +50,7 @@ add_library(micromag_core
     src/integrator.cpp
     src/spin_torque.cpp
     src/demag.cpp
+    src/thermal_field.cpp
 )
 target_include_directories(micromag_core
     PUBLIC

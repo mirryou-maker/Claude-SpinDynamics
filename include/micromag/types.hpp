@@ -45,6 +45,7 @@ inline constexpr Real mu_0     = 4.0 * pi * 1e-7;        // [T·m/A]
 inline constexpr Real hbar     = 1.054571817e-34;         // ħ [J·s]
 inline constexpr Real e_charge = 1.602176634e-19;         // e [C]
 inline constexpr Real gamma_0  = 1.760859630e11;          // |γ| [rad/(T·s)]
+inline constexpr Real k_B      = 1.380649e-23;             // Boltzmann [J/K]
 }  // namespace constants
 
 }  // namespace micromag
