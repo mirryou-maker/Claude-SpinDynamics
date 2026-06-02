@@ -78,6 +78,9 @@ target_link_libraries(sp4 PRIVATE micromag_core)
 add_executable(sp4_rk45 apps/sp4_rk45.cpp)
 target_link_libraries(sp4_rk45 PRIVATE micromag_core)
 
+add_executable(sp4_fieldB apps/sp4_fieldB.cpp)
+target_link_libraries(sp4_fieldB PRIVATE micromag_core)
+
 # Python bindings -----------------------------------------------------------
 if(MICROMAG_BUILD_PYTHON)
     find_package(pybind11 CONFIG REQUIRED)
