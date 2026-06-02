@@ -58,11 +58,11 @@ double DemagField::newell_g(double x, double y, double z) {
     double d_xz = std::sqrt(x2 + z2);
     if (d_xz > 0.0) val += x * (3.0 * z2 - x2) / 6.0 * std::asinh(y / d_xz);
     // Term: -z³/6 * atan(x*y/(z*r))
-    if (std::abs(z) > 0.0) val -= z * z2 / 6.0 * std::atan2(x * y, z * r);
+    if (std::abs(z) > 0.0) val -= z * z2 / 6.0 * std::atan(x * y / (z * r));
     // Term: -z*y²/2 * atan(x*z/(y*r))
-    if (std::abs(y) > 0.0) val -= z * y2 * 0.5 * std::atan2(x * z, y * r);
+    if (std::abs(y) > 0.0) val -= z * y2 * 0.5 * std::atan(x * z / (y * r));
     // Term: -z*x²/2 * atan(y*z/(x*r))
-    if (std::abs(x) > 0.0) val -= z * x2 * 0.5 * std::atan2(y * z, x * r);
+    if (std::abs(x) > 0.0) val -= z * x2 * 0.5 * std::atan(y * z / (x * r));
     // Term: -x*y*r/3
     val -= x * y * r / 3.0;
     return val;
