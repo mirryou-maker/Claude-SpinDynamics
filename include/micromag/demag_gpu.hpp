@@ -60,19 +60,22 @@ private:
     void* d_K_xz_   = nullptr;
     void* d_K_yz_   = nullptr;
 
-    // Step 5: persistent per-step scratch (pre-allocated, no malloc per call)
-    void* d_Mx_f_     = nullptr; // cufftDoubleComplex[cplx_sz_] — Mx FFT
-    void* d_My_f_     = nullptr; // My FFT
-    void* d_Mz_f_     = nullptr; // Mz FFT
-    void* d_H_unpad_  = nullptr; // double[unpad_sz_] — unpadded IFFT result
+    // Step 6a: batch buffers — all 3 components contiguous for batch FFT
+    // Layout: [comp0 | comp1 | comp2], each slice = real_sz_ or cplx_sz_
+    void* d_M_all_      = nullptr; // double[3 × real_sz_]              padded M upload
+    void* d_MF_all_     = nullptr; // cufftDoubleComplex[3 × cplx_sz_]  FFT(M) output
+    void* d_HF_all_     = nullptr; // cufftDoubleComplex[3 × cplx_sz_]  kernel product
+    void* d_H_all_      = nullptr; // double[3 × real_sz_]              IFFT(HF) output
+    void* d_Hunpad_all_ = nullptr; // double[3 × unpad_sz_]             extracted H
 
-    // Pinned (page-locked) host buffers for fast DMA transfers
-    double* h_r_pinned_ = nullptr; // double[real_sz_]  — magnetisation upload
-    double* h_H_pinned_ = nullptr; // double[unpad_sz_] — H field download
+    // Pinned host buffers (fast DMA transfers)
+    double* h_M_all_pinned_      = nullptr; // double[3 × real_sz_]
+    double* h_Hunpad_all_pinned_ = nullptr; // double[3 × unpad_sz_]
 
-    // cuFFT plans (int handles; real type is cufftHandle = int)
-    cufftHandle plan_fwd_ = 0;   // D2Z  real → complex
-    cufftHandle plan_inv_ = 0;   // Z2D  complex → real
+    // cuFFT plans
+    cufftHandle plan_fwd_ = 0;        // single D2Z — used by precompute_kernel
+    cufftHandle plan_fwd_batch_ = 0;  // batch=3 D2Z — used by accumulate
+    cufftHandle plan_inv_batch_ = 0;  // batch=3 Z2D — used by accumulate
 
     void precompute_kernel();
 };
