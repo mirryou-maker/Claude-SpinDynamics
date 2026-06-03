@@ -45,15 +45,30 @@ private:
     Real  dx_, dy_, dz_;
     Index pad_nx_, pad_ny_, pad_nz_, fft_nx_;
 
+    // Derived sizes (set in constructor)
+    size_t unpad_sz_ = 0;   // nx_ * ny_ * nz_
+    size_t real_sz_  = 0;   // pad_nx_ * pad_ny_ * pad_nz_
+    size_t cplx_sz_  = 0;   // fft_nx_ * pad_ny_ * pad_nz_
+
     // GPU device pointers (void* here; cast to proper types in .cu)
-    void* d_r_buf_  = nullptr;   // double[pad_total]         real scratch
-    void* d_c_buf_  = nullptr;   // cufftDoubleComplex[c_total] complex scratch
-    void* d_K_xx_   = nullptr;   // cufftDoubleComplex[c_total] kernel components
+    void* d_r_buf_  = nullptr;   // double[real_sz_]            real scratch
+    void* d_c_buf_  = nullptr;   // cufftDoubleComplex[cplx_sz_] complex scratch
+    void* d_K_xx_   = nullptr;   // cufftDoubleComplex[cplx_sz_] kernel components
     void* d_K_yy_   = nullptr;
     void* d_K_zz_   = nullptr;
     void* d_K_xy_   = nullptr;
     void* d_K_xz_   = nullptr;
     void* d_K_yz_   = nullptr;
+
+    // Step 5: persistent per-step scratch (pre-allocated, no malloc per call)
+    void* d_Mx_f_     = nullptr; // cufftDoubleComplex[cplx_sz_] — Mx FFT
+    void* d_My_f_     = nullptr; // My FFT
+    void* d_Mz_f_     = nullptr; // Mz FFT
+    void* d_H_unpad_  = nullptr; // double[unpad_sz_] — unpadded IFFT result
+
+    // Pinned (page-locked) host buffers for fast DMA transfers
+    double* h_r_pinned_ = nullptr; // double[real_sz_]  — magnetisation upload
+    double* h_H_pinned_ = nullptr; // double[unpad_sz_] — H field download
 
     // cuFFT plans (int handles; real type is cufftHandle = int)
     cufftHandle plan_fwd_ = 0;   // D2Z  real → complex
