@@ -62,11 +62,14 @@ private:
     // Helpers -----------------------------------------------------------------
     void precompute_kernel();
 
-    // Newell (1993) analytical formulas for N_xx, N_xy components of a cuboid.
+public:
+    // Newell (1993) analytical formulas — public so GPU backend can reuse them.
     static double newell_f(double x, double y, double z);
     static double newell_g(double x, double y, double z);
     static double nxx(double x, double y, double z, double dx, double dy, double dz);
     static double nxy(double x, double y, double z, double dx, double dy, double dz);
+
+private:
 };
 
 }  // namespace micromag

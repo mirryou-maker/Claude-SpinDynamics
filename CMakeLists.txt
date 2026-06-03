@@ -118,6 +118,7 @@ if(MICROMAG_USE_CUDA)
     set_target_properties(micromag_cuda PROPERTIES
         CUDA_ARCHITECTURES native          # auto-detect installed GPU arch
         CUDA_SEPARABLE_COMPILATION OFF
+        CUDA_RUNTIME_LIBRARY Shared        # dynamic CUDA RT — avoids LNK4098
     )
     # Suppress C4819 (unicode) warnings in CUDA host compilation on Korean Windows
     if(MSVC)
@@ -131,6 +132,10 @@ if(MICROMAG_USE_CUDA)
     # SP#4 GPU benchmark app
     add_executable(sp4_gpu apps/sp4_gpu.cpp)
     target_link_libraries(sp4_gpu PRIVATE micromag_cuda)
+    # Suppress LNK4098 (LIBCMT vs MSVCRT mismatch — harmless CUDA/MSVC quirk)
+    if(MSVC)
+        target_link_options(sp4_gpu PRIVATE /NODEFAULTLIB:LIBCMT)
+    endif()
 
     message(STATUS "  CUDA toolkit:  ${CUDAToolkit_VERSION}")
     message(STATUS "  cuFFT:         found")
