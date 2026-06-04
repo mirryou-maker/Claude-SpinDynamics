@@ -1,4 +1,5 @@
 #include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 #include <pybind11/operators.h>
 
@@ -11,7 +12,9 @@
 #include "micromag/zeeman.hpp"
 #include "micromag/anisotropy.hpp"
 #include "micromag/exchange.hpp"
+#include "micromag/demag.hpp"
 #include "micromag/integrator.hpp"
+#include "micromag/thermal_field.hpp"
 #include "micromag/spin_torque.hpp"
 
 namespace py = pybind11;
@@ -99,6 +102,12 @@ PYBIND11_MODULE(_micromag, m) {
         .def(py::init<BoundaryCondition>(), py::arg("bc") = BoundaryCondition::Neumann)
         .def_property("boundary", &ExchangeField::boundary, &ExchangeField::set_boundary);
 
+    py::class_<DemagField, IEffectiveField, std::shared_ptr<DemagField>>(m, "DemagField")
+        .def(py::init<const StructuredGrid&>(), py::arg("grid"))
+        .def("accumulate", &DemagField::accumulate)
+        .def("energy",     &DemagField::energy)
+        .def_property_readonly("name", &DemagField::name);
+
     py::class_<EffectiveFieldSum>(m, "EffectiveFieldSum")
         .def(py::init<>())
         .def("add",          &EffectiveFieldSum::add)
@@ -126,6 +135,29 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("m"), py::arg("mat"), py::arg("heff"),
              py::arg("stt") = nullptr)
         .def_property("dt", &RK4Integrator::dt, &RK4Integrator::set_dt);
+
+    // RK45 Options struct
+    py::class_<RK45Integrator::Options>(m, "RK45Options")
+        .def(py::init<>())
+        .def_readwrite("rtol",    &RK45Integrator::Options::rtol)
+        .def_readwrite("atol",    &RK45Integrator::Options::atol)
+        .def_readwrite("dt_init", &RK45Integrator::Options::dt_init)
+        .def_readwrite("dt_min",  &RK45Integrator::Options::dt_min)
+        .def_readwrite("dt_max",  &RK45Integrator::Options::dt_max)
+        .def_readwrite("fac_min", &RK45Integrator::Options::fac_min)
+        .def_readwrite("fac_max", &RK45Integrator::Options::fac_max);
+
+    py::class_<RK45Integrator>(m, "RK45Integrator")
+        .def(py::init<>())
+        .def(py::init<RK45Integrator::Options>(), py::arg("opts"))
+        .def("step",
+             [](RK45Integrator& self, VectorField3D& mv, const Material& mat,
+                const EffectiveFieldSum& heff, SpinTorqueSum* stt) {
+                 return self.step(mv, mat, heff, stt);
+             },
+             py::arg("m"), py::arg("mat"), py::arg("heff"),
+             py::arg("stt") = nullptr)
+        .def_property_readonly("dt_current", &RK45Integrator::dt_current);
 
     // ------------------------------------------------------------------
     // Phase 1d: Spin Transfer Torque + Spin-Orbit Torque
@@ -167,4 +199,93 @@ PYBIND11_MODULE(_micromag, m) {
         .def("add",   &SpinTorqueSum::add)
         .def_property_readonly("terms",     &SpinTorqueSum::terms)
         .def_property_readonly("num_terms", &SpinTorqueSum::num_terms);
+
+    // ------------------------------------------------------------------
+    // Phase T: Stochastic LLG — HeunIntegrator + ThermalField
+    // ------------------------------------------------------------------
+
+    py::class_<ThermalField, IEffectiveField, std::shared_ptr<ThermalField>>(m, "ThermalField")
+        .def(py::init<const StructuredGrid&, Real, Real, unsigned>(),
+             py::arg("grid"), py::arg("T_K"), py::arg("dt"),
+             py::arg("seed") = 42u)
+        .def("set_temperature", &ThermalField::set_temperature, py::arg("T_K"))
+        .def("set_dt",          &ThermalField::set_dt,          py::arg("dt"))
+        .def_property_readonly("temperature", &ThermalField::temperature)
+        .def_property_readonly("dt",          &ThermalField::dt)
+        .def_property_readonly("name",        &ThermalField::name);
+
+    py::class_<HeunIntegrator>(m, "HeunIntegrator")
+        .def(py::init<Real>(), py::arg("dt") = Real{1e-13})
+        .def("step",
+             [](HeunIntegrator& self, VectorField3D& mv, const Material& mat,
+                const EffectiveFieldSum& heff,
+                ThermalField* thermal,
+                SpinTorqueSum* stt) {
+                 self.step(mv, mat, heff, thermal, stt);
+             },
+             py::arg("m"), py::arg("mat"), py::arg("heff"),
+             py::arg("thermal") = nullptr,
+             py::arg("stt")     = nullptr)
+        .def_property("dt", &HeunIntegrator::dt, &HeunIntegrator::set_dt);
+
+    // ------------------------------------------------------------------
+    // Numpy bridge — VectorField3D ↔ numpy array (shape: nz×ny×nx×3)
+    //
+    //   m_np = micromag.to_numpy(m)          # copy out
+    //   micromag.from_numpy(m, m_np)         # copy in
+    //   micromag.mean_magnetization(m)       # returns (mx, my, mz) tuple
+    // ------------------------------------------------------------------
+
+    m.def("to_numpy",
+          [](const VectorField3D& f) -> py::array_t<double> {
+              const auto& g = f.grid();
+              const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
+              py::array_t<double> arr({(Py_ssize_t)nz, (Py_ssize_t)ny,
+                                       (Py_ssize_t)nx, (Py_ssize_t)3});
+              auto buf = arr.mutable_unchecked<4>();
+              for (Index iz = 0; iz < nz; ++iz)
+              for (Index iy = 0; iy < ny; ++iy)
+              for (Index ix = 0; ix < nx; ++ix) {
+                  // Linear index: x-fastest
+                  const Vec3& v = f[static_cast<Index>(ix + nx*(iy + ny*iz))];
+                  buf(iz, iy, ix, 0) = v.x;
+                  buf(iz, iy, ix, 1) = v.y;
+                  buf(iz, iy, ix, 2) = v.z;
+              }
+              return arr;
+          },
+          py::arg("field"),
+          "Copy VectorField3D into a (nz, ny, nx, 3) float64 numpy array.");
+
+    m.def("from_numpy",
+          [](VectorField3D& f,
+             py::array_t<double, py::array::c_style | py::array::forcecast> arr) {
+              const auto& g = f.grid();
+              const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
+              auto buf = arr.unchecked<4>();
+              if (buf.shape(0) != nz || buf.shape(1) != ny ||
+                  buf.shape(2) != nx || buf.shape(3) != 3)
+                  throw std::runtime_error(
+                      "from_numpy: array shape must be (nz, ny, nx, 3)");
+              for (Index iz = 0; iz < nz; ++iz)
+              for (Index iy = 0; iy < ny; ++iy)
+              for (Index ix = 0; ix < nx; ++ix) {
+                  f[static_cast<Index>(ix + nx*(iy + ny*iz))] =
+                      Vec3{buf(iz, iy, ix, 0), buf(iz, iy, ix, 1), buf(iz, iy, ix, 2)};
+              }
+          },
+          py::arg("field"), py::arg("array"),
+          "Copy a (nz, ny, nx, 3) float64 numpy array into VectorField3D.");
+
+    m.def("mean_magnetization",
+          [](const VectorField3D& f) {
+              double mx = 0, my = 0, mz = 0;
+              const Index N = f.size();
+              for (Index i = 0; i < N; ++i) {
+                  mx += f[i].x; my += f[i].y; mz += f[i].z;
+              }
+              return py::make_tuple(mx/N, my/N, mz/N);
+          },
+          py::arg("field"),
+          "Return (mean_mx, mean_my, mean_mz) averaged over all cells.");
 }
