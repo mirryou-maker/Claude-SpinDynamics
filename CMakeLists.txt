@@ -147,9 +147,16 @@ if(MICROMAG_USE_CUDA)
     add_executable(sp4_gpu apps/sp4_gpu.cpp)
     target_link_libraries(sp4_gpu PRIVATE micromag_cuda)
 
-    # Large-grid GPU benchmark
+    # Large-grid GPU demag benchmark
     add_executable(benchmark_large apps/benchmark_large.cpp)
     target_link_libraries(benchmark_large PRIVATE micromag_cuda)
+
+    # G7: Full-GPU LLG benchmark (CPU RK4 vs GPU RK4IntegratorGPU)
+    add_executable(sp4_full_gpu_bench apps/sp4_full_gpu_bench.cpp)
+    target_link_libraries(sp4_full_gpu_bench PRIVATE micromag_cuda)
+    if(MSVC)
+        target_link_options(sp4_full_gpu_bench PRIVATE /NODEFAULTLIB:LIBCMT)
+    endif()
     if(MSVC)
         target_link_options(benchmark_large PRIVATE /NODEFAULTLIB:LIBCMT)
     endif()
