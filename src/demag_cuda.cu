@@ -1,4 +1,4 @@
-// demag_cuda.cu — Phase 3 Step 6b: sparse upload + cuFFT batch
+// demag_cuda.cu — Phase 3 Step 6c: CUDA stream (async pipeline)
 //
 // Key changes over Step 5:
 //   - cufftPlanMany (batch=3) replaces 3 separate forward / 3 separate inverse plans.
@@ -201,7 +201,17 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
         nullptr, 1, (int)real_sz_,   // output
         CUFFT_Z2D, 3));
 
+    // Step 6c: create dedicated stream; associate plans with it
+    cudaStream_t s;
+    CUDA_CHECK(cudaStreamCreate(&s));
+    stream_ = static_cast<void*>(s);
+
+    CUFFT_CHECK(cufftSetStream(plan_fwd_,       s));
+    CUFFT_CHECK(cufftSetStream(plan_fwd_batch_, s));
+    CUFFT_CHECK(cufftSetStream(plan_inv_batch_, s));
+
     precompute_kernel();
+    CUDA_CHECK(cudaStreamSynchronize(s));   // ensure precompute is done
 }
 
 // ===========================================================================
@@ -222,6 +232,8 @@ DemagFieldGPU::~DemagFieldGPU() {
 
     cudaFreeHost(h_M_compact_pinned_);
     cudaFreeHost(h_Hunpad_all_pinned_);
+
+    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 // ===========================================================================
@@ -308,15 +320,22 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     const double Ms   = mat.Ms;
     const double norm = -1.0 / static_cast<double>(pad_nx_ * pad_ny_ * pad_nz_);
 
+    // Step 6c: all GPU ops submitted to stream_ without blocking the CPU.
+    // CPU blocks exactly once (cudaStreamSynchronize) after the D2H download.
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+
     // ------------------------------------------------------------------
-    // Step 6b: sparse upload pipeline
-    //   1a. Fill compact host buffer (3 × unpad_sz, NO zero-fill needed)
-    //   1b. Upload compact 0.24MB  (vs 1.92MB before — 8× smaller)
-    //   1c. GPU: zero full padded buffer (fast GPU memset ~5μs)
-    //   1d. GPU: scatter compact → padded (one kernel)
+    // Step 6b+6c: sparse upload pipeline (async version)
+    //   1a. Fill compact host buffer                     [CPU, ~0.01ms]
+    //   1b. cudaMemcpyAsync H2D compact 0.24MB           [async, PCIe]
+    //   1c. cudaMemsetAsync d_M_all_ zero (1.92MB)       [async, GPU]
+    //       → Overlaps with 1b: PCIe and GPU memset run in parallel
+    //       (possible because they access different buffers in same stream;
+    //        the stream serializes them, but the HW can overlap DMA + GPU)
+    //   1d. scatter_m_all3 kernel                        [GPU]
     // ------------------------------------------------------------------
 
-    // 1a. Compact fill: interleaved loop for better cache behaviour
+    // 1a. Compact fill (CPU — free to run while GPU processes previous step)
     double* hMx = h_M_compact_pinned_;
     double* hMy = hMx + unpad_sz_;
     double* hMz = hMy + unpad_sz_;
@@ -326,20 +345,21 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
         hMz[i] = Ms * m[i].z;
     }
 
-    // 1b. Upload compact buffer (0.24MB pinned → GPU)
-    CUDA_CHECK(cudaMemcpy(d_M_compact_, h_M_compact_pinned_,
-                          3 * unpad_sz_ * sizeof(double), cudaMemcpyHostToDevice));
+    // 1b. Async upload (pinned → GPU, returns immediately)
+    CUDA_CHECK(cudaMemcpyAsync(d_M_compact_, h_M_compact_pinned_,
+                               3 * unpad_sz_ * sizeof(double),
+                               cudaMemcpyHostToDevice, s));
 
-    // 1c. Zero full padded buffer on GPU (1.92MB @ 400GB/s ≈ 5μs)
-    CUDA_CHECK(cudaMemset(d_M_all_, 0, 3 * real_sz_ * sizeof(double)));
+    // 1c. Async zero padded buffer (runs on GPU after memcpy in stream order)
+    CUDA_CHECK(cudaMemsetAsync(d_M_all_, 0, 3 * real_sz_ * sizeof(double), s));
 
-    // 1d. Scatter compact values into correct padded positions
+    // 1d. Scatter (depends on both 1b and 1c — stream ensures ordering)
     dim3 blk_sc(16, 16, 1);
     dim3 grd_sc(
         static_cast<unsigned>((nx_ + blk_sc.x - 1) / blk_sc.x),
         static_cast<unsigned>((ny_ + blk_sc.y - 1) / blk_sc.y),
         static_cast<unsigned>(nz_));
-    scatter_m_all3<<<grd_sc, blk_sc>>>(
+    scatter_m_all3<<<grd_sc, blk_sc, 0, s>>>(
         reinterpret_cast<double*>(d_M_all_),
         reinterpret_cast<const double*>(d_M_compact_),
         static_cast<size_t>(nx_), static_cast<size_t>(ny_),
@@ -349,19 +369,19 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
-    // 3. Batch forward FFT: d_M_all → d_MF_all  (1 exec instead of 3)
+    // 3. Batch forward FFT — uses stream_ (set via cufftSetStream in ctor)
     // ------------------------------------------------------------------
     CUFFT_CHECK(cufftExecD2Z(plan_fwd_batch_,
                               reinterpret_cast<cufftDoubleReal*>(d_M_all_),
                               reinterpret_cast<cufftDoubleComplex*>(d_MF_all_)));
 
     // ------------------------------------------------------------------
-    // 4. Combined pointwise MAC: computes Hx,Hy,Hz frequency-domain  (1 kernel)
+    // 4. Combined pointwise MAC (stream_)
     // ------------------------------------------------------------------
     constexpr int BLK = 256;
     const int gcx = static_cast<int>((cplx_sz_ + BLK - 1) / BLK);
 
-    pointwise_mac_all3<<<gcx, BLK>>>(
+    pointwise_mac_all3<<<gcx, BLK, 0, s>>>(
         as_cx(d_HF_all_),
         as_cxc(d_K_xx_), as_cxc(d_K_xy_), as_cxc(d_K_xz_),
         as_cxc(d_K_yy_), as_cxc(d_K_yz_), as_cxc(d_K_zz_),
@@ -370,14 +390,14 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
-    // 5. Batch inverse FFT: d_HF_all → d_H_all  (1 exec instead of 3)
+    // 5. Batch inverse FFT — uses stream_
     // ------------------------------------------------------------------
     CUFFT_CHECK(cufftExecZ2D(plan_inv_batch_,
                               reinterpret_cast<cufftDoubleComplex*>(d_HF_all_),
                               reinterpret_cast<cufftDoubleReal*>(d_H_all_)));
 
     // ------------------------------------------------------------------
-    // 6. Extract all 3 unpadded H components in one kernel
+    // 6. Extract all 3 unpadded H components (stream_)
     // ------------------------------------------------------------------
     dim3 blk_ext(16, 16, 1);
     dim3 grd_ext(
@@ -385,7 +405,7 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
         static_cast<unsigned>((ny_ + blk_ext.y - 1) / blk_ext.y),
         static_cast<unsigned>(nz_));
 
-    extract_all3<<<grd_ext, blk_ext>>>(
+    extract_all3<<<grd_ext, blk_ext, 0, s>>>(
         reinterpret_cast<double*>(d_Hunpad_all_),
         reinterpret_cast<const double*>(d_H_all_),
         static_cast<size_t>(nx_), static_cast<size_t>(ny_),
@@ -395,10 +415,16 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
-    // 7. Download all 3 H components in one DMA transfer
+    // 7. Async download (pinned buffer — returns immediately)
     // ------------------------------------------------------------------
-    CUDA_CHECK(cudaMemcpy(h_Hunpad_all_pinned_, d_Hunpad_all_,
-                          3 * unpad_sz_ * sizeof(double), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpyAsync(h_Hunpad_all_pinned_, d_Hunpad_all_,
+                               3 * unpad_sz_ * sizeof(double),
+                               cudaMemcpyDeviceToHost, s));
+
+    // ------------------------------------------------------------------
+    // Step 6c: ONE sync point — CPU waits here for the full pipeline
+    // ------------------------------------------------------------------
+    CUDA_CHECK(cudaStreamSynchronize(s));
 
     // ------------------------------------------------------------------
     // 8. Accumulate into H_out (single loop, all 3 components)
