@@ -68,9 +68,12 @@ private:
     void* d_H_all_      = nullptr; // double[3 × real_sz_]              IFFT(HF) output
     void* d_Hunpad_all_ = nullptr; // double[3 × unpad_sz_]             extracted H
 
+    // Step 6b: compact GPU buffer for sparse upload (only unpadded region)
+    void*   d_M_compact_ = nullptr;        // double[3 × unpad_sz_]  — GPU scatter src
+
     // Pinned host buffers (fast DMA transfers)
-    double* h_M_all_pinned_      = nullptr; // double[3 × real_sz_]
-    double* h_Hunpad_all_pinned_ = nullptr; // double[3 × unpad_sz_]
+    double* h_M_compact_pinned_      = nullptr; // double[3 × unpad_sz_] — compact upload
+    double* h_Hunpad_all_pinned_     = nullptr; // double[3 × unpad_sz_] — H download
 
     // cuFFT plans
     cufftHandle plan_fwd_ = 0;        // single D2Z — used by precompute_kernel

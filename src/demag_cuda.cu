@@ -1,4 +1,4 @@
-// demag_cuda.cu — Phase 3 Step 6a: cuFFT batch-mode optimisation
+// demag_cuda.cu — Phase 3 Step 6b: sparse upload + cuFFT batch
 //
 // Key changes over Step 5:
 //   - cufftPlanMany (batch=3) replaces 3 separate forward / 3 separate inverse plans.
@@ -115,6 +115,33 @@ __global__ static void extract_all3(
 }
 
 // ===========================================================================
+// CUDA kernel: scatter compact M values into padded buffer (Step 6b)
+//
+// d_M_all_ is pre-zeroed (cudaMemset); this kernel writes the non-zero region.
+// M_compact layout: [Mx_compact (unpad_sz) | My_compact | Mz_compact]
+// M_all layout:     [Mx_padded  (real_sz)  | My_padded  | Mz_padded ]
+// ===========================================================================
+__global__ static void scatter_m_all3(
+    double* __restrict__       M_all,      // output: [3 × real_sz] (pre-zeroed)
+    const double* __restrict__ M_compact,  // input:  [3 × unpad_sz]
+    size_t nx, size_t ny, size_t nz,
+    size_t pad_nx, size_t pad_ny,
+    size_t real_sz, size_t unpad_sz)
+{
+    const size_t ix = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t iy = blockIdx.y * blockDim.y + threadIdx.y;
+    const size_t iz = blockIdx.z;
+    if (ix >= nx || iy >= ny || iz >= nz) return;
+
+    const size_t src = ix + nx    * (iy + ny    * iz);
+    const size_t dst = ix + pad_nx * (iy + pad_ny * iz);
+
+    M_all[dst]             = M_compact[src];              // Mx
+    M_all[real_sz  + dst]  = M_compact[unpad_sz  + src];  // My
+    M_all[2*real_sz + dst] = M_compact[2*unpad_sz + src]; // Mz
+}
+
+// ===========================================================================
 // Constructor
 // ===========================================================================
 namespace micromag {
@@ -154,10 +181,12 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
     CUDA_CHECK(cudaMalloc(&d_H_all_,      3 * real_sz_  * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_Hunpad_all_, 3 * unpad_sz_ * sizeof(double)));
 
-    // Pinned host buffers for fast DMA
-    CUDA_CHECK(cudaMallocHost(&h_M_all_pinned_,      3 * real_sz_  * sizeof(double)));
+    // Step 6b: compact GPU buffer + pinned host (8× smaller than full padded)
+    CUDA_CHECK(cudaMalloc(&d_M_compact_, 3 * unpad_sz_ * sizeof(double)));
+
+    // Pinned host: compact upload (3×80KB) + H download (3×80KB)
+    CUDA_CHECK(cudaMallocHost(&h_M_compact_pinned_,  3 * unpad_sz_ * sizeof(double)));
     CUDA_CHECK(cudaMallocHost(&h_Hunpad_all_pinned_, 3 * unpad_sz_ * sizeof(double)));
-    std::memset(h_M_all_pinned_, 0, 3 * real_sz_ * sizeof(double));
 
     // Batch cuFFT plans (cufftPlanMany with batch=3)
     int n[3] = {(int)pad_nz_, (int)pad_ny_, (int)pad_nx_};
@@ -186,11 +215,12 @@ DemagFieldGPU::~DemagFieldGPU() {
     cudaFree(d_r_buf_); cudaFree(d_c_buf_);
     cudaFree(d_K_xx_); cudaFree(d_K_yy_); cudaFree(d_K_zz_);
     cudaFree(d_K_xy_); cudaFree(d_K_xz_); cudaFree(d_K_yz_);
-    cudaFree(d_M_all_);  cudaFree(d_MF_all_);
-    cudaFree(d_HF_all_); cudaFree(d_H_all_);
+    cudaFree(d_M_all_);    cudaFree(d_MF_all_);
+    cudaFree(d_HF_all_);   cudaFree(d_H_all_);
     cudaFree(d_Hunpad_all_);
+    cudaFree(d_M_compact_);
 
-    cudaFreeHost(h_M_all_pinned_);
+    cudaFreeHost(h_M_compact_pinned_);
     cudaFreeHost(h_Hunpad_all_pinned_);
 }
 
@@ -279,28 +309,44 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     const double norm = -1.0 / static_cast<double>(pad_nx_ * pad_ny_ * pad_nz_);
 
     // ------------------------------------------------------------------
-    // 1. Fill h_M_all_pinned_: [Mx_padded | My_padded | Mz_padded]
-    //    Only the unpadded sub-region is non-zero; clear previous values first.
+    // Step 6b: sparse upload pipeline
+    //   1a. Fill compact host buffer (3 × unpad_sz, NO zero-fill needed)
+    //   1b. Upload compact 0.24MB  (vs 1.92MB before — 8× smaller)
+    //   1c. GPU: zero full padded buffer (fast GPU memset ~5μs)
+    //   1d. GPU: scatter compact → padded (one kernel)
     // ------------------------------------------------------------------
-    for (int comp = 0; comp < 3; ++comp) {
-        double* base = h_M_all_pinned_ + comp * real_sz_;
-        // Clear previous fill for the unpadded region
-        for (Index kz=0;kz<nz_;++kz) for (Index ky=0;ky<ny_;++ky) for (Index kx=0;kx<nx_;++kx)
-            base[kx + pad_nx_*(ky + pad_ny_*kz)] = 0.0;
-        // Fill current values
-        for (Index kz=0;kz<nz_;++kz) for (Index ky=0;ky<ny_;++ky) for (Index kx=0;kx<nx_;++kx) {
-            const Index src = kx + nx_*(ky + ny_*kz);
-            const size_t dst = static_cast<size_t>(kx + pad_nx_*(ky + pad_ny_*kz));
-            const Vec3& v = m[src];
-            base[dst] = Ms * (comp==0 ? v.x : comp==1 ? v.y : v.z);
-        }
+
+    // 1a. Compact fill: interleaved loop for better cache behaviour
+    double* hMx = h_M_compact_pinned_;
+    double* hMy = hMx + unpad_sz_;
+    double* hMz = hMy + unpad_sz_;
+    for (Index i = 0; i < static_cast<Index>(unpad_sz_); ++i) {
+        hMx[i] = Ms * m[i].x;
+        hMy[i] = Ms * m[i].y;
+        hMz[i] = Ms * m[i].z;
     }
 
-    // ------------------------------------------------------------------
-    // 2. Upload all 3 components in a single DMA transfer
-    // ------------------------------------------------------------------
-    CUDA_CHECK(cudaMemcpy(d_M_all_, h_M_all_pinned_,
-                          3 * real_sz_ * sizeof(double), cudaMemcpyHostToDevice));
+    // 1b. Upload compact buffer (0.24MB pinned → GPU)
+    CUDA_CHECK(cudaMemcpy(d_M_compact_, h_M_compact_pinned_,
+                          3 * unpad_sz_ * sizeof(double), cudaMemcpyHostToDevice));
+
+    // 1c. Zero full padded buffer on GPU (1.92MB @ 400GB/s ≈ 5μs)
+    CUDA_CHECK(cudaMemset(d_M_all_, 0, 3 * real_sz_ * sizeof(double)));
+
+    // 1d. Scatter compact values into correct padded positions
+    dim3 blk_sc(16, 16, 1);
+    dim3 grd_sc(
+        static_cast<unsigned>((nx_ + blk_sc.x - 1) / blk_sc.x),
+        static_cast<unsigned>((ny_ + blk_sc.y - 1) / blk_sc.y),
+        static_cast<unsigned>(nz_));
+    scatter_m_all3<<<grd_sc, blk_sc>>>(
+        reinterpret_cast<double*>(d_M_all_),
+        reinterpret_cast<const double*>(d_M_compact_),
+        static_cast<size_t>(nx_), static_cast<size_t>(ny_),
+        static_cast<size_t>(nz_),
+        static_cast<size_t>(pad_nx_), static_cast<size_t>(pad_ny_),
+        real_sz_, unpad_sz_);
+    CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
     // 3. Batch forward FFT: d_M_all → d_MF_all  (1 exec instead of 3)
