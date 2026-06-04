@@ -22,3 +22,20 @@ target_link_libraries(unit_tests
 
 include(Catch)
 catch_discover_tests(unit_tests)
+
+# GPU unit tests — only built when MICROMAG_USE_CUDA=ON
+if(MICROMAG_USE_CUDA)
+    add_executable(unit_tests_gpu
+        test_demag_gpu.cpp
+    )
+    target_link_libraries(unit_tests_gpu
+        PRIVATE
+            micromag_cuda           # transitively includes micromag_core
+            Catch2::Catch2WithMain
+    )
+    # Suppress LNK4098 (same as sp4_gpu)
+    if(MSVC)
+        target_link_options(unit_tests_gpu PRIVATE /NODEFAULTLIB:LIBCMT)
+    endif()
+    catch_discover_tests(unit_tests_gpu)
+endif()
