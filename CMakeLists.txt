@@ -117,6 +117,7 @@ if(MICROMAG_USE_CUDA)
         src/field_kernels_gpu.cu # G2: GPU Zeeman + Uniaxial-Anisotropy
         src/gpu_state.cu         # G3: GPU-resident magnetization state
         src/rk4_gpu.cu           # G4+G5: LLG torque + RK4 stage kernels
+        src/rk4_integrator_gpu.cu # G6: RK4IntegratorGPU (full-GPU LLG step)
     )
     target_include_directories(micromag_cuda
         PUBLIC

@@ -595,6 +595,128 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
 }
 
 // ===========================================================================
+// G6 helper kernels
+// ===========================================================================
+
+// Scale src by 'scale' and write to dst  (flat 3N op, for Ms-scaling d_m → d_M_compact)
+__global__ static void scale_copy_kernel(
+    double* __restrict__       dst,
+    const double* __restrict__ src,
+    double scale, int N3)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N3) return;
+    dst[i] = scale * src[i];
+}
+
+// dst[i] += src[i]  (flat 3N op, used to add d_Hunpad_all_ to d_H_out)
+__global__ static void add_3N_kernel(
+    double* __restrict__       dst,
+    const double* __restrict__ src,
+    int N3)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N3) return;
+    dst[i] += src[i];
+}
+
+// ===========================================================================
+// accumulate_gpu_ptr — GPU-pointer path for G6 full-LLG pipeline
+//
+// d_m:    [3×N] component-major (unit magnetization from GPUMagState::d_m_)
+// d_H_out:[3×N] component-major (adds H_demag in-place, same layout)
+//
+// Pipeline (entirely on stream_; no PCIe):
+//   scale_copy:    d_M_compact_ = Ms * d_m   (D2D, no PCIe)
+//   memset:        d_M_all_ = 0
+//   scatter:       d_M_compact_ → d_M_all_ (padded)
+//   FFT batch:     d_M_all_ → d_MF_all_
+//   pointwise MAC: d_MF_all_ → d_HF_all_
+//   IFFT batch:    d_HF_all_ → d_H_all_
+//   extract:       d_H_all_ → d_Hunpad_all_ (with IFFT normalisation)
+//   add:           d_H_out += d_Hunpad_all_
+// ===========================================================================
+void DemagFieldGPU::accumulate_gpu_ptr(const double* d_m,
+                                         const Material& mat,
+                                         double* d_H_out) const {
+    const cudaStream_t s    = static_cast<cudaStream_t>(stream_);
+    const double Ms         = mat.Ms;
+    const double norm       = -1.0 / static_cast<double>(pad_nx_ * pad_ny_ * pad_nz_);
+    constexpr int BLK       = 256;
+
+    // 1. Ms-scale d_m → d_M_compact_  (D2D, no PCIe)
+    {
+        const int N3  = static_cast<int>(3 * unpad_sz_);
+        const int grd = (N3 + BLK - 1) / BLK;
+        scale_copy_kernel<<<grd, BLK, 0, s>>>(
+            reinterpret_cast<double*>(d_M_compact_), d_m, Ms, N3);
+        CUDA_CHECK(cudaGetLastError());
+    }
+
+    // 2. Zero padded M buffer
+    CUDA_CHECK(cudaMemsetAsync(d_M_all_, 0, 3 * real_sz_ * sizeof(double), s));
+
+    // 3. Scatter compact → padded
+    {
+        dim3 blk_sc(16, 16, 1);
+        dim3 grd_sc((unsigned)((nx_+15)/16), (unsigned)((ny_+15)/16), (unsigned)nz_);
+        scatter_m_all3<<<grd_sc, blk_sc, 0, s>>>(
+            reinterpret_cast<double*>(d_M_all_),
+            reinterpret_cast<const double*>(d_M_compact_),
+            (size_t)nx_, (size_t)ny_, (size_t)nz_,
+            (size_t)pad_nx_, (size_t)pad_ny_, real_sz_, unpad_sz_);
+        CUDA_CHECK(cudaGetLastError());
+    }
+
+    // 4. Batch forward FFT
+    CUFFT_CHECK(cufftExecD2Z(plan_fwd_batch_,
+        reinterpret_cast<cufftDoubleReal*>(d_M_all_),
+        reinterpret_cast<cufftDoubleComplex*>(d_MF_all_)));
+
+    // 5. Pointwise MAC
+    {
+        const int gcx = static_cast<int>((cplx_sz_ + BLK - 1) / BLK);
+        pointwise_mac_all3<<<gcx, BLK, 0, s>>>(
+            as_cx(d_HF_all_),
+            as_cxc(d_K_xx_), as_cxc(d_K_xy_), as_cxc(d_K_xz_),
+            as_cxc(d_K_yy_), as_cxc(d_K_yz_), as_cxc(d_K_zz_),
+            as_cxc(d_MF_all_), cplx_sz_);
+        CUDA_CHECK(cudaGetLastError());
+    }
+
+    // 6. Batch inverse FFT
+    CUFFT_CHECK(cufftExecZ2D(plan_inv_batch_,
+        reinterpret_cast<cufftDoubleComplex*>(d_HF_all_),
+        reinterpret_cast<cufftDoubleReal*>(d_H_all_)));
+
+    // 7. Extract unpadded + normalise → d_Hunpad_all_
+    {
+        dim3 blk_ext(16, 16, 1);
+        dim3 grd_ext((unsigned)((nx_+15)/16), (unsigned)((ny_+15)/16), (unsigned)nz_);
+        extract_all3<<<grd_ext, blk_ext, 0, s>>>(
+            reinterpret_cast<double*>(d_Hunpad_all_),
+            reinterpret_cast<const double*>(d_H_all_),
+            (size_t)nx_, (size_t)ny_, (size_t)nz_,
+            (size_t)pad_nx_, (size_t)pad_ny_,
+            real_sz_, unpad_sz_, norm);
+        CUDA_CHECK(cudaGetLastError());
+    }
+
+    // 8. Add d_Hunpad_all_ to d_H_out
+    {
+        const int N3  = static_cast<int>(3 * unpad_sz_);
+        const int grd = (N3 + BLK - 1) / BLK;
+        add_3N_kernel<<<grd, BLK, 0, s>>>(
+            d_H_out,
+            reinterpret_cast<const double*>(d_Hunpad_all_),
+            N3);
+        CUDA_CHECK(cudaGetLastError());
+    }
+    // Sync before returning so caller on a different stream sees d_H_out updates.
+    CUDA_CHECK(cudaStreamSynchronize(s));
+}
+
+// ===========================================================================
 // energy
 // ===========================================================================
 Real DemagFieldGPU::energy(const VectorField3D& m, const Material& mat) const {

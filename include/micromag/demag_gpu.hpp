@@ -81,11 +81,16 @@ private:
     cufftHandle plan_inv_batch_ = 0;  // batch=3 Z2D — used by accumulate
 
     // Step 6c: dedicated CUDA stream — all GPU ops submitted to this stream.
-    // CPU blocks only once (cudaStreamSynchronize) at end of accumulate().
-    // cudaStream_t is a pointer type; store as void* to avoid CUDA headers here.
     void* stream_ = nullptr;
 
     void precompute_kernel();
+
+public:
+    // G6: GPU-pointer path (d_m [3×N] component-major → adds H_demag to d_H_out).
+    // Runs on internal stream_ and syncs before returning, so caller can safely
+    // continue on a different stream after this call.
+    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
+                             double* d_H_out) const;
 };
 
 }  // namespace micromag

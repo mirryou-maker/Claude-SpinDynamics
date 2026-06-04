@@ -49,6 +49,7 @@ public:
 
     Vec3 H_ext() const            { return H_ext_; }
     void set_H_ext(const Vec3& H) { H_ext_ = H; }
+    void set_stream(void* s)      { stream_ = s; }
 
 private:
     size_t N_;
@@ -79,6 +80,7 @@ public:
     // Direct GPU-pointer path for G6 pipeline
     void accumulate_gpu_ptr(const double* d_m, const Material& mat,
                              double* d_H_out) const;
+    void set_stream(void* s) { stream_ = s; }
 
 private:
     size_t N_;

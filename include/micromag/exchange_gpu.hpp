@@ -36,10 +36,12 @@ public:
 
     const char* name() const override { return "ExchangeFieldGPU"; }
 
-    // Direct GPU-pointer path (used in G6 full-GPU LLG pipeline).
-    // Adds H_exch to d_H_out in-place; both pointers are [3×N] component-major.
+    // Direct GPU-pointer path (G6 pipeline). Adds H_exch to d_H_out in-place.
     void accumulate_gpu_ptr(const double* d_m, const Material& mat,
                              double* d_H_out) const;
+
+    // Redirect all kernels to an external stream (used by G6 to run on one stream)
+    void set_stream(void* s) { stream_ = s; }
 
 private:
     Index  nx_, ny_, nz_;
