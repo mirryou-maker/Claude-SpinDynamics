@@ -114,6 +114,7 @@ if(MICROMAG_USE_CUDA)
     add_library(micromag_cuda
         src/demag_cuda.cu
         src/exchange_gpu.cu      # G1: GPU exchange field (6-point Laplacian)
+        src/field_kernels_gpu.cu # G2: GPU Zeeman + Uniaxial-Anisotropy
     )
     target_include_directories(micromag_cuda
         PUBLIC
