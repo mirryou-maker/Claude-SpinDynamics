@@ -157,6 +157,13 @@ if(MICROMAG_USE_CUDA)
     if(MSVC)
         target_link_options(sp4_full_gpu_bench PRIVATE /NODEFAULTLIB:LIBCMT)
     endif()
+
+    # SP#4 GPU full 1 ns validation
+    add_executable(sp4_gpu_1ns apps/sp4_gpu_1ns.cpp)
+    target_link_libraries(sp4_gpu_1ns PRIVATE micromag_cuda)
+    if(MSVC)
+        target_link_options(sp4_gpu_1ns PRIVATE /NODEFAULTLIB:LIBCMT)
+    endif()
     if(MSVC)
         target_link_options(benchmark_large PRIVATE /NODEFAULTLIB:LIBCMT)
     endif()
