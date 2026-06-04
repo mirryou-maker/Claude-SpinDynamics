@@ -132,6 +132,13 @@ if(MICROMAG_USE_CUDA)
     # SP#4 GPU benchmark app
     add_executable(sp4_gpu apps/sp4_gpu.cpp)
     target_link_libraries(sp4_gpu PRIVATE micromag_cuda)
+
+    # Large-grid GPU benchmark
+    add_executable(benchmark_large apps/benchmark_large.cpp)
+    target_link_libraries(benchmark_large PRIVATE micromag_cuda)
+    if(MSVC)
+        target_link_options(benchmark_large PRIVATE /NODEFAULTLIB:LIBCMT)
+    endif()
     # Suppress LNK4098 (LIBCMT vs MSVCRT mismatch — harmless CUDA/MSVC quirk)
     if(MSVC)
         target_link_options(sp4_gpu PRIVATE /NODEFAULTLIB:LIBCMT)
