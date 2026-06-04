@@ -30,6 +30,7 @@ if(MICROMAG_USE_CUDA)
         test_exchange_gpu.cpp        # G1: GPU exchange field tests
         test_field_kernels_gpu.cpp  # G2: GPU Zeeman + Anisotropy tests
         test_gpu_state.cpp          # G3: GPUMagState tests
+        test_rk4_gpu.cpp            # G4+G5: LLG torque + RK4 stage tests
     )
     target_link_libraries(unit_tests_gpu
         PRIVATE

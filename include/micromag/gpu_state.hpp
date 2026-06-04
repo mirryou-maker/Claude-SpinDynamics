@@ -51,7 +51,11 @@ public:
 
     // Snapshot buffers → VectorField3D (used in tests and debugging)
     void download_m0(VectorField3D& m)    const;
+    void download_ki(VectorField3D& k)    const;
     void download_k_acc(VectorField3D& k) const;
+
+    // Upload H into d_H_ (same stream — used by G4/G5 tests to avoid multi-stream sync)
+    void upload_H(const VectorField3D& H);
 
     // ------------------------------------------------------------------
     // Async GPU bookkeeping (on stream_; no CPU sync — caller owns sync)

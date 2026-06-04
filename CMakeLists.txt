@@ -116,6 +116,7 @@ if(MICROMAG_USE_CUDA)
         src/exchange_gpu.cu      # G1: GPU exchange field (6-point Laplacian)
         src/field_kernels_gpu.cu # G2: GPU Zeeman + Uniaxial-Anisotropy
         src/gpu_state.cu         # G3: GPU-resident magnetization state
+        src/rk4_gpu.cu           # G4+G5: LLG torque + RK4 stage kernels
     )
     target_include_directories(micromag_cuda
         PUBLIC

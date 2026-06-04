@@ -118,6 +118,18 @@ void GPUMagState::download_m0(VectorField3D& m) const {
     }
 }
 
+void GPUMagState::download_ki(VectorField3D& k) const {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemcpyAsync(h_staging_, d_ki_,
+                               3*N_*sizeof(double), cudaMemcpyDeviceToHost, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+    for (Index i = 0; i < static_cast<Index>(N_); ++i) {
+        k[i].x = h_staging_[i];
+        k[i].y = h_staging_[N_  + i];
+        k[i].z = h_staging_[2*N_ + i];
+    }
+}
+
 void GPUMagState::download_k_acc(VectorField3D& k) const {
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     CUDA_CHECK(cudaMemcpyAsync(h_staging_, d_k_acc_,
@@ -128,6 +140,21 @@ void GPUMagState::download_k_acc(VectorField3D& k) const {
         k[i].y = h_staging_[N_  + i];
         k[i].z = h_staging_[2*N_ + i];
     }
+}
+
+// ===========================================================================
+// upload_H — VectorField3D → d_H_ (same stream; used in G4/G5 tests)
+// ===========================================================================
+void GPUMagState::upload_H(const VectorField3D& H) {
+    for (Index i = 0; i < static_cast<Index>(N_); ++i) {
+        h_staging_[i]           = H[i].x;
+        h_staging_[N_  + i]     = H[i].y;
+        h_staging_[2*N_ + i]    = H[i].z;
+    }
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemcpyAsync(d_H_, h_staging_,
+                               3*N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
 }
 
 // ===========================================================================
