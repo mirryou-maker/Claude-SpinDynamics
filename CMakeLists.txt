@@ -182,6 +182,14 @@ if(MICROMAG_BUILD_PYTHON)
     pybind11_add_module(_micromag python/bindings.cpp)
     target_link_libraries(_micromag PRIVATE micromag_core)
 
+    # When building with CUDA, expose GPU classes in the Python module too
+    if(MICROMAG_USE_CUDA)
+        target_link_libraries(_micromag PRIVATE micromag_cuda)
+        if(MSVC)
+            target_link_options(_micromag PRIVATE /NODEFAULTLIB:LIBCMT)
+        endif()
+    endif()
+
     # Place the compiled module next to the Python package directory.
     # Explicitly set per-config dirs to prevent MSVC from appending Release/Debug.
     set_target_properties(_micromag PROPERTIES

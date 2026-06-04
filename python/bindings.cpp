@@ -17,6 +17,13 @@
 #include "micromag/thermal_field.hpp"
 #include "micromag/spin_torque.hpp"
 
+#ifdef MICROMAG_CUDA
+#include "micromag/demag_gpu.hpp"
+#include "micromag/exchange_gpu.hpp"
+#include "micromag/field_kernels_gpu.hpp"
+#include "micromag/rk4_integrator_gpu.hpp"
+#endif
+
 namespace py = pybind11;
 using namespace micromag;
 
@@ -288,4 +295,87 @@ PYBIND11_MODULE(_micromag, m) {
           },
           py::arg("field"),
           "Return (mean_mx, mean_my, mean_mz) averaged over all cells.");
+
+    // ------------------------------------------------------------------
+    // CUDA availability probe (always defined; returns False in CPU build)
+    // ------------------------------------------------------------------
+#ifdef MICROMAG_CUDA
+    m.def("cuda_available", []() { return true; },
+          "True when the module was compiled with CUDA support.");
+#else
+    m.def("cuda_available", []() { return false; },
+          "True when the module was compiled with CUDA support.");
+#endif
+
+#ifdef MICROMAG_CUDA
+    // ------------------------------------------------------------------
+    // Phase G: GPU fields (IEffectiveField drop-ins, cuda preset only)
+    // ------------------------------------------------------------------
+
+    py::class_<DemagFieldGPU, IEffectiveField, std::shared_ptr<DemagFieldGPU>>(
+            m, "DemagFieldGPU")
+        .def(py::init<const StructuredGrid&>(), py::arg("grid"),
+             "GPU cuFFT demag field — drop-in for DemagField, 5–20× faster.")
+        .def("accumulate", &DemagFieldGPU::accumulate)
+        .def("energy",     &DemagFieldGPU::energy)
+        .def_property_readonly("name", &DemagFieldGPU::name);
+
+    py::class_<ExchangeFieldGPU, IEffectiveField, std::shared_ptr<ExchangeFieldGPU>>(
+            m, "ExchangeFieldGPU")
+        .def(py::init<const StructuredGrid&>(), py::arg("grid"),
+             "GPU 6-point Laplacian exchange field.")
+        .def("accumulate", &ExchangeFieldGPU::accumulate)
+        .def("energy",     &ExchangeFieldGPU::energy)
+        .def_property_readonly("name", &ExchangeFieldGPU::name);
+
+    py::class_<ZeemanFieldGPU, IEffectiveField, std::shared_ptr<ZeemanFieldGPU>>(
+            m, "ZeemanFieldGPU")
+        .def(py::init<const StructuredGrid&, Vec3>(),
+             py::arg("grid"), py::arg("H_ext") = Vec3{0,0,0})
+        .def("accumulate",   &ZeemanFieldGPU::accumulate)
+        .def("energy",       &ZeemanFieldGPU::energy)
+        .def_property("H_ext", &ZeemanFieldGPU::H_ext, &ZeemanFieldGPU::set_H_ext)
+        .def_property_readonly("name", &ZeemanFieldGPU::name);
+
+    py::class_<UniaxialAnisotropyFieldGPU, IEffectiveField,
+               std::shared_ptr<UniaxialAnisotropyFieldGPU>>(
+            m, "UniaxialAnisotropyFieldGPU")
+        .def(py::init<const StructuredGrid&>(), py::arg("grid"),
+             "GPU uniaxial anisotropy field (K and easy_axis from Material).")
+        .def("accumulate", &UniaxialAnisotropyFieldGPU::accumulate)
+        .def("energy",     &UniaxialAnisotropyFieldGPU::energy)
+        .def_property_readonly("name", &UniaxialAnisotropyFieldGPU::name);
+
+    // ------------------------------------------------------------------
+    // RK4IntegratorGPU — full-GPU LLG integrator (zero PCIe per step)
+    //
+    // Usage:
+    //   integ = mm.RK4IntegratorGPU(grid, dt)
+    //   integ.upload(m)
+    //   for _ in range(N):
+    //       integ.step(mat, demag, exch, zeeman)       # or with aniso
+    //   integ.download(m)
+    //   m_np = mm.to_numpy(m)
+    // ------------------------------------------------------------------
+    py::class_<RK4IntegratorGPU>(m, "RK4IntegratorGPU")
+        .def(py::init<const StructuredGrid&, Real>(),
+             py::arg("grid"), py::arg("dt") = Real{1e-13},
+             "Full-GPU fixed-step RK4 LLG integrator (zero PCIe per step).")
+        .def("upload",   &RK4IntegratorGPU::upload,   py::arg("m"),
+             "Upload CPU VectorField3D to GPU (once before simulation loop).")
+        .def("download", &RK4IntegratorGPU::download, py::arg("m"),
+             "Download GPU state into CPU VectorField3D (for monitoring).")
+        .def("step",
+             [](RK4IntegratorGPU& integ, const Material& mat,
+                DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                ZeemanFieldGPU& zeeman,
+                UniaxialAnisotropyFieldGPU* aniso) {
+                 integ.step(mat, demag, exch, zeeman, aniso);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("exch"),
+             py::arg("zeeman"),
+             py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
+             "One full RK4 step on GPU (Exchange + Demag + Zeeman [+ Aniso]).")
+        .def_property("dt", &RK4IntegratorGPU::dt, &RK4IntegratorGPU::set_dt);
+#endif  // MICROMAG_CUDA
 }
