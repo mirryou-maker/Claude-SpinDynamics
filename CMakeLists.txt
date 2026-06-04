@@ -75,6 +75,9 @@ target_link_libraries(llg_demo PRIVATE micromag_core)
 add_executable(stt_sot_demo apps/stt_sot_demo.cpp)
 target_link_libraries(stt_sot_demo PRIVATE micromag_core)
 
+add_executable(sp1 apps/sp1.cpp)
+target_link_libraries(sp1 PRIVATE micromag_core)
+
 add_executable(sp4 apps/sp4.cpp)
 target_link_libraries(sp4 PRIVATE micromag_core)
 
