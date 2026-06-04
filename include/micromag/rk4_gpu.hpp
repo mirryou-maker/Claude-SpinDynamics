@@ -67,6 +67,24 @@ void launch_normalize(double* m,
                        int     N,
                        void*   stream);
 
+// ---------------------------------------------------------------------------
+// Heun-specific helpers (also used in G8 HeunIntegratorGPU)
+// ---------------------------------------------------------------------------
+
+// dst[i] += src[i]  — flat 3N,  used to add thermal noise to d_H
+void launch_add_3N(double*       dst,
+                    const double* src,
+                    int           N,
+                    void*         stream);
+
+// m[i] += dt_half * (k1[i] + k2[i])  — flat 3N  (Heun corrector)
+void launch_heun_corrector(double*       m,
+                             const double* k1,
+                             const double* k2,
+                             double        dt_half,
+                             int           N,
+                             void*         stream);
+
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA

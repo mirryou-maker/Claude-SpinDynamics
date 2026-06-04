@@ -173,6 +173,53 @@ void launch_normalize(double* m, int N, void* stream)
     CUDA_CHECK(cudaGetLastError());
 }
 
+// ===========================================================================
+// Heun-specific kernels
+// ===========================================================================
+
+// dst[i] += src[i]  — flat 3N  (adds thermal noise d_noise_ to d_H)
+__global__ static void add_3N_kernel(
+    double* __restrict__       dst,
+    const double* __restrict__ src,
+    int N3)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N3) return;
+    dst[i] += src[i];
+}
+
+// m[i] += dt_half * (k1[i] + k2[i])  — flat 3N  (Heun trapezoidal corrector)
+__global__ static void heun_corrector_kernel(
+    double* __restrict__       m,
+    const double* __restrict__ k1,
+    const double* __restrict__ k2,
+    double dt_half, int N3)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N3) return;
+    m[i] += dt_half * (k1[i] + k2[i]);
+}
+
+void launch_add_3N(double* dst, const double* src, int N, void* stream)
+{
+    const int N3  = 3 * N;
+    const int blk = 256;
+    const int grd = (N3 + blk - 1) / blk;
+    add_3N_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(dst, src, N3);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+void launch_heun_corrector(double* m, const double* k1, const double* k2,
+                             double dt_half, int N, void* stream)
+{
+    const int N3  = 3 * N;
+    const int blk = 256;
+    const int grd = (N3 + blk - 1) / blk;
+    heun_corrector_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(
+        m, k1, k2, dt_half, N3);
+    CUDA_CHECK(cudaGetLastError());
+}
+
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA

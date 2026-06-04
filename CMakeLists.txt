@@ -105,7 +105,7 @@ target_link_libraries(sp4_thermal PRIVATE micromag_core)
 # CUDA/cuFFT GPU backend (Phase 3) -----------------------------------------
 if(MICROMAG_USE_CUDA)
     enable_language(CUDA)
-    find_package(CUDAToolkit REQUIRED COMPONENTS cufft)
+    find_package(CUDAToolkit REQUIRED COMPONENTS cufft curand)
 
     set(CMAKE_CUDA_STANDARD 17)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
@@ -117,7 +117,8 @@ if(MICROMAG_USE_CUDA)
         src/field_kernels_gpu.cu # G2: GPU Zeeman + Uniaxial-Anisotropy
         src/gpu_state.cu         # G3: GPU-resident magnetization state
         src/rk4_gpu.cu           # G4+G5: LLG torque + RK4 stage kernels
-        src/rk4_integrator_gpu.cu # G6: RK4IntegratorGPU (full-GPU LLG step)
+        src/rk4_integrator_gpu.cu  # G6: RK4IntegratorGPU (full-GPU LLG step)
+        src/heun_integrator_gpu.cu # G8: HeunIntegratorGPU (GPU SLLG, cuRAND)
     )
     target_include_directories(micromag_cuda
         PUBLIC
@@ -128,6 +129,7 @@ if(MICROMAG_USE_CUDA)
         PUBLIC
             micromag_core
             CUDA::cufft
+            CUDA::curand
     )
     set_target_properties(micromag_cuda PROPERTIES
         CUDA_ARCHITECTURES native          # auto-detect installed GPU arch
