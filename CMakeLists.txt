@@ -113,6 +113,7 @@ if(MICROMAG_USE_CUDA)
     # Separate CUDA library — keeps nvcc and MSVC compilation units isolated
     add_library(micromag_cuda
         src/demag_cuda.cu
+        src/exchange_gpu.cu      # G1: GPU exchange field (6-point Laplacian)
     )
     target_include_directories(micromag_cuda
         PUBLIC

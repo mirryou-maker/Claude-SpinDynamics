@@ -27,6 +27,7 @@ catch_discover_tests(unit_tests)
 if(MICROMAG_USE_CUDA)
     add_executable(unit_tests_gpu
         test_demag_gpu.cpp
+        test_exchange_gpu.cpp    # G1: GPU exchange field tests
     )
     target_link_libraries(unit_tests_gpu
         PRIVATE
