@@ -22,6 +22,7 @@
 #include "micromag/exchange_gpu.hpp"
 #include "micromag/field_kernels_gpu.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
+#include "micromag/heun_integrator_gpu.hpp"
 #endif
 
 namespace py = pybind11;
@@ -377,5 +378,41 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
              "One full RK4 step on GPU (Exchange + Demag + Zeeman [+ Aniso]).")
         .def_property("dt", &RK4IntegratorGPU::dt, &RK4IntegratorGPU::set_dt);
+
+    // ------------------------------------------------------------------
+    // HeunIntegratorGPU — full-GPU Stratonovich Heun (SLLG, T > 0)
+    //
+    // Usage:
+    //   integ = mm.HeunIntegratorGPU(grid, dt, seed=42)
+    //   integ.upload(m)
+    //   for _ in range(N):
+    //       integ.step(mat, demag, exch, zeeman, T_K=300.0)
+    //   integ.download(m)
+    // ------------------------------------------------------------------
+    py::class_<HeunIntegratorGPU>(m, "HeunIntegratorGPU")
+        .def(py::init<const StructuredGrid&, Real, unsigned>(),
+             py::arg("grid"), py::arg("dt") = Real{1e-13},
+             py::arg("seed") = 42u,
+             "GPU Stratonovich Heun integrator for SLLG (T > 0). "
+             "T_K=0 gives deterministic Heun ODE (no cuRAND calls).")
+        .def("upload",   &HeunIntegratorGPU::upload,   py::arg("m"),
+             "Upload CPU VectorField3D to GPU.")
+        .def("download", &HeunIntegratorGPU::download, py::arg("m"),
+             "Download GPU state into CPU VectorField3D.")
+        .def("step",
+             [](HeunIntegratorGPU& integ, const Material& mat,
+                DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                ZeemanFieldGPU& zeeman, Real T_K,
+                UniaxialAnisotropyFieldGPU* aniso) {
+                 integ.step(mat, demag, exch, zeeman, T_K, aniso);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("exch"),
+             py::arg("zeeman"),
+             py::arg("T_K")  = Real{0.0},
+             py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
+             "One Stratonovich Heun step on GPU. "
+             "T_K=0 disables noise. "
+             "Optional aniso adds uniaxial anisotropy.")
+        .def_property("dt", &HeunIntegratorGPU::dt, &HeunIntegratorGPU::set_dt);
 #endif  // MICROMAG_CUDA
 }
