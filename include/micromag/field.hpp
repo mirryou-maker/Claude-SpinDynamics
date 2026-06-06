@@ -78,6 +78,19 @@ public:
     // Extract one Cartesian component (c=0 → x, 1 → y, 2 → z).
     ScalarField3D component(int c) const;
 
+    // Shift the field by n cells along x (positive = shift right).
+    // Cells shifted in from the left/right edge are filled with fill_m.
+    // n = 0: no-op.  |n| >= nx: fills entire field with fill_m.
+    void shift_x(Index n, const Vec3& fill_m);
+
+    // Shift the field by n cells along y (positive = shift in +y direction).
+    void shift_y(Index n, const Vec3& fill_m);
+
+    // Find the x-index where component c crosses zero (sign change), searching
+    // in the row (iy, iz). Returns -1 if no crossing found.
+    // Useful for domain-wall tracking (c=0 for mz in PMA, c=2 for mx in Py).
+    Index zero_crossing_x(int c, Index iy, Index iz) const;
+
     // Copy sub-region into dst.
     // dst must have size (ix1-ix0+1) × (iy1-iy0+1) × (iz1-iz0+1).
     // Indices are inclusive and zero-based.

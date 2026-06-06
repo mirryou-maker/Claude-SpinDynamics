@@ -75,6 +75,17 @@ PYBIND11_MODULE(_micromag, m) {
         })
         .def("component", &VectorField3D::component, py::arg("c"),
              "Extract component c (0=x, 1=y, 2=z) as ScalarField3D.")
+        .def("shift_x", &VectorField3D::shift_x,
+             py::arg("n"), py::arg("fill_m"),
+             "Shift field n cells along x (n>0: right, n<0: left). "
+             "Boundary filled with fill_m.")
+        .def("shift_y", &VectorField3D::shift_y,
+             py::arg("n"), py::arg("fill_m"),
+             "Shift field n cells along y.")
+        .def("zero_crossing_x", &VectorField3D::zero_crossing_x,
+             py::arg("c"), py::arg("iy"), py::arg("iz"),
+             "Find x-index of first sign change of component c in row (iy,iz). "
+             "Returns -1 if none found.")
         .def("crop",
              [](const VectorField3D& src,
                 Index ix0, Index ix1,

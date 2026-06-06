@@ -48,6 +48,61 @@ void VectorField3D::set_vortex(Real cx, Real cy, Real core_radius) {
     }
 }
 
+void VectorField3D::shift_x(Index n, const Vec3& fill_m) {
+    if (n == 0) return;
+    const Index nx = grid_->nx(), ny = grid_->ny(), nz = grid_->nz();
+    for (Index iz = 0; iz < nz; ++iz)
+    for (Index iy = 0; iy < ny; ++iy) {
+        if (n > 0) {
+            // shift right: ix=nx-1..n get data from ix-n; ix=0..n-1 get fill
+            for (Index ix = nx - 1; ix >= n; --ix)
+                at(ix, iy, iz) = at(ix - n, iy, iz);
+            for (Index ix = 0; ix < n && ix < nx; ++ix)
+                at(ix, iy, iz) = fill_m;
+        } else {
+            // shift left (n < 0): ix=0..nx-1+n get data from ix-n; tail gets fill
+            const Index shift = -n;
+            for (Index ix = 0; ix < nx - shift; ++ix)
+                at(ix, iy, iz) = at(ix + shift, iy, iz);
+            for (Index ix = nx - shift; ix < nx; ++ix)
+                at(ix, iy, iz) = fill_m;
+        }
+    }
+}
+
+void VectorField3D::shift_y(Index n, const Vec3& fill_m) {
+    if (n == 0) return;
+    const Index nx = grid_->nx(), ny = grid_->ny(), nz = grid_->nz();
+    for (Index iz = 0; iz < nz; ++iz)
+    for (Index ix = 0; ix < nx; ++ix) {
+        if (n > 0) {
+            for (Index iy = ny - 1; iy >= n; --iy)
+                at(ix, iy, iz) = at(ix, iy - n, iz);
+            for (Index iy = 0; iy < n && iy < ny; ++iy)
+                at(ix, iy, iz) = fill_m;
+        } else {
+            const Index shift = -n;
+            for (Index iy = 0; iy < ny - shift; ++iy)
+                at(ix, iy, iz) = at(ix, iy + shift, iz);
+            for (Index iy = ny - shift; iy < ny; ++iy)
+                at(ix, iy, iz) = fill_m;
+        }
+    }
+}
+
+Index VectorField3D::zero_crossing_x(int c, Index iy, Index iz) const {
+    const Index nx = grid_->nx();
+    for (Index ix = 0; ix < nx - 1; ++ix) {
+        const Vec3& v0 = at(ix,     iy, iz);
+        const Vec3& v1 = at(ix + 1, iy, iz);
+        const Real s0 = (c == 0 ? v0.x : c == 1 ? v0.y : v0.z);
+        const Real s1 = (c == 0 ? v1.x : c == 1 ? v1.y : v1.z);
+        if (s0 * s1 < Real{0})   // sign change
+            return ix;
+    }
+    return Index{-1};
+}
+
 ScalarField3D VectorField3D::component(int c) const {
     ScalarField3D out(*grid_);
     for (Index i = 0; i < size(); ++i)

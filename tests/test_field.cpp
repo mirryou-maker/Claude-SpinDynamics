@@ -91,3 +91,56 @@ TEST_CASE("VectorField3D::crop_into copies sub-region", "[field]") {
     REQUIRE_THAT(dst.at(2, 2, 1).y, WithinAbs(2.0, 1e-12));
     REQUIRE_THAT(dst.at(2, 2, 1).z, WithinAbs(1.0, 1e-12));
 }
+
+// ---------------------------------------------------------------------------
+// A3: shift_x, shift_y, zero_crossing_x
+// ---------------------------------------------------------------------------
+
+TEST_CASE("VectorField3D::shift_x positive shift fills left boundary", "[field]") {
+    StructuredGrid g(6, 2, 1, 1e-9, 1e-9, 1e-9);
+    VectorField3D m(g);
+    // Fill with ix-encoded values
+    for (Index ix = 0; ix < 6; ++ix)
+        for (Index iy = 0; iy < 2; ++iy)
+            m.at(ix, iy, 0) = {(double)ix, 0, 0};
+
+    m.shift_x(2, Vec3{-1, 0, 0});   // shift right by 2
+
+    // ix=0,1 should be fill
+    REQUIRE_THAT(m.at(0, 0, 0).x, WithinAbs(-1.0, 1e-12));
+    REQUIRE_THAT(m.at(1, 0, 0).x, WithinAbs(-1.0, 1e-12));
+    // ix=2 should have old ix=0 value
+    REQUIRE_THAT(m.at(2, 0, 0).x, WithinAbs(0.0, 1e-12));
+    // ix=5 should have old ix=3 value
+    REQUIRE_THAT(m.at(5, 0, 0).x, WithinAbs(3.0, 1e-12));
+}
+
+TEST_CASE("VectorField3D::shift_x negative shift fills right boundary", "[field]") {
+    StructuredGrid g(6, 2, 1, 1e-9, 1e-9, 1e-9);
+    VectorField3D m(g);
+    for (Index ix = 0; ix < 6; ++ix)
+        for (Index iy = 0; iy < 2; ++iy)
+            m.at(ix, iy, 0) = {(double)ix, 0, 0};
+
+    m.shift_x(-2, Vec3{99, 0, 0});   // shift left by 2
+
+    REQUIRE_THAT(m.at(0, 0, 0).x, WithinAbs(2.0,  1e-12));  // old ix=2
+    REQUIRE_THAT(m.at(3, 0, 0).x, WithinAbs(5.0,  1e-12));  // old ix=5
+    REQUIRE_THAT(m.at(4, 0, 0).x, WithinAbs(99.0, 1e-12));  // fill
+    REQUIRE_THAT(m.at(5, 0, 0).x, WithinAbs(99.0, 1e-12));  // fill
+}
+
+TEST_CASE("VectorField3D::zero_crossing_x finds sign change", "[field]") {
+    StructuredGrid g(8, 1, 1, 1e-9, 1e-9, 1e-9);
+    VectorField3D m(g);
+    // mz: +1 for ix=0..3, -1 for ix=4..7
+    for (Index ix = 0; ix < 8; ++ix)
+        m.at(ix, 0, 0) = {0, 0, ix < 4 ? 1.0 : -1.0};
+
+    Index cross = m.zero_crossing_x(2, 0, 0);   // c=2: mz
+    REQUIRE(cross == Index{3});   // sign changes between ix=3 and ix=4
+
+    // No crossing if all same sign
+    VectorField3D m2(g); m2.set_uniform({0, 0, 1});
+    REQUIRE(m2.zero_crossing_x(2, 0, 0) == Index{-1});
+}
