@@ -102,6 +102,9 @@ target_link_libraries(thermal_neel_brown PRIVATE micromag_core)
 add_executable(sp4_thermal apps/sp4_thermal.cpp)
 target_link_libraries(sp4_thermal PRIVATE micromag_core)
 
+add_executable(sp3 apps/sp3.cpp)
+target_link_libraries(sp3 PRIVATE micromag_core)
+
 # CUDA/cuFFT GPU backend (Phase 3) -----------------------------------------
 if(MICROMAG_USE_CUDA)
     enable_language(CUDA)
