@@ -11,6 +11,7 @@ add_executable(unit_tests
     test_demag.cpp
     test_demag_periodic.cpp
     test_rkky.cpp
+    test_zeeman_spatial.cpp
     diag_step1.cpp
     test_rk45.cpp
     test_thermal.cpp

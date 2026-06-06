@@ -54,6 +54,7 @@ add_library(micromag_core
     src/demag.cpp
     src/demag_periodic.cpp
     src/rkky.cpp
+    src/zeeman_spatial.cpp
     src/thermal_field.cpp
 )
 target_include_directories(micromag_core

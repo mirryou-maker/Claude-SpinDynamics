@@ -15,6 +15,7 @@
 #include "micromag/demag.hpp"
 #include "micromag/demag_periodic.hpp"
 #include "micromag/rkky.hpp"
+#include "micromag/zeeman_spatial.hpp"
 #include "micromag/integrator.hpp"
 #include "micromag/thermal_field.hpp"
 #include "micromag/spin_torque.hpp"
@@ -199,6 +200,37 @@ PYBIND11_MODULE(_micromag, m) {
         .def("accumulate", &DemagFieldPeriodic::accumulate)
         .def("energy",     &DemagFieldPeriodic::energy)
         .def_property_readonly("name", &DemagFieldPeriodic::name);
+
+    py::class_<ZeemanFieldSpatial, IEffectiveField,
+               std::shared_ptr<ZeemanFieldSpatial>>(m, "ZeemanFieldSpatial")
+        .def(py::init<const VectorField3D&>(), py::arg("H_field"),
+             py::keep_alive<1, 2>(),
+             "Spatially varying Zeeman field. Update H_field in-place between steps.")
+        .def("accumulate",  &ZeemanFieldSpatial::accumulate)
+        .def("energy",      &ZeemanFieldSpatial::energy)
+        .def("set_field",   &ZeemanFieldSpatial::set_field, py::arg("H_field"),
+             py::keep_alive<1, 2>())
+        .def_property_readonly("name", &ZeemanFieldSpatial::name);
+
+    m.def("make_gaussian_field",
+          [](const StructuredGrid& grid,
+             double cx, double cy,      // centre of Gaussian [m]
+             double sigma,              // width [m]
+             double Hz_Am) -> VectorField3D {
+              VectorField3D H(grid);
+              for (Index iz = 0; iz < grid.nz(); ++iz)
+              for (Index iy = 0; iy < grid.ny(); ++iy)
+              for (Index ix = 0; ix < grid.nx(); ++ix) {
+                  auto pos = grid.cell_center(ix, iy, iz);
+                  double dx = pos.x - cx, dy = pos.y - cy;
+                  double amp = Hz_Am * std::exp(-(dx*dx+dy*dy)/(2*sigma*sigma));
+                  H.at(ix, iy, iz) = {0, 0, amp};
+              }
+              return H;
+          },
+          py::arg("grid"), py::arg("cx"), py::arg("cy"),
+          py::arg("sigma"), py::arg("Hz_Am"),
+          "Create a Gaussian-profile z-field (write-head approximation).");
 
     py::class_<RKKYField, IEffectiveField, std::shared_ptr<RKKYField>>(m, "RKKYField")
         .def(py::init<const VectorField3D&, Real, Real>(),
