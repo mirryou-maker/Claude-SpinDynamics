@@ -16,6 +16,7 @@
 #include "micromag/demag_periodic.hpp"
 #include "micromag/rkky.hpp"
 #include "micromag/zeeman_spatial.hpp"
+#include "micromag/geom_mask.hpp"
 #include "micromag/integrator.hpp"
 #include "micromag/thermal_field.hpp"
 #include "micromag/spin_torque.hpp"
@@ -148,6 +149,52 @@ PYBIND11_MODULE(_micromag, m) {
 
     m.def("write_vtk_legacy", &write_vtk_legacy,
           py::arg("filename"), py::arg("field"), py::arg("field_name") = "m");
+
+    // ------------------------------------------------------------------
+    // Phase B1: GeomMask — per-cell occupancy for geometry definition
+    // ------------------------------------------------------------------
+
+    py::class_<GeomMask>(m, "GeomMask")
+        .def(py::init<const StructuredGrid&>(), py::arg("grid"),
+             py::keep_alive<1, 2>(),
+             "Per-cell occupancy mask [0,1]. 1=inside, 0=outside.")
+        .def_property_readonly("grid", &GeomMask::grid,
+                               py::return_value_policy::reference_internal)
+        .def_property_readonly("size", &GeomMask::size)
+        .def("set_uniform", &GeomMask::set_uniform, py::arg("v"))
+        .def("invert", &GeomMask::invert,
+             "In-place invert: v → 1-v for each cell.")
+        .def("at", [](GeomMask& mask, Index i, Index j, Index k) -> Real& {
+            return mask(i, j, k);
+        }, py::arg("i"), py::arg("j"), py::arg("k"),
+           py::return_value_policy::reference_internal)
+        .def("__getitem__", [](const GeomMask& mask, Index idx) {
+            return mask[idx];
+        })
+        .def("__setitem__", [](GeomMask& mask, Index idx, Real v) {
+            mask[idx] = v;
+        })
+        .def("to_numpy",
+             [](const GeomMask& mask) -> py::array_t<double> {
+                 const auto& g = mask.grid();
+                 const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
+                 py::array_t<double> arr({(Py_ssize_t)nz, (Py_ssize_t)ny,
+                                          (Py_ssize_t)nx});
+                 auto buf = arr.mutable_unchecked<3>();
+                 for (Index iz = 0; iz < nz; ++iz)
+                 for (Index iy = 0; iy < ny; ++iy)
+                 for (Index ix = 0; ix < nx; ++ix)
+                     buf(iz, iy, ix) = mask(ix, iy, iz);
+                 return arr;
+             },
+             "Copy mask into a (nz, ny, nx) float64 numpy array.");
+
+    m.def("union_",    &union_,    py::arg("a"), py::arg("b"),
+          "Geometry union: max(a,b) per cell. Returns new GeomMask.");
+    m.def("sub_",      &sub_,      py::arg("a"), py::arg("b"),
+          "Geometry subtraction: max(a-b,0) per cell. Returns new GeomMask.");
+    m.def("intersect_",&intersect_,py::arg("a"), py::arg("b"),
+          "Geometry intersection: min(a,b) per cell. Returns new GeomMask.");
 
     // ------------------------------------------------------------------
     // Phase 1b: Material + Effective fields

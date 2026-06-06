@@ -13,6 +13,11 @@ from _micromag import (
     mean_magnetization,
     write_vtk_legacy,
     make_gaussian_field,
+    # Phase B1: Geometry / Shape API
+    GeomMask,
+    union_,
+    sub_,
+    intersect_,
     # Phase 1b
     Material,
     BoundaryCondition,
@@ -48,6 +53,8 @@ __all__ = [
     "Vec3", "StructuredGrid", "VectorField3D", "ScalarField3D",
     "to_numpy", "to_numpy_scalar", "from_numpy", "mean_magnetization",
     "write_vtk_legacy", "make_gaussian_field",
+    # Geometry / Shape API (Phase B1)
+    "GeomMask", "union_", "sub_", "intersect_",
     # Material / effective fields
     "Material", "BoundaryCondition", "IEffectiveField",
     "ZeemanField", "ZeemanFieldSpatial",
