@@ -9,6 +9,7 @@ add_executable(unit_tests
     test_llg.cpp
     test_spin_torque.cpp
     test_demag.cpp
+    test_demag_periodic.cpp
     diag_step1.cpp
     test_rk45.cpp
     test_thermal.cpp

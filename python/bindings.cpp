@@ -13,6 +13,7 @@
 #include "micromag/anisotropy.hpp"
 #include "micromag/exchange.hpp"
 #include "micromag/demag.hpp"
+#include "micromag/demag_periodic.hpp"
 #include "micromag/integrator.hpp"
 #include "micromag/thermal_field.hpp"
 #include "micromag/spin_torque.hpp"
@@ -116,6 +117,16 @@ PYBIND11_MODULE(_micromag, m) {
         .def("accumulate", &DemagField::accumulate)
         .def("energy",     &DemagField::energy)
         .def_property_readonly("name", &DemagField::name);
+
+    py::class_<DemagFieldPeriodic, IEffectiveField,
+               std::shared_ptr<DemagFieldPeriodic>>(m, "DemagFieldPeriodic")
+        .def(py::init<const StructuredGrid&, int>(),
+             py::arg("grid"), py::arg("n_rep") = 2,
+             "Periodic-BC demag field (no zero-padding). "
+             "Uniform m → H=0 (k=0 zeroed). n_rep: image cells per side.")
+        .def("accumulate", &DemagFieldPeriodic::accumulate)
+        .def("energy",     &DemagFieldPeriodic::energy)
+        .def_property_readonly("name", &DemagFieldPeriodic::name);
 
     py::class_<EffectiveFieldSum>(m, "EffectiveFieldSum")
         .def(py::init<>())
