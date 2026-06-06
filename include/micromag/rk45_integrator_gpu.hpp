@@ -1,0 +1,99 @@
+#pragma once
+
+// rk45_integrator_gpu.hpp — GPU Dormand-Prince adaptive integrator (DOPRI5/FSAL)
+//
+// Adaptive-step LLG integration on GPU.  The error estimation and step-size
+// control run on the CPU; all H_eff evaluations and stage arithmetic run on GPU.
+//
+// Algorithm: DOPRI5 (Dormand-Prince) with FSAL (First Same As Last).
+//   7 stages per trial step; on acceptance k7 = f(m5) is reused as k1
+//   of the next step, reducing effective evaluations to 6/step.
+//   Step-size adjusted with PI controller: h_new = h * clip(fac, fac_min, fac_max)
+//   where fac = safety * (1/err_norm)^(1/5).
+//
+// One D2H copy per trial step (single double — error norm scalar).
+// Zero PCIe overhead otherwise.
+//
+// Requires MICROMAG_CUDA=1.
+
+#ifdef MICROMAG_CUDA
+
+#include "demag_gpu.hpp"
+#include "exchange_gpu.hpp"
+#include "field_kernels_gpu.hpp"
+#include "gpu_state.hpp"
+#include "material.hpp"
+#include "types.hpp"
+
+namespace micromag {
+
+class RK45IntegratorGPU {
+public:
+    struct Options {
+        Real rtol    = 1e-4;
+        Real atol    = 1e-6;
+        Real dt_init = 5e-14;
+        Real dt_min  = 1e-16;
+        Real dt_max  = 1e-11;
+        Real safety  = 0.9;
+        Real fac_min = 0.2;
+        Real fac_max = 5.0;
+    };
+
+    explicit RK45IntegratorGPU(const StructuredGrid& grid, Options opts = {});
+    ~RK45IntegratorGPU();
+
+    RK45IntegratorGPU(const RK45IntegratorGPU&)            = delete;
+    RK45IntegratorGPU& operator=(const RK45IntegratorGPU&) = delete;
+
+    void upload(const VectorField3D& m)        { state_.upload(m);   }
+    void download(VectorField3D& m) const      { state_.download(m); }
+
+    // One adaptive DOPRI5 step.  Returns the dt actually taken.
+    Real step(const Material&               mat,
+              DemagFieldGPU&                demag,
+              ExchangeFieldGPU&             exch,
+              ZeemanFieldGPU&               zeeman,
+              UniaxialAnisotropyFieldGPU*   aniso = nullptr);
+
+    Real dt() const         { return dt_; }
+    Real dt_current() const { return dt_; }
+    int  n_accepted() const { return n_accepted_; }
+    int  n_rejected() const { return n_rejected_; }
+
+private:
+    GPUMagState state_;
+    Options     opts_;
+    Real        dt_;
+    bool        k1_valid_ = false;
+
+    // ki slopes [3×N], owned by this integrator (not GPUMagState)
+    double* d_k1_ = nullptr;
+    double* d_k2_ = nullptr;
+    double* d_k3_ = nullptr;
+    double* d_k4_ = nullptr;
+    double* d_k5_ = nullptr;
+    double* d_k6_ = nullptr;
+    double* d_k7_ = nullptr;   // FSAL: f(m5) → k1 of next step
+
+    double* d_m5_       = nullptr;   // 5th-order candidate solution [3×N]
+    double* d_err_      = nullptr;   // error estimate [3×N]
+    double* d_err_sum_  = nullptr;   // single double on device (error norm reduction)
+    double* d_m_stage_  = nullptr;   // intermediate m for stage evaluations [3×N]
+
+    int n_accepted_ = 0;
+    int n_rejected_ = 0;
+
+    void alloc_scratch(size_t N);
+
+    // Compute H_eff(d_m_in) + LLG torque → d_ki_out.
+    // Zeroes d_H, accumulates all fields, launches llg_torque kernel.
+    void eval_ki(const Material& mat,
+                 DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                 ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
+                 const double* d_m_in, double* d_ki_out);
+};
+
+}  // namespace micromag
+
+#endif // MICROMAG_CUDA

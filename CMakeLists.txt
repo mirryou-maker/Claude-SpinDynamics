@@ -120,8 +120,9 @@ if(MICROMAG_USE_CUDA)
         src/field_kernels_gpu.cu # G2: GPU Zeeman + Uniaxial-Anisotropy
         src/gpu_state.cu         # G3: GPU-resident magnetization state
         src/rk4_gpu.cu           # G4+G5: LLG torque + RK4 stage kernels
-        src/rk4_integrator_gpu.cu  # G6: RK4IntegratorGPU (full-GPU LLG step)
-        src/heun_integrator_gpu.cu # G8: HeunIntegratorGPU (GPU SLLG, cuRAND)
+        src/rk4_integrator_gpu.cu   # G6: RK4IntegratorGPU (full-GPU LLG step)
+        src/heun_integrator_gpu.cu  # G8: HeunIntegratorGPU (GPU SLLG, cuRAND)
+        src/rk45_integrator_gpu.cu  # G9: RK45IntegratorGPU (adaptive DOPRI5)
     )
     target_include_directories(micromag_cuda
         PUBLIC
@@ -168,6 +169,13 @@ if(MICROMAG_USE_CUDA)
     target_link_libraries(sp4_gpu_1ns PRIVATE micromag_cuda)
     if(MSVC)
         target_link_options(sp4_gpu_1ns PRIVATE /NODEFAULTLIB:LIBCMT)
+    endif()
+
+    # G9: RK45IntegratorGPU adaptive benchmark vs CPU + fixed-step GPU
+    add_executable(sp4_rk45_gpu apps/sp4_rk45_gpu.cpp)
+    target_link_libraries(sp4_rk45_gpu PRIVATE micromag_cuda)
+    if(MSVC)
+        target_link_options(sp4_rk45_gpu PRIVATE /NODEFAULTLIB:LIBCMT)
     endif()
 
     # Large-grid full LLG scaling benchmark (SP#4 → Medium → 2.5M cells)

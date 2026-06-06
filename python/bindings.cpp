@@ -22,6 +22,7 @@
 #include "micromag/exchange_gpu.hpp"
 #include "micromag/field_kernels_gpu.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
+#include "micromag/rk45_integrator_gpu.hpp"
 #include "micromag/heun_integrator_gpu.hpp"
 #endif
 
@@ -378,6 +379,52 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
              "One full RK4 step on GPU (Exchange + Demag + Zeeman [+ Aniso]).")
         .def_property("dt", &RK4IntegratorGPU::dt, &RK4IntegratorGPU::set_dt);
+
+    // ------------------------------------------------------------------
+    // RK45IntegratorGPU — adaptive DOPRI5, one D2H scalar per trial step
+    //
+    // Usage:
+    //   integ = mm.RK45IntegratorGPU(grid)                 # default opts
+    //   integ = mm.RK45IntegratorGPU(grid, mm.RK45GPUOptions())
+    //   integ.upload(m)
+    //   while t < t_end:
+    //       dt = integ.step(mat, demag, exch, zeeman)
+    //       t += dt
+    //   integ.download(m)
+    // ------------------------------------------------------------------
+    py::class_<RK45IntegratorGPU::Options>(m, "RK45GPUOptions")
+        .def(py::init<>())
+        .def_readwrite("rtol",    &RK45IntegratorGPU::Options::rtol)
+        .def_readwrite("atol",    &RK45IntegratorGPU::Options::atol)
+        .def_readwrite("dt_init", &RK45IntegratorGPU::Options::dt_init)
+        .def_readwrite("dt_min",  &RK45IntegratorGPU::Options::dt_min)
+        .def_readwrite("dt_max",  &RK45IntegratorGPU::Options::dt_max)
+        .def_readwrite("safety",  &RK45IntegratorGPU::Options::safety)
+        .def_readwrite("fac_min", &RK45IntegratorGPU::Options::fac_min)
+        .def_readwrite("fac_max", &RK45IntegratorGPU::Options::fac_max);
+
+    py::class_<RK45IntegratorGPU>(m, "RK45IntegratorGPU")
+        .def(py::init<const StructuredGrid&, RK45IntegratorGPU::Options>(),
+             py::arg("grid"), py::arg("opts") = RK45IntegratorGPU::Options{},
+             "Adaptive GPU DOPRI5 integrator (7-stage FSAL). "
+             "One D2H scalar per trial step; zero PCIe otherwise.")
+        .def("upload",   &RK45IntegratorGPU::upload,   py::arg("m"))
+        .def("download", &RK45IntegratorGPU::download, py::arg("m"))
+        .def("step",
+             [](RK45IntegratorGPU& integ, const Material& mat,
+                DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                ZeemanFieldGPU& zeeman,
+                UniaxialAnisotropyFieldGPU* aniso) {
+                 return integ.step(mat, demag, exch, zeeman, aniso);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("exch"),
+             py::arg("zeeman"),
+             py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
+             "One adaptive DOPRI5 step. Returns actual dt taken.")
+        .def_property_readonly("dt",         &RK45IntegratorGPU::dt_current)
+        .def_property_readonly("dt_current", &RK45IntegratorGPU::dt_current)
+        .def_property_readonly("n_accepted", &RK45IntegratorGPU::n_accepted)
+        .def_property_readonly("n_rejected", &RK45IntegratorGPU::n_rejected);
 
     // ------------------------------------------------------------------
     // HeunIntegratorGPU — full-GPU Stratonovich Heun (SLLG, T > 0)

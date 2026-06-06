@@ -68,6 +68,48 @@ void launch_normalize(double* m,
                        void*   stream);
 
 // ---------------------------------------------------------------------------
+// DOPRI5 stage kernels (used by RK45IntegratorGPU)
+// All m/k buffers are [3×N] component-major.
+// ---------------------------------------------------------------------------
+
+// Stage 3:  m_s = m0 + h*(3/40 k1 + 9/40 k2)
+void launch_dopri5_stage3(double* m_s, const double* m0, double h,
+                           const double* k1, const double* k2, int N, void* stream);
+
+// Stage 4:  m_s = m0 + h*(44/45 k1 - 56/15 k2 + 32/9 k3)
+void launch_dopri5_stage4(double* m_s, const double* m0, double h,
+                           const double* k1, const double* k2, const double* k3,
+                           int N, void* stream);
+
+// Stage 5:  m_s = m0 + h*(19372/6561 k1 - 25360/2187 k2 + 64448/6561 k3 - 212/729 k4)
+void launch_dopri5_stage5(double* m_s, const double* m0, double h,
+                           const double* k1, const double* k2, const double* k3,
+                           const double* k4, int N, void* stream);
+
+// Stage 6:  m_s = m0 + h*(9017/3168 k1 - 355/33 k2 + 46732/5247 k3 + 49/176 k4 - 5103/18656 k5)
+void launch_dopri5_stage6(double* m_s, const double* m0, double h,
+                           const double* k1, const double* k2, const double* k3,
+                           const double* k4, const double* k5, int N, void* stream);
+
+// 5th-order solution:  m5 = m0 + h*(35/384 k1 + 500/1113 k3 + 125/192 k4 - 2187/6784 k5 + 11/84 k6)
+void launch_dopri5_m5(double* m5, const double* m0, double h,
+                       const double* k1, const double* k3, const double* k4,
+                       const double* k5, const double* k6, int N, void* stream);
+
+// Error estimate:  err = h*(71/57600 k1 - 71/16695 k3 + ... - 1/40 k7)
+void launch_dopri5_err(double* err, double h,
+                        const double* k1, const double* k3, const double* k4,
+                        const double* k5, const double* k6, const double* k7,
+                        int N, void* stream);
+
+// RMS error norm.  d_sum must be a device-allocated double.
+// Returns sqrt(sum((e/sc)^2) / 3N) as host scalar.
+double launch_dopri5_err_norm(double* d_sum,
+                               const double* d_err, const double* d_m,
+                               const double* d_m5,
+                               double rtol, double atol, int N, void* stream);
+
+// ---------------------------------------------------------------------------
 // Heun-specific helpers (also used in G8 HeunIntegratorGPU)
 // ---------------------------------------------------------------------------
 
