@@ -14,6 +14,7 @@
 #include "micromag/exchange.hpp"
 #include "micromag/demag.hpp"
 #include "micromag/demag_periodic.hpp"
+#include "micromag/rkky.hpp"
 #include "micromag/integrator.hpp"
 #include "micromag/thermal_field.hpp"
 #include "micromag/spin_torque.hpp"
@@ -187,6 +188,18 @@ PYBIND11_MODULE(_micromag, m) {
         .def("accumulate", &DemagFieldPeriodic::accumulate)
         .def("energy",     &DemagFieldPeriodic::energy)
         .def_property_readonly("name", &DemagFieldPeriodic::name);
+
+    py::class_<RKKYField, IEffectiveField, std::shared_ptr<RKKYField>>(m, "RKKYField")
+        .def(py::init<const VectorField3D&, Real, Real>(),
+             py::arg("ref_m"), py::arg("J_RKKY"), py::arg("d_spacer"),
+             py::keep_alive<1, 2>(),
+             "RKKY inter-layer coupling: H = -J/(mu0*Ms*d)*m_ref.\n"
+             "J_RKKY < 0 = antiferromagnetic, > 0 = ferromagnetic.")
+        .def("accumulate", &RKKYField::accumulate)
+        .def("energy",     &RKKYField::energy)
+        .def_property("J", &RKKYField::J, &RKKYField::set_J)
+        .def_property_readonly("d",    &RKKYField::d)
+        .def_property_readonly("name", &RKKYField::name);
 
     py::class_<EffectiveFieldSum>(m, "EffectiveFieldSum")
         .def(py::init<>())
