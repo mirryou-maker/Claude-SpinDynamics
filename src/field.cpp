@@ -48,4 +48,29 @@ void VectorField3D::set_vortex(Real cx, Real cy, Real core_radius) {
     }
 }
 
+ScalarField3D VectorField3D::component(int c) const {
+    ScalarField3D out(*grid_);
+    for (Index i = 0; i < size(); ++i)
+        out[i] = (c == 0 ? data_[i].x : c == 1 ? data_[i].y : data_[i].z);
+    return out;
+}
+
+void VectorField3D::crop_into(VectorField3D& dst,
+                               Index ix0, Index ix1,
+                               Index iy0, Index iy1,
+                               Index iz0, Index iz1) const
+{
+    const Index dnx = ix1 - ix0 + 1;
+    const Index dny = iy1 - iy0 + 1;
+    const Index dnz = iz1 - iz0 + 1;
+    (void)dnx; (void)dny; (void)dnz;   // used only in debug assertion
+    for (Index kz = iz0; kz <= iz1; ++kz)
+    for (Index ky = iy0; ky <= iy1; ++ky)
+    for (Index kx = ix0; kx <= ix1; ++kx) {
+        Index src_idx = kx + grid_->nx() * (ky + grid_->ny() * kz);
+        Index dst_idx = (kx - ix0) + dnx * ((ky - iy0) + dny * (kz - iz0));
+        dst[dst_idx] = data_[static_cast<std::size_t>(src_idx)];
+    }
+}
+
 }  // namespace micromag

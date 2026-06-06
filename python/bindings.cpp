@@ -47,7 +47,7 @@ PYBIND11_MODULE(_micromag, m) {
                    std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
         });
 
-    py::class_<StructuredGrid>(m, "StructuredGrid")
+    py::class_<StructuredGrid, std::shared_ptr<StructuredGrid>>(m, "StructuredGrid")
         .def(py::init<Index, Index, Index, Real, Real, Real>(),
              py::arg("nx"), py::arg("ny"), py::arg("nz"),
              py::arg("dx"), py::arg("dy"), py::arg("dz"))
@@ -71,7 +71,67 @@ PYBIND11_MODULE(_micromag, m) {
         .def("normalize", &VectorField3D::normalize)
         .def("at", [](VectorField3D& f, Index i, Index j, Index k) {
             return f.at(i, j, k);
+        })
+        .def("component", &VectorField3D::component, py::arg("c"),
+             "Extract component c (0=x, 1=y, 2=z) as ScalarField3D.")
+        .def("crop",
+             [](const VectorField3D& src,
+                Index ix0, Index ix1,
+                Index iy0, Index iy1,
+                Index iz0, Index iz1) -> py::array_t<double> {
+                 // Returns a (dnz, dny, dnx, 3) numpy array directly —
+                 // avoids grid lifetime issues in Python.
+                 const auto& g = src.grid();
+                 const Index dnx = ix1 - ix0 + 1;
+                 const Index dny = iy1 - iy0 + 1;
+                 const Index dnz = iz1 - iz0 + 1;
+                 py::array_t<double> arr({(Py_ssize_t)dnz, (Py_ssize_t)dny,
+                                          (Py_ssize_t)dnx, (Py_ssize_t)3});
+                 auto buf = arr.mutable_unchecked<4>();
+                 for (Index iz = iz0; iz <= iz1; ++iz)
+                 for (Index iy = iy0; iy <= iy1; ++iy)
+                 for (Index ix = ix0; ix <= ix1; ++ix) {
+                     Index src_idx = ix + g.nx()*(iy + g.ny()*iz);
+                     const Vec3& v = src[src_idx];
+                     buf(iz-iz0, iy-iy0, ix-ix0, 0) = v.x;
+                     buf(iz-iz0, iy-iy0, ix-ix0, 1) = v.y;
+                     buf(iz-iz0, iy-iy0, ix-ix0, 2) = v.z;
+                 }
+                 return arr;
+             },
+             py::arg("ix0"), py::arg("ix1"),
+             py::arg("iy0"), py::arg("iy1"),
+             py::arg("iz0"), py::arg("iz1"),
+             "Crop sub-region [ix0..ix1]×[iy0..iy1]×[iz0..iz1] (inclusive).\n"
+             "Returns (dnz, dny, dnx, 3) float64 numpy array directly.");
+
+    // ------------------------------------------------------------------
+    // ScalarField3D
+    // ------------------------------------------------------------------
+    py::class_<ScalarField3D>(m, "ScalarField3D")
+        .def(py::init<const StructuredGrid&>(), py::keep_alive<1, 2>())
+        .def_property_readonly("grid", &ScalarField3D::grid,
+                               py::return_value_policy::reference_internal)
+        .def_property_readonly("size", &ScalarField3D::size)
+        .def("set_uniform", &ScalarField3D::set_uniform, py::arg("v"))
+        .def("at", [](ScalarField3D& f, Index i, Index j, Index k) {
+            return f.at(i, j, k);
         });
+
+    m.def("to_numpy_scalar",
+          [](const ScalarField3D& f) -> py::array_t<double> {
+              const auto& g = f.grid();
+              const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
+              py::array_t<double> arr({(Py_ssize_t)nz, (Py_ssize_t)ny, (Py_ssize_t)nx});
+              auto buf = arr.mutable_unchecked<3>();
+              for (Index iz = 0; iz < nz; ++iz)
+              for (Index iy = 0; iy < ny; ++iy)
+              for (Index ix = 0; ix < nx; ++ix)
+                  buf(iz, iy, ix) = f[static_cast<Index>(ix + nx*(iy + ny*iz))];
+              return arr;
+          },
+          py::arg("field"),
+          "Copy ScalarField3D into a (nz, ny, nx) float64 numpy array.");
 
     m.def("write_vtk_legacy", &write_vtk_legacy,
           py::arg("filename"), py::arg("field"), py::arg("field_name") = "m");
