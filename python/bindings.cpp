@@ -196,6 +196,17 @@ PYBIND11_MODULE(_micromag, m) {
     m.def("intersect_",&intersect_,py::arg("a"), py::arg("b"),
           "Geometry intersection: min(a,b) per cell. Returns new GeomMask.");
 
+    // Primitive shape factories — centered at geometric centre of the grid
+    m.def("ellipse",  &ellipse,  py::arg("grid"), py::arg("a"), py::arg("b"),
+          "Ellipse in xy-plane: (x/a)^2+(y/b)^2<=1, extruded through z. "
+          "Centred at box centre. Returns GeomMask.");
+    m.def("circle",   &circle,   py::arg("grid"), py::arg("r"),
+          "Circle in xy-plane: x^2+y^2<=r^2. Returns GeomMask.");
+    m.def("rect",     &rect,     py::arg("grid"), py::arg("lx"), py::arg("ly"),
+          "Rectangle in xy-plane: |x|<=lx/2, |y|<=ly/2. Returns GeomMask.");
+    m.def("cylinder", &cylinder, py::arg("grid"), py::arg("r"), py::arg("h"),
+          "Finite cylinder along z: x^2+y^2<=r^2, |z|<=h/2. Returns GeomMask.");
+
     // ------------------------------------------------------------------
     // Phase 1b: Material + Effective fields
     // ------------------------------------------------------------------

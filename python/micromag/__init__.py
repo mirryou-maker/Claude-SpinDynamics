@@ -18,6 +18,10 @@ from _micromag import (
     union_,
     sub_,
     intersect_,
+    ellipse,
+    circle,
+    rect,
+    cylinder,
     # Phase 1b
     Material,
     BoundaryCondition,
@@ -55,6 +59,7 @@ __all__ = [
     "write_vtk_legacy", "make_gaussian_field",
     # Geometry / Shape API (Phase B1)
     "GeomMask", "union_", "sub_", "intersect_",
+    "ellipse", "circle", "rect", "cylinder",
     # Material / effective fields
     "Material", "BoundaryCondition", "IEffectiveField",
     "ZeemanField", "ZeemanFieldSpatial",

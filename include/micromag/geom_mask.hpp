@@ -56,6 +56,30 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Primitive shape factory functions
+//
+// All shapes are centered at the geometric centre of the simulation box
+// (mumax3 convention: coordinate origin = box centre).
+//
+// Parameters are half-extents / radii in metres.
+// Returned mask has binary 0/1 values (no edge-smoothing).
+// ---------------------------------------------------------------------------
+
+// Ellipse in the xy-plane: (x/a)^2 + (y/b)^2 <= 1.
+// Cells at all z layers are included (2D shape extruded through z).
+GeomMask ellipse(const StructuredGrid& grid, Real a, Real b);
+
+// Circle in the xy-plane: x^2 + y^2 <= r^2  (ellipse with a=b=r).
+GeomMask circle(const StructuredGrid& grid, Real r);
+
+// Axis-aligned rectangle in the xy-plane: |x| <= lx/2, |y| <= ly/2.
+// Extruded through all z layers.
+GeomMask rect(const StructuredGrid& grid, Real lx, Real ly);
+
+// Finite-height cylinder along z: x^2 + y^2 <= r^2, |z| <= h/2.
+GeomMask cylinder(const StructuredGrid& grid, Real r, Real h);
+
+// ---------------------------------------------------------------------------
 // Boolean combinators (return new GeomMask; do not modify inputs)
 // ---------------------------------------------------------------------------
 
