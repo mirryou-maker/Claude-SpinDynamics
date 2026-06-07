@@ -58,4 +58,22 @@ private:
     VectorField3D easy_axis_;
 };
 
+// voronoi_grains — randomized polycrystalline grain structure
+// (mumax3 "Voronoi Tessellation" example / random-anisotropy model).
+//
+// Scatters `n_grains` random seed points through the grid volume, assigns
+// each cell to its nearest seed (Voronoi tessellation), then gives every
+// grain its own randomized uniaxial anisotropy:
+//   K_uniaxial = max(0, base.K_uniaxial + N(0, sigma_K))   (Gaussian, clipped)
+//   easy_axis  = uniformly-random unit vector               (random anisotropy)
+// Ms, A_exchange and alpha are taken uniformly from `base`.
+//
+// sigma_K = 0 keeps every grain's K_uniaxial equal to base.K_uniaxial — only
+// the easy-axis orientation varies grain to grain.
+MaterialField3D voronoi_grains(const StructuredGrid& grid,
+                               int n_grains,
+                               const Material& base,
+                               Real sigma_K = 0.0,
+                               unsigned seed = 42);
+
 }  // namespace micromag

@@ -312,6 +312,16 @@ PYBIND11_MODULE(_micromag, m) {
             return f.easy_axis_field();
         }, py::return_value_policy::reference_internal);
 
+    m.def("voronoi_grains", &voronoi_grains,
+          py::arg("grid"), py::arg("n_grains"), py::arg("base"),
+          py::arg("sigma_K") = Real{0.0}, py::arg("seed") = 42u,
+          "Randomized polycrystalline grain structure (mumax3 \"Voronoi "
+          "Tessellation\" / random-anisotropy model). Scatters n_grains random "
+          "seed points, assigns each cell to its nearest seed, then gives each "
+          "grain its own randomized K_uniaxial = max(0, base.K_uniaxial + "
+          "N(0, sigma_K)) and a uniformly-random easy-axis orientation. "
+          "Ms/A_exchange/alpha are taken uniformly from `base`. Returns MaterialField3D.");
+
     py::enum_<BoundaryCondition>(m, "BoundaryCondition")
         .value("Neumann",  BoundaryCondition::Neumann)
         .value("Periodic", BoundaryCondition::Periodic);
