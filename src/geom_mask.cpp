@@ -1,4 +1,5 @@
 #include "micromag/geom_mask.hpp"
+#include <cmath>
 
 namespace micromag {
 
@@ -65,6 +66,75 @@ GeomMask cylinder(const StructuredGrid& grid, Real r, Real h)
         mask(ix, iy, iz) = (x*x + y*y <= r2 && std::abs(z) <= hz) ? Real{1} : Real{0};
     }
     return mask;
+}
+
+GeomMask translate(const GeomMask& src, Real shift_x, Real shift_y)
+{
+    const auto& g = src.grid();
+    // Round physical shift to nearest cell offset
+    const Index di = static_cast<Index>(std::round(shift_x / g.dx()));
+    const Index dj = static_cast<Index>(std::round(shift_y / g.dy()));
+
+    GeomMask result(g);
+    for (Index iz = 0; iz < g.nz(); ++iz)
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix) {
+        const Index src_ix = ix - di;
+        const Index src_iy = iy - dj;
+        if (src_ix >= 0 && src_ix < g.nx() && src_iy >= 0 && src_iy < g.ny())
+            result(ix, iy, iz) = src(src_ix, src_iy, iz);
+        // else stays 0 (default)
+    }
+    return result;
+}
+
+GeomMask rotate(const GeomMask& src, Real theta)
+{
+    const auto& g = src.grid();
+    const Real  c = std::cos(theta);
+    const Real  s = std::sin(theta);
+    // Half-extents in fractional index units (box centre as origin)
+    const Real  half_nx = Real{0.5} * static_cast<Real>(g.nx());
+    const Real  half_ny = Real{0.5} * static_cast<Real>(g.ny());
+
+    GeomMask result(g);
+    for (Index iz = 0; iz < g.nz(); ++iz)
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix) {
+        // Fractional centred index: fi = ix + 0.5 - nx/2
+        const Real fi = static_cast<Real>(ix) + Real{0.5} - half_nx;
+        const Real fj = static_cast<Real>(iy) + Real{0.5} - half_ny;
+
+        // Inverse rotation (by -theta) to find source fractional centred index
+        const Real src_fi = fi * c + fj * s;
+        const Real src_fj = -fi * s + fj * c;
+
+        // Convert back to absolute fractional grid index
+        const Real sx = src_fi + half_nx - Real{0.5};
+        const Real sy = src_fj + half_ny - Real{0.5};
+
+        // Bilinear interpolation from source mask
+        const Index ix0 = static_cast<Index>(std::floor(sx));
+        const Index iy0 = static_cast<Index>(std::floor(sy));
+        const Index ix1 = ix0 + 1;
+        const Index iy1 = iy0 + 1;
+        const Real  tx  = sx - static_cast<Real>(ix0);
+        const Real  ty  = sy - static_cast<Real>(iy0);
+
+        // Sample with out-of-bounds → 0
+        auto sample = [&](Index ii, Index jj) -> Real {
+            if (ii < 0 || ii >= g.nx() || jj < 0 || jj >= g.ny())
+                return Real{0};
+            return src(ii, jj, iz);
+        };
+
+        result(ix, iy, iz) =
+            (Real{1} - tx) * (Real{1} - ty) * sample(ix0, iy0) +
+            tx             * (Real{1} - ty) * sample(ix1, iy0) +
+            (Real{1} - tx) * ty             * sample(ix0, iy1) +
+            tx             * ty             * sample(ix1, iy1);
+    }
+    return result;
 }
 
 }  // namespace micromag

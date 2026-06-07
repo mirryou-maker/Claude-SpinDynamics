@@ -80,6 +80,22 @@ GeomMask rect(const StructuredGrid& grid, Real lx, Real ly);
 GeomMask cylinder(const StructuredGrid& grid, Real r, Real h);
 
 // ---------------------------------------------------------------------------
+// Geometric transformations (return new GeomMask; do not modify input)
+//
+// All transformations operate in the box-centred coordinate system (same as
+// the factory functions above) and act independently per z-layer.
+// ---------------------------------------------------------------------------
+
+// Translate the mask by physical distances (shift_x, shift_y) in metres.
+// The shift is rounded to the nearest whole-cell offset; cells shifted out of
+// the grid boundaries are filled with 0.
+GeomMask translate(const GeomMask& src, Real shift_x, Real shift_y);
+
+// Rotate the mask by theta radians (counter-clockwise) around the box centre.
+// Uses bilinear interpolation; source positions outside the grid fill with 0.
+GeomMask rotate(const GeomMask& src, Real theta);
+
+// ---------------------------------------------------------------------------
 // Boolean combinators (return new GeomMask; do not modify inputs)
 // ---------------------------------------------------------------------------
 

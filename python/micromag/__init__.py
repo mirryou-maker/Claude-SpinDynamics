@@ -22,6 +22,8 @@ from _micromag import (
     circle,
     rect,
     cylinder,
+    translate,
+    rotate,
     # Phase 1b
     Material,
     BoundaryCondition,
@@ -60,6 +62,7 @@ __all__ = [
     # Geometry / Shape API (Phase B1)
     "GeomMask", "union_", "sub_", "intersect_",
     "ellipse", "circle", "rect", "cylinder",
+    "translate", "rotate",
     # Material / effective fields
     "Material", "BoundaryCondition", "IEffectiveField",
     "ZeemanField", "ZeemanFieldSpatial",

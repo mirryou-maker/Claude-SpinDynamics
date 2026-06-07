@@ -207,6 +207,16 @@ PYBIND11_MODULE(_micromag, m) {
     m.def("cylinder", &cylinder, py::arg("grid"), py::arg("r"), py::arg("h"),
           "Finite cylinder along z: x^2+y^2<=r^2, |z|<=h/2. Returns GeomMask.");
 
+    // Geometric transformations
+    m.def("translate", &translate,
+          py::arg("mask"), py::arg("shift_x"), py::arg("shift_y"),
+          "Shift mask by (shift_x, shift_y) metres (rounded to nearest cell). "
+          "Returns new GeomMask.");
+    m.def("rotate", &rotate,
+          py::arg("mask"), py::arg("theta"),
+          "Rotate mask by theta radians (CCW) around box centre using bilinear "
+          "interpolation. Returns new GeomMask.");
+
     // ------------------------------------------------------------------
     // Phase 1b: Material + Effective fields
     // ------------------------------------------------------------------
