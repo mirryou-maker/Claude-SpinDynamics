@@ -1,4 +1,4 @@
-# NanoSpinDynamics — 개발 진행 요약
+# Claude-SpinDynamics — 개발 진행 요약
 
 **최종 업데이트**: 2026-06-04  
 **브랜치**: master  

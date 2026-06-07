@@ -1,8 +1,8 @@
-# NanoSpinDynamics
+# Claude-SpinDynamics
 
 **C++20/CUDA micromagnetic simulator with Python bindings**
 
-NanoSpinDynamics is an open-source micromagnetics library that solves the
+Claude-SpinDynamics is an open-source micromagnetics library that solves the
 Landau–Lifshitz–Gilbert (LLG) equation on structured grids using CPU (FFTW)
 and GPU (cuFFT/CUDA) backends.  It is validated against the µMAG standard
 problems and designed for research-scale simulations of nanomagnetic devices.
@@ -40,7 +40,7 @@ GPU adaptive RK45 vs. fixed-step RK4 on SP#4 (0.3 ns):
 
 ## µMAG Validation
 
-| Standard Problem | Quantity | NanoSpinDynamics | µMAG Reference | Error |
+| Standard Problem | Quantity | Claude-SpinDynamics | µMAG Reference | Error |
 |-----------------|---------|-----------------|---------------|-------|
 | SP#4 Field A | ⟨mx⟩ (1 ns) | −0.982 | −0.9862 | **0.4 %** |
 | SP#4 Field A | t_switch | 175 ps | 174–176 ps | < 1 % |
@@ -109,7 +109,7 @@ print(f"⟨mx⟩(1 ns) = {mx:.4f}")   # expect ~ -0.982
 ## Repository Structure
 
 ```
-NanoSpinDynamics/
+Claude-SpinDynamics/
 ├── include/micromag/   # Public headers (C++20)
 ├── src/                # C++ / CUDA implementation
 ├── apps/               # Standalone simulation executables
@@ -133,9 +133,9 @@ NanoSpinDynamics/
 
 ## Citation
 
-> If you use NanoSpinDynamics in your research, please cite:
+> If you use Claude-SpinDynamics in your research, please cite:
 >
-> *[Paper in preparation — NanoSpinDynamics: A GPU-accelerated micromagnetics
+> *[Paper in preparation — Claude-SpinDynamics: A GPU-accelerated micromagnetics
 > simulator with adaptive time-stepping and Python bindings]*
 
 ---

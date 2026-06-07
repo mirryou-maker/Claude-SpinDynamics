@@ -1,4 +1,4 @@
-# NanoSpinDynamics — User Manual
+# Claude-SpinDynamics — User Manual
 
 **Version**: 1.0  |  **Toolchain**: MSVC 2022, CUDA 13.2, Python 3.13
 
@@ -21,7 +21,7 @@
 
 ## 1. Introduction
 
-NanoSpinDynamics is a C++20/CUDA micromagnetic simulation library that solves
+Claude-SpinDynamics is a C++20/CUDA micromagnetic simulation library that solves
 the Landau–Lifshitz–Gilbert (LLG) equation on three-dimensional structured
 grids.  It is designed for research on nanomagnetic devices (spin-transfer
 torque MRAM, domain-wall racetracks, thermal stability of magnetic bits) and
@@ -39,7 +39,7 @@ validated against the international µMAG standard problems.
 
 ### 1.2 Comparison with Existing Codes
 
-| Feature | NanoSpinDynamics | OOMMF | mumax³ |
+| Feature | Claude-SpinDynamics | OOMMF | mumax³ |
 |---------|-----------------|-------|--------|
 | Language | C++20 / Python | C++ / Tcl | Go / CUDA |
 | GPU acceleration | Yes (CUDA) | No | Yes (CUDA) |
@@ -535,7 +535,7 @@ integ.download(m)
 **Protocol**: Relax from (a) uniform +x, (b) vortex initialization; record energy.  
 **Observable**: Critical length L_c at which vortex becomes ground state.
 
-| Quantity | NanoSpinDynamics | Literature |
+| Quantity | Claude-SpinDynamics | Literature |
 |---------|-----------------|-----------|
 | L_c (t = 10 nm) | 115 nm | 110–120 nm |
 | L_c scaling | L_c ∝ t^{−0.78} | L_c ∝ t^{−0.5 to −1.0} |
@@ -547,7 +547,7 @@ integ.download(m)
 **Geometry**: 1 µm × 1 µm × 20 nm Permalloy (100×100×2 cells, 10 nm).  
 **Protocol**: RK45 relax at each field; sweep +150 → −150 mT (5 mT steps).
 
-| Quantity | NanoSpinDynamics | Expected range |
+| Quantity | Claude-SpinDynamics | Expected range |
 |---------|-----------------|----------------|
 | Nucleation onset H_nuc | −10 mT | −10 to −20 mT |
 | Switching field H_sw (⟨mx⟩ = 0) | −20 mT | −15 to −30 mT |

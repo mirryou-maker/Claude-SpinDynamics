@@ -5,7 +5,7 @@
 # Reference: Miltat et al. (2002); µMAG expected `<mx> = −0.9862` at equilibrium.
 #
 # This notebook runs the full switching simulation from Python using the
-# NanoSpinDynamics C++ backend via pybind11 bindings.
+# Claude-SpinDynamics C++ backend via pybind11 bindings.
 
 # %%
 import sys, time

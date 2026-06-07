@@ -1,4 +1,4 @@
-# NanoSpinDynamics — Jupyter Notebooks
+# Claude-SpinDynamics — Jupyter Notebooks
 
 Python-driven simulations using the C++ backend via pybind11.
 
