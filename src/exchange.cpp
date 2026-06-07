@@ -1,20 +1,28 @@
 #include "micromag/exchange.hpp"
+#include "micromag/geom_mask.hpp"
 
 namespace micromag {
 
 namespace {
 
-// Fetch neighbor; Neumann: return self (→ zero Laplacian contribution);
-// Periodic: wrap with sign-safe modulo.
+// Return neighbor m, with Neumann fallback for grid boundary AND mask boundary.
+// If mask != nullptr and the in-bounds neighbor has mask < 0.5, treat it as
+// a geometry boundary (return center m → zero exchange flux at interface).
 inline Vec3 get_neighbor(const VectorField3D& m, const StructuredGrid& g,
                           Index i, Index j, Index k,
                           Index di, Index dj, Index dk,
-                          BoundaryCondition bc) {
+                          BoundaryCondition bc,
+                          const GeomMask* mask) {
     Index ni = i + di, nj = j + dj, nk = k + dk;
     const bool out = (ni < 0 || ni >= g.nx() ||
                       nj < 0 || nj >= g.ny() ||
                       nk < 0 || nk >= g.nz());
-    if (!out) return m.at(ni, nj, nk);
+    if (!out) {
+        // Mask-aware Neumann: neighbor is outside geometry → use self
+        if (mask && (*mask)(ni, nj, nk) < Real{0.5})
+            return m.at(i, j, k);
+        return m.at(ni, nj, nk);
+    }
     if (bc == BoundaryCondition::Neumann) return m.at(i, j, k);
     // Periodic — sign-safe modulo
     ni = (ni % g.nx() + g.nx()) % g.nx();
@@ -39,14 +47,17 @@ void ExchangeField::accumulate(const VectorField3D& m,
     for (Index k = 0; k < g.nz(); ++k)
     for (Index j = 0; j < g.ny(); ++j)
     for (Index i = 0; i < g.nx(); ++i) {
+        // Skip cells outside the geometry (mask == 0 → inactive)
+        if (mask_ && (*mask_)(i, j, k) < Real{0.5}) continue;
+
         Vec3 mc = m.at(i, j, k);
         Vec3 lap =
-            (get_neighbor(m, g, i,j,k, +1,0,0, bc_) - mc) * idx2 +
-            (get_neighbor(m, g, i,j,k, -1,0,0, bc_) - mc) * idx2 +
-            (get_neighbor(m, g, i,j,k, 0,+1,0, bc_) - mc) * idy2 +
-            (get_neighbor(m, g, i,j,k, 0,-1,0, bc_) - mc) * idy2 +
-            (get_neighbor(m, g, i,j,k, 0,0,+1, bc_) - mc) * idz2 +
-            (get_neighbor(m, g, i,j,k, 0,0,-1, bc_) - mc) * idz2;
+            (get_neighbor(m, g, i,j,k, +1,0,0, bc_, mask_) - mc) * idx2 +
+            (get_neighbor(m, g, i,j,k, -1,0,0, bc_, mask_) - mc) * idx2 +
+            (get_neighbor(m, g, i,j,k, 0,+1,0, bc_, mask_) - mc) * idy2 +
+            (get_neighbor(m, g, i,j,k, 0,-1,0, bc_, mask_) - mc) * idy2 +
+            (get_neighbor(m, g, i,j,k, 0,0,+1, bc_, mask_) - mc) * idz2 +
+            (get_neighbor(m, g, i,j,k, 0,0,-1, bc_, mask_) - mc) * idz2;
         H_out.at(i, j, k) += lap * pre;
     }
 }
@@ -63,11 +74,15 @@ Real ExchangeField::energy(const VectorField3D& m,
     Real sum = 0;
 
     // Iterate only +x, +y, +z bonds to avoid double-counting.
+    // Skip bonds where either endpoint is outside the geometry.
     for (Index k = 0; k < g.nz(); ++k)
     for (Index j = 0; j < g.ny(); ++j)
     for (Index i = 0; i < g.nx(); ++i) {
+        if (mask_ && (*mask_)(i, j, k) < Real{0.5}) continue;
+
         Vec3 mc = m.at(i, j, k);
         auto add_bond = [&](Index ni, Index nj, Index nk, Real ih2) {
+            if (mask_ && (*mask_)(ni, nj, nk) < Real{0.5}) return;
             Vec3 d = m.at(ni, nj, nk) - mc;
             sum += d.norm_squared() * ih2;
         };

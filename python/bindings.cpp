@@ -253,7 +253,14 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<ExchangeField, IEffectiveField, std::shared_ptr<ExchangeField>>(m, "ExchangeField")
         .def(py::init<BoundaryCondition>(), py::arg("bc") = BoundaryCondition::Neumann)
-        .def_property("boundary", &ExchangeField::boundary, &ExchangeField::set_boundary);
+        .def_property("boundary", &ExchangeField::boundary, &ExchangeField::set_boundary)
+        .def("set_mask",
+             [](ExchangeField& f, const GeomMask& mask) { f.set_mask(&mask); },
+             py::arg("mask"), py::keep_alive<1, 2>(),
+             "Attach geometry mask: cells with mask<0.5 become Neumann boundaries.")
+        .def("clear_mask",
+             [](ExchangeField& f) { f.set_mask(nullptr); },
+             "Remove geometry mask (no masking).");
 
     py::class_<DemagField, IEffectiveField, std::shared_ptr<DemagField>>(m, "DemagField")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"))
