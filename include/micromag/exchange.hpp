@@ -32,6 +32,7 @@ public:
     // Attach a geometry mask. mask=nullptr disables masking (default).
     // Caller must keep the mask alive for the lifetime of this field.
     void set_mask(const GeomMask* mask) { mask_ = mask; }
+    void clear_mask() { mask_ = nullptr; }
     const GeomMask* mask() const { return mask_; }
 
 private:

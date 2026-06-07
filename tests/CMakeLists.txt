@@ -15,6 +15,7 @@ add_executable(unit_tests
     diag_step1.cpp
     test_rk45.cpp
     test_thermal.cpp
+    test_geom.cpp
 )
 
 target_link_libraries(unit_tests

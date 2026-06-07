@@ -258,8 +258,7 @@ PYBIND11_MODULE(_micromag, m) {
              [](ExchangeField& f, const GeomMask& mask) { f.set_mask(&mask); },
              py::arg("mask"), py::keep_alive<1, 2>(),
              "Attach geometry mask: cells with mask<0.5 become Neumann boundaries.")
-        .def("clear_mask",
-             [](ExchangeField& f) { f.set_mask(nullptr); },
+        .def("clear_mask", &ExchangeField::clear_mask,
              "Remove geometry mask (no masking).");
 
     py::class_<DemagField, IEffectiveField, std::shared_ptr<DemagField>>(m, "DemagField")
