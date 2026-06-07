@@ -1,12 +1,17 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <memory>
+
 #include "micromag/material_field.hpp"
 #include "micromag/grid.hpp"
 #include "micromag/exchange.hpp"
 #include "micromag/demag.hpp"
 #include "micromag/demag_periodic.hpp"
 #include "micromag/anisotropy.hpp"
+#include "micromag/zeeman.hpp"
+#include "micromag/effective_field.hpp"
+#include "micromag/integrator.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -457,4 +462,184 @@ TEST_CASE("UniaxialAnisotropyField: per-cell K=0 silences anisotropy in that reg
         REQUIRE_THAT(H[idx_right].x, WithinAbs(0.0, 1e-12));
         REQUIRE_THAT(H[idx_right].y, WithinAbs(0.0, 1e-12));
     }
+}
+
+// ---------------------------------------------------------------------------
+// C1-5: Integrators — per-cell alpha damping
+// ---------------------------------------------------------------------------
+
+namespace {
+// Common two-region alpha setup + uniform Zeeman field (no exchange/demag —
+// cells evolve independently, so per-cell alpha is the only spatial coupling).
+EffectiveFieldSum make_zeeman_only(Vec3 H_ext) {
+    EffectiveFieldSum heff;
+    heff.add(std::make_shared<ZeemanField>(H_ext));
+    return heff;
+}
+}  // namespace
+
+TEST_CASE("RK4Integrator: per-cell alpha matches independent uniform-alpha runs",
+          "[material][integrator]") {
+    // Without exchange/demag coupling, each cell relaxes independently under a
+    // uniform Zeeman field — its trajectory depends only on its own alpha. A
+    // two-region alpha field must therefore exactly reproduce, cell for cell,
+    // two separate uniform-alpha runs (same fixed dt, no adaptive stepping).
+    StructuredGrid g(4, 2, 1, 2e-9, 2e-9, 2e-9);
+    const Real alpha_L = 0.01, alpha_R = 0.3;
+
+    Material mat{};
+    mat.Ms = 8e5;
+
+    MaterialField3D matf(g, mat);
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix)
+        matf.alpha_field()[g.linear_index(ix, iy, 0)] = (ix < g.nx() / 2) ? alpha_L : alpha_R;
+
+    EffectiveFieldSum heff = make_zeeman_only({0, 0, 1e5});
+
+    const Vec3 m0_raw{1.0, 0.0, 0.5};
+    const Vec3 m0 = m0_raw / m0_raw.norm();
+
+    VectorField3D m_perCell(g), m_L(g), m_R(g);
+    m_perCell.set_uniform(m0);
+    m_L.set_uniform(m0);
+    m_R.set_uniform(m0);
+
+    Material mat_L = mat; mat_L.alpha = alpha_L;
+    Material mat_R = mat; mat_R.alpha = alpha_R;
+
+    RK4Integrator rk_perCell(1e-13), rk_L(1e-13), rk_R(1e-13);
+    rk_perCell.set_material_field(&matf);
+
+    for (int i = 0; i < 50; ++i) {
+        rk_perCell.step(m_perCell, mat,   heff);
+        rk_L.step      (m_L,       mat_L, heff);
+        rk_R.step      (m_R,       mat_R, heff);
+    }
+
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix) {
+        Index idx = g.linear_index(ix, iy, 0);
+        const VectorField3D& ref = (ix < g.nx() / 2) ? m_L : m_R;
+        REQUIRE_THAT(m_perCell[idx].x, WithinAbs(ref[idx].x, 1e-12));
+        REQUIRE_THAT(m_perCell[idx].y, WithinAbs(ref[idx].y, 1e-12));
+        REQUIRE_THAT(m_perCell[idx].z, WithinAbs(ref[idx].z, 1e-12));
+    }
+
+    // Sanity: stronger damping (alpha_R) relaxes closer to H=+z in the same time.
+    REQUIRE(m_R[g.linear_index(g.nx() - 1, 0, 0)].z > m_L[g.linear_index(0, 0, 0)].z);
+}
+
+TEST_CASE("HeunIntegrator: per-cell alpha matches independent uniform-alpha runs (no thermal)",
+          "[material][integrator]") {
+    // Same independence argument as RK4: HeunIntegrator uses a fixed dt with
+    // no adaptive stepping, so the per-cell run must exactly reproduce two
+    // separate uniform-alpha deterministic-Heun runs (thermal = nullptr).
+    StructuredGrid g(4, 2, 1, 2e-9, 2e-9, 2e-9);
+    const Real alpha_L = 0.02, alpha_R = 0.4;
+
+    Material mat{};
+    mat.Ms = 8e5;
+
+    MaterialField3D matf(g, mat);
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix)
+        matf.alpha_field()[g.linear_index(ix, iy, 0)] = (ix < g.nx() / 2) ? alpha_L : alpha_R;
+
+    EffectiveFieldSum heff = make_zeeman_only({0, 0, 1e5});
+
+    const Vec3 m0_raw{1.0, 0.0, 0.5};
+    const Vec3 m0 = m0_raw / m0_raw.norm();
+
+    VectorField3D m_perCell(g), m_L(g), m_R(g);
+    m_perCell.set_uniform(m0);
+    m_L.set_uniform(m0);
+    m_R.set_uniform(m0);
+
+    Material mat_L = mat; mat_L.alpha = alpha_L;
+    Material mat_R = mat; mat_R.alpha = alpha_R;
+
+    HeunIntegrator heun_perCell(1e-13), heun_L(1e-13), heun_R(1e-13);
+    heun_perCell.set_material_field(&matf);
+
+    for (int i = 0; i < 50; ++i) {
+        heun_perCell.step(m_perCell, mat,   heff);
+        heun_L.step      (m_L,       mat_L, heff);
+        heun_R.step      (m_R,       mat_R, heff);
+    }
+
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix) {
+        Index idx = g.linear_index(ix, iy, 0);
+        const VectorField3D& ref = (ix < g.nx() / 2) ? m_L : m_R;
+        REQUIRE_THAT(m_perCell[idx].x, WithinAbs(ref[idx].x, 1e-12));
+        REQUIRE_THAT(m_perCell[idx].y, WithinAbs(ref[idx].y, 1e-12));
+        REQUIRE_THAT(m_perCell[idx].z, WithinAbs(ref[idx].z, 1e-12));
+    }
+}
+
+TEST_CASE("RK45Integrator: uniform MaterialField3D reproduces uniform Material exactly",
+          "[material][integrator]") {
+    // RK45's adaptive dt depends on the global error norm, so a per-cell
+    // alpha field can only be compared bit-for-bit against the uniform path
+    // when its values equal mat.alpha everywhere (identical physics ⇒
+    // identical accept/reject sequence ⇒ identical trajectory).
+    StructuredGrid g(4, 2, 1, 2e-9, 2e-9, 2e-9);
+    Material mat = Material::permalloy();
+    MaterialField3D matf(g, mat);
+
+    EffectiveFieldSum heff = make_zeeman_only({0, 0, 1e5});
+
+    const Vec3 m0_raw{1.0, 0.0, 0.5};
+    const Vec3 m0 = m0_raw / m0_raw.norm();
+
+    VectorField3D m_uniform(g), m_perCell(g);
+    m_uniform.set_uniform(m0);
+    m_perCell.set_uniform(m0);
+
+    RK45Integrator rk_uniform, rk_perCell;
+    rk_perCell.set_material_field(&matf);
+
+    for (int i = 0; i < 30; ++i) {
+        rk_uniform.step(m_uniform, mat, heff);
+        rk_perCell.step(m_perCell, mat, heff);
+    }
+
+    for (Index idx = 0; idx < g.size(); ++idx) {
+        REQUIRE_THAT(m_perCell[idx].x, WithinAbs(m_uniform[idx].x, 1e-12));
+        REQUIRE_THAT(m_perCell[idx].y, WithinAbs(m_uniform[idx].y, 1e-12));
+        REQUIRE_THAT(m_perCell[idx].z, WithinAbs(m_uniform[idx].z, 1e-12));
+    }
+}
+
+TEST_CASE("RK45Integrator: per-cell alpha gives region-dependent relaxation rate",
+          "[material][integrator]") {
+    // Two regions with very different alpha relax toward H=+z from a common
+    // tilted start; the higher-alpha region must end up closer to +z.
+    StructuredGrid g(4, 2, 1, 2e-9, 2e-9, 2e-9);
+    const Real alpha_L = 0.01, alpha_R = 0.5;
+
+    Material mat{};
+    mat.Ms = 8e5;
+
+    MaterialField3D matf(g, mat);
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix)
+        matf.alpha_field()[g.linear_index(ix, iy, 0)] = (ix < g.nx() / 2) ? alpha_L : alpha_R;
+
+    EffectiveFieldSum heff = make_zeeman_only({0, 0, 1e5});
+
+    const Vec3 m0_raw{1.0, 0.0, 0.3};
+    const Vec3 m0 = m0_raw / m0_raw.norm();
+    VectorField3D m(g);
+    m.set_uniform(m0);
+
+    RK45Integrator rk;
+    rk.set_material_field(&matf);
+    for (int i = 0; i < 60; ++i)
+        rk.step(m, mat, heff);
+
+    const Real mz_L = m[g.linear_index(0, 0, 0)].z;
+    const Real mz_R = m[g.linear_index(g.nx() - 1, 0, 0)].z;
+    REQUIRE(mz_R > mz_L);
 }

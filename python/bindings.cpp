@@ -450,7 +450,13 @@ PYBIND11_MODULE(_micromag, m) {
              },
              py::arg("m"), py::arg("mat"), py::arg("heff"),
              py::arg("stt") = nullptr)
-        .def_property("dt", &RK4Integrator::dt, &RK4Integrator::set_dt);
+        .def_property("dt", &RK4Integrator::dt, &RK4Integrator::set_dt)
+        .def("set_material_field",
+             [](RK4Integrator& self, const MaterialField3D& matf) { self.set_material_field(&matf); },
+             py::arg("material_field"), py::keep_alive<1, 2>(),
+             "Attach per-cell alpha (MaterialField3D); mumax3 \"Regions\"-style damping.")
+        .def("clear_material_field", &RK4Integrator::clear_material_field,
+             "Remove per-cell material field (use uniform Material.alpha).");
 
     // RK45 Options struct
     py::class_<RK45Integrator::Options>(m, "RK45Options")
@@ -473,7 +479,13 @@ PYBIND11_MODULE(_micromag, m) {
              },
              py::arg("m"), py::arg("mat"), py::arg("heff"),
              py::arg("stt") = nullptr)
-        .def_property_readonly("dt_current", &RK45Integrator::dt_current);
+        .def_property_readonly("dt_current", &RK45Integrator::dt_current)
+        .def("set_material_field",
+             [](RK45Integrator& self, const MaterialField3D& matf) { self.set_material_field(&matf); },
+             py::arg("material_field"), py::keep_alive<1, 2>(),
+             "Attach per-cell alpha (MaterialField3D); mumax3 \"Regions\"-style damping.")
+        .def("clear_material_field", &RK45Integrator::clear_material_field,
+             "Remove per-cell material field (use uniform Material.alpha).");
 
     // ------------------------------------------------------------------
     // Phase 1d: Spin Transfer Torque + Spin-Orbit Torque
@@ -542,7 +554,13 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("m"), py::arg("mat"), py::arg("heff"),
              py::arg("thermal") = nullptr,
              py::arg("stt")     = nullptr)
-        .def_property("dt", &HeunIntegrator::dt, &HeunIntegrator::set_dt);
+        .def_property("dt", &HeunIntegrator::dt, &HeunIntegrator::set_dt)
+        .def("set_material_field",
+             [](HeunIntegrator& self, const MaterialField3D& matf) { self.set_material_field(&matf); },
+             py::arg("material_field"), py::keep_alive<1, 2>(),
+             "Attach per-cell alpha (MaterialField3D); mumax3 \"Regions\"-style damping.")
+        .def("clear_material_field", &HeunIntegrator::clear_material_field,
+             "Remove per-cell material field (use uniform Material.alpha).");
 
     // ------------------------------------------------------------------
     // Numpy bridge — VectorField3D ↔ numpy array (shape: nz×ny×nx×3)

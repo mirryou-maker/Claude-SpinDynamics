@@ -1,6 +1,7 @@
 #include <cmath>
 #include <stdexcept>
 #include "micromag/integrator.hpp"
+#include "micromag/material_field.hpp"
 #include "micromag/thermal_field.hpp"
 
 namespace micromag {
@@ -19,10 +20,20 @@ void RK4Integrator::ensure_scratch(const StructuredGrid& g) {
 
 namespace {
 
+// Per-cell LLG torque. When `matf` is attached, alpha is looked up per cell
+// (mumax3 "Regions" style spatially-varying damping); otherwise the uniform
+// `mat.alpha` is used for every cell.
 void torque_field(const VectorField3D& m, const VectorField3D& H,
-                  Real alpha, VectorField3D& out) {
-    for (Index i = 0; i < m.size(); ++i)
-        out[i] = llg_torque(m[i], H[i], alpha);
+                  const Material& mat, const MaterialField3D* matf,
+                  VectorField3D& out) {
+    if (matf) {
+        for (Index i = 0; i < m.size(); ++i)
+            out[i] = llg_torque(m[i], H[i], matf->alpha(i));
+    } else {
+        const Real alpha = mat.alpha;
+        for (Index i = 0; i < m.size(); ++i)
+            out[i] = llg_torque(m[i], H[i], alpha);
+    }
 }
 
 // out[i] = base[i] + scale * k[i]
@@ -38,30 +49,29 @@ void RK4Integrator::step(VectorField3D& m, const Material& mat,
                           const EffectiveFieldSum& heff,
                           const SpinTorqueSum* stt) {
     ensure_scratch(m.grid());
-    const Real alpha = mat.alpha;
-    const Real h     = dt_;
+    const Real h = dt_;
 
     // k1 = f(m)
     heff.compute(m, mat, *H_);
-    torque_field(m, *H_, alpha, *k1_);
+    torque_field(m, *H_, mat, matf_, *k1_);
     if (stt) stt->accumulate(m, mat, *k1_);
 
     // k2 = f(m + h/2 k1)
     axpy(m, h * 0.5, *k1_, *m_tmp_);
     heff.compute(*m_tmp_, mat, *H_);
-    torque_field(*m_tmp_, *H_, alpha, *k2_);
+    torque_field(*m_tmp_, *H_, mat, matf_, *k2_);
     if (stt) stt->accumulate(*m_tmp_, mat, *k2_);
 
     // k3 = f(m + h/2 k2)
     axpy(m, h * 0.5, *k2_, *m_tmp_);
     heff.compute(*m_tmp_, mat, *H_);
-    torque_field(*m_tmp_, *H_, alpha, *k3_);
+    torque_field(*m_tmp_, *H_, mat, matf_, *k3_);
     if (stt) stt->accumulate(*m_tmp_, mat, *k3_);
 
     // k4 = f(m + h k3)
     axpy(m, h, *k3_, *m_tmp_);
     heff.compute(*m_tmp_, mat, *H_);
-    torque_field(*m_tmp_, *H_, alpha, *k4_);
+    torque_field(*m_tmp_, *H_, mat, matf_, *k4_);
     if (stt) stt->accumulate(*m_tmp_, mat, *k4_);
 
     const Real c = h / 6.0;
@@ -176,13 +186,12 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
                             const EffectiveFieldSum& heff,
                             const SpinTorqueSum* stt) {
     ensure_scratch(m.grid());
-    const Real alpha = mat.alpha;
 
     // FSAL: k1 was already computed as stage-7 of the previous accepted step.
     // Recompute only on the very first call or after a rejected step.
     if (!k1_valid_) {
         heff.compute(m, mat, *H_);
-        torque_field(m, *H_, alpha, *k1_);
+        torque_field(m, *H_, mat, matf_, *k1_);
         if (stt) stt->accumulate(m, mat, *k1_);
     }
 
@@ -192,7 +201,7 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
         // --- Stage 2 ---
         axpy_rk45(*m_tmp_, m, h*(1.0/5.0), *k1_);
         heff.compute(*m_tmp_, mat, *H_);
-        torque_field(*m_tmp_, *H_, alpha, *k2_);
+        torque_field(*m_tmp_, *H_, mat, matf_, *k2_);
         if (stt) stt->accumulate(*m_tmp_, mat, *k2_);
 
         // --- Stage 3 ---
@@ -200,7 +209,7 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
             (*m_tmp_)[i] = m[i] + (*k1_)[i]*(h*3.0/40.0)
                                  + (*k2_)[i]*(h*9.0/40.0);
         heff.compute(*m_tmp_, mat, *H_);
-        torque_field(*m_tmp_, *H_, alpha, *k3_);
+        torque_field(*m_tmp_, *H_, mat, matf_, *k3_);
         if (stt) stt->accumulate(*m_tmp_, mat, *k3_);
 
         // --- Stage 4 ---
@@ -209,7 +218,7 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
                                  + (*k2_)[i]*(h*(-56.0/15.0))
                                  + (*k3_)[i]*(h*32.0/9.0);
         heff.compute(*m_tmp_, mat, *H_);
-        torque_field(*m_tmp_, *H_, alpha, *k4_);
+        torque_field(*m_tmp_, *H_, mat, matf_, *k4_);
         if (stt) stt->accumulate(*m_tmp_, mat, *k4_);
 
         // --- Stage 5 ---
@@ -219,7 +228,7 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
                                  + (*k3_)[i]*(h*64448.0/6561.0)
                                  + (*k4_)[i]*(h*(-212.0/729.0));
         heff.compute(*m_tmp_, mat, *H_);
-        torque_field(*m_tmp_, *H_, alpha, *k5_);
+        torque_field(*m_tmp_, *H_, mat, matf_, *k5_);
         if (stt) stt->accumulate(*m_tmp_, mat, *k5_);
 
         // --- Stage 6 ---
@@ -230,7 +239,7 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
                                  + (*k4_)[i]*(h*49.0/176.0)
                                  + (*k5_)[i]*(h*(-5103.0/18656.0));
         heff.compute(*m_tmp_, mat, *H_);
-        torque_field(*m_tmp_, *H_, alpha, *k6_);
+        torque_field(*m_tmp_, *H_, mat, matf_, *k6_);
         if (stt) stt->accumulate(*m_tmp_, mat, *k6_);
 
         // --- 5th-order solution m5 ---
@@ -243,7 +252,7 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
 
         // --- Stage 7 (= k1 of next step for FSAL) ---
         heff.compute(*m5_, mat, *H_);
-        torque_field(*m5_, *H_, alpha, *k7_);
+        torque_field(*m5_, *H_, mat, matf_, *k7_);
         if (stt) stt->accumulate(*m5_, mat, *k7_);
 
         // --- Error estimate: err = h*(e1*k1+e3*k3+e4*k4+e5*k5+e6*k6+e7*k7) ---
@@ -310,8 +319,7 @@ void HeunIntegrator::step(VectorField3D& m, const Material& mat,
                            ThermalField*            thermal,
                            const SpinTorqueSum*     stt) {
     ensure_scratch(m.grid());
-    const Real alpha = mat.alpha;
-    const Real h     = dt_;
+    const Real h = dt_;
 
     // ---- Generate new thermal noise η^n (once per step) ----
     if (thermal) thermal->resample(mat);
@@ -322,7 +330,7 @@ void HeunIntegrator::step(VectorField3D& m, const Material& mat,
     if (thermal) thermal->accumulate(m, mat, *H_);
 
     // k1 = f(m, H)
-    torque_field(m, *H_, alpha, *k1_);
+    torque_field(m, *H_, mat, matf_, *k1_);
     if (stt) stt->accumulate(m, mat, *k1_);
 
     // m_pred = normalize(m + h*k1)
@@ -336,7 +344,7 @@ void HeunIntegrator::step(VectorField3D& m, const Material& mat,
     if (thermal) thermal->accumulate(*m_pred_, mat, *H_);
 
     // k2 = f(m_pred, H)
-    torque_field(*m_pred_, *H_, alpha, *k2_);
+    torque_field(*m_pred_, *H_, mat, matf_, *k2_);
     if (stt) stt->accumulate(*m_pred_, mat, *k2_);
 
     // m = normalize(m + h/2*(k1+k2))

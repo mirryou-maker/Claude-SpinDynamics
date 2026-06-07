@@ -6,8 +6,9 @@
 #include "effective_field.hpp"
 #include "spin_torque.hpp"
 
-// Forward declaration — include thermal_field.hpp if you need ThermalField directly
+// Forward declarations — include the corresponding header for the full type.
 namespace micromag { class ThermalField; }
+namespace micromag { class MaterialField3D; }
 
 namespace micromag {
 
@@ -34,8 +35,16 @@ public:
     Real dt()          const { return dt_; }
     void set_dt(Real dt)     { dt_ = dt;  }
 
+    // Attach per-cell alpha (mumax3 "Regions" style spatially-varying damping).
+    // nullptr disables it (default), falling back to the uniform `mat.alpha`.
+    // Caller must keep the field alive for the lifetime of this object.
+    void set_material_field(const MaterialField3D* matf) { matf_ = matf; }
+    void clear_material_field()                          { matf_ = nullptr; }
+    const MaterialField3D* material_field()        const { return matf_; }
+
 private:
     Real dt_;
+    const MaterialField3D* matf_{nullptr};
     std::unique_ptr<VectorField3D> H_, m_tmp_, k1_, k2_, k3_, k4_;
     void ensure_scratch(const StructuredGrid& g);
 };
@@ -70,9 +79,17 @@ public:
     Index n_accepted()  const { return n_accepted_; }
     Index n_rejected()  const { return n_rejected_; }
 
+    // Attach per-cell alpha (mumax3 "Regions" style spatially-varying damping).
+    // nullptr disables it (default), falling back to the uniform `mat.alpha`.
+    // Caller must keep the field alive for the lifetime of this object.
+    void set_material_field(const MaterialField3D* matf) { matf_ = matf; }
+    void clear_material_field()                          { matf_ = nullptr; }
+    const MaterialField3D* material_field()        const { return matf_; }
+
 private:
     Options opts_;
     Real    dt_;
+    const MaterialField3D* matf_{nullptr};
     Index   n_accepted_{0};
     Index   n_rejected_{0};
 
@@ -119,8 +136,16 @@ public:
     Real dt()          const { return dt_; }
     void set_dt(Real dt)     { dt_ = dt;  }
 
+    // Attach per-cell alpha (mumax3 "Regions" style spatially-varying damping).
+    // nullptr disables it (default), falling back to the uniform `mat.alpha`.
+    // Caller must keep the field alive for the lifetime of this object.
+    void set_material_field(const MaterialField3D* matf) { matf_ = matf; }
+    void clear_material_field()                          { matf_ = nullptr; }
+    const MaterialField3D* material_field()        const { return matf_; }
+
 private:
     Real dt_;
+    const MaterialField3D* matf_{nullptr};
     std::unique_ptr<VectorField3D> H_, m_pred_, k1_, k2_;
     void ensure_scratch(const StructuredGrid& g);
 };
