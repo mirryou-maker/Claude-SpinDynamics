@@ -45,6 +45,7 @@ add_library(micromag_core
     src/field.cpp
     src/vtk_writer.cpp
     src/material.cpp
+    src/material_field.cpp
     src/effective_field.cpp
     src/zeeman.cpp
     src/anisotropy.cpp

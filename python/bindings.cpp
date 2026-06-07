@@ -8,6 +8,7 @@
 #include "micromag/field.hpp"
 #include "micromag/vtk_writer.hpp"
 #include "micromag/material.hpp"
+#include "micromag/material_field.hpp"
 #include "micromag/effective_field.hpp"
 #include "micromag/zeeman.hpp"
 #include "micromag/anisotropy.hpp"
@@ -131,8 +132,15 @@ PYBIND11_MODULE(_micromag, m) {
                                py::return_value_policy::reference_internal)
         .def_property_readonly("size", &ScalarField3D::size)
         .def("set_uniform", &ScalarField3D::set_uniform, py::arg("v"))
-        .def("at", [](ScalarField3D& f, Index i, Index j, Index k) {
+        .def("at", [](ScalarField3D& f, Index i, Index j, Index k) -> Real& {
             return f.at(i, j, k);
+        }, py::arg("i"), py::arg("j"), py::arg("k"),
+           py::return_value_policy::reference_internal)
+        .def("__getitem__", [](const ScalarField3D& f, Index idx) {
+            return f[idx];
+        })
+        .def("__setitem__", [](ScalarField3D& f, Index idx, Real v) {
+            f[idx] = v;
         });
 
     m.def("to_numpy_scalar",
@@ -273,6 +281,36 @@ PYBIND11_MODULE(_micromag, m) {
         .def_static("permalloy", &Material::permalloy)
         .def_static("cobalt",    &Material::cobalt)
         .def_static("iron",      &Material::iron);
+
+    // Phase C1: MaterialField3D — per-cell Ms/A/K/easy_axis/alpha
+    py::class_<MaterialField3D>(m, "MaterialField3D")
+        .def(py::init<const StructuredGrid&, const Material&>(),
+             py::arg("grid"), py::arg("uniform") = Material{},
+             py::keep_alive<1, 2>(),
+             "Per-cell material parameters, initialised uniformly from `uniform`.")
+        .def_property_readonly("grid", &MaterialField3D::grid,
+                               py::return_value_policy::reference_internal)
+        .def_property_readonly("size", &MaterialField3D::size)
+        .def("set_uniform", &MaterialField3D::set_uniform, py::arg("material"),
+             "Overwrite every cell with the given uniform Material.")
+        .def("at", &MaterialField3D::at, py::arg("i"), py::arg("j"), py::arg("k"),
+             "Assemble the Material for one cell.")
+        .def("__getitem__", [](const MaterialField3D& f, Index idx) { return f[idx]; })
+        .def_property_readonly("Ms_field", [](MaterialField3D& f) -> ScalarField3D& {
+            return f.Ms_field();
+        }, py::return_value_policy::reference_internal)
+        .def_property_readonly("A_field", [](MaterialField3D& f) -> ScalarField3D& {
+            return f.A_field();
+        }, py::return_value_policy::reference_internal)
+        .def_property_readonly("K_field", [](MaterialField3D& f) -> ScalarField3D& {
+            return f.K_field();
+        }, py::return_value_policy::reference_internal)
+        .def_property_readonly("alpha_field", [](MaterialField3D& f) -> ScalarField3D& {
+            return f.alpha_field();
+        }, py::return_value_policy::reference_internal)
+        .def_property_readonly("easy_axis_field", [](MaterialField3D& f) -> VectorField3D& {
+            return f.easy_axis_field();
+        }, py::return_value_policy::reference_internal);
 
     py::enum_<BoundaryCondition>(m, "BoundaryCondition")
         .value("Neumann",  BoundaryCondition::Neumann)

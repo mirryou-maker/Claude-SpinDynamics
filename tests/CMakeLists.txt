@@ -17,6 +17,7 @@ add_executable(unit_tests
     test_thermal.cpp
     test_geom.cpp
     test_mfm.cpp
+    test_material_field.cpp
 )
 
 target_link_libraries(unit_tests
