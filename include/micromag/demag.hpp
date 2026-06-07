@@ -14,12 +14,19 @@ struct fftw_plan_s;
 
 namespace micromag {
 
+// Forward declaration — include material_field.hpp for the full definition.
+class MaterialField3D;
+
 // FFT-based demagnetization field using the Newell (1993) analytical tensor.
 //
 // H_demag = -N * M  (SI, H in A/m)
 // where N is the 3x3 symmetric demagnetization tensor computed via zero-padded
 // FFT convolution.  Kernel is precomputed once at construction; runtime cost
 // is 6 forward FFTs + 6 pointwise products + 3 inverse FFTs per step.
+//
+// When a MaterialField3D is attached (set_material_field), the per-cell Ms
+// is used to build M = Ms_i * m_i before the FFT (mumax3 "Regions" style
+// spatially-varying saturation magnetisation).
 class DemagField : public IEffectiveField {
 public:
     explicit DemagField(const StructuredGrid& grid);
@@ -38,7 +45,16 @@ public:
 
     const char* name() const override { return "DemagField"; }
 
+    // Attach per-cell Ms. nullptr disables it (default), falling back to the
+    // uniform `mat.Ms` passed to accumulate()/energy().
+    // Caller must keep the field alive for the lifetime of this object.
+    void set_material_field(const MaterialField3D* matf) { matf_ = matf; }
+    void clear_material_field() { matf_ = nullptr; }
+    const MaterialField3D* material_field() const { return matf_; }
+
 private:
+    const MaterialField3D* matf_{nullptr};
+
     // Grid geometry (stored for convenience).
     Index nx_, ny_, nz_;   // real-space dimensions
     Real  dx_, dy_, dz_;

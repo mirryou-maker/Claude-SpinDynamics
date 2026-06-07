@@ -49,6 +49,9 @@ struct fftw_plan_s;
 
 namespace micromag {
 
+// Forward declaration — include material_field.hpp for the full definition.
+class MaterialField3D;
+
 class DemagFieldPeriodic : public IEffectiveField {
 public:
     explicit DemagFieldPeriodic(const StructuredGrid& grid, int n_rep = 2);
@@ -62,7 +65,15 @@ public:
     Real       energy    (const VectorField3D& m, const Material& mat) const override;
     const char* name     () const override { return "DemagPeriodic"; }
 
+    // Attach per-cell Ms (mumax3 "Regions" style). nullptr disables it
+    // (default), falling back to the uniform `mat.Ms`.
+    // Caller must keep the field alive for the lifetime of this object.
+    void set_material_field(const MaterialField3D* matf) { matf_ = matf; }
+    void clear_material_field() { matf_ = nullptr; }
+    const MaterialField3D* material_field() const { return matf_; }
+
 private:
+    const MaterialField3D* matf_{nullptr};
     Index  nx_, ny_, nz_;
     double dx_, dy_, dz_;
     int    n_rep_;

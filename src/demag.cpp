@@ -8,6 +8,7 @@
 #include <fftw3.h>
 
 #include "micromag/types.hpp"
+#include "micromag/material_field.hpp"
 
 namespace micromag {
 
@@ -284,7 +285,8 @@ void DemagField::accumulate(const VectorField3D& m,
             std::size_t src = static_cast<std::size_t>(kx + nx_ * (ky + ny_ * kz));
             std::size_t dst = static_cast<std::size_t>(kx + pad_nx_ * (ky + pad_ny_ * kz));
             const Vec3& v = m[static_cast<Index>(src)];
-            r_buf_[dst] = Ms * (comp == 0 ? v.x : comp == 1 ? v.y : v.z);
+            const double Ms_cell = matf_ ? matf_->Ms(static_cast<Index>(src)) : Ms;
+            r_buf_[dst] = Ms_cell * (comp == 0 ? v.x : comp == 1 ? v.y : v.z);
         }
         fftw_execute(plan_fwd_);
         out = c_buf_;
@@ -343,8 +345,10 @@ Real DemagField::energy(const VectorField3D& m, const Material& mat) const {
 
     Real E = 0.0;
     const Real dV = g.cell_volume();
-    for (Index i = 0; i < m.size(); ++i)
-        E -= constants::mu_0 * mat.Ms * m[i].dot(H[i]) * dV;
+    for (Index i = 0; i < m.size(); ++i) {
+        const Real Ms_cell = matf_ ? matf_->Ms(i) : mat.Ms;
+        E -= constants::mu_0 * Ms_cell * m[i].dot(H[i]) * dV;
+    }
     return 0.5 * E;   // factor 1/2 avoids double-counting
 }
 

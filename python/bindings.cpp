@@ -350,7 +350,13 @@ PYBIND11_MODULE(_micromag, m) {
         .def(py::init<const StructuredGrid&>(), py::arg("grid"))
         .def("accumulate", &DemagField::accumulate)
         .def("energy",     &DemagField::energy)
-        .def_property_readonly("name", &DemagField::name);
+        .def_property_readonly("name", &DemagField::name)
+        .def("set_material_field",
+             [](DemagField& f, const MaterialField3D& matf) { f.set_material_field(&matf); },
+             py::arg("material_field"), py::keep_alive<1, 2>(),
+             "Attach per-cell Ms (MaterialField3D): M = Ms_i * m_i before FFT.")
+        .def("clear_material_field", &DemagField::clear_material_field,
+             "Remove per-cell material field (use uniform Material.Ms).");
 
     py::class_<DemagFieldPeriodic, IEffectiveField,
                std::shared_ptr<DemagFieldPeriodic>>(m, "DemagFieldPeriodic")
@@ -360,7 +366,13 @@ PYBIND11_MODULE(_micromag, m) {
              "Uniform m → H=0 (k=0 zeroed). n_rep: image cells per side.")
         .def("accumulate", &DemagFieldPeriodic::accumulate)
         .def("energy",     &DemagFieldPeriodic::energy)
-        .def_property_readonly("name", &DemagFieldPeriodic::name);
+        .def_property_readonly("name", &DemagFieldPeriodic::name)
+        .def("set_material_field",
+             [](DemagFieldPeriodic& f, const MaterialField3D& matf) { f.set_material_field(&matf); },
+             py::arg("material_field"), py::keep_alive<1, 2>(),
+             "Attach per-cell Ms (MaterialField3D): M = Ms_i * m_i before FFT.")
+        .def("clear_material_field", &DemagFieldPeriodic::clear_material_field,
+             "Remove per-cell material field (use uniform Material.Ms).");
 
     py::class_<ZeemanFieldSpatial, IEffectiveField,
                std::shared_ptr<ZeemanFieldSpatial>>(m, "ZeemanFieldSpatial")

@@ -8,6 +8,7 @@
 #include <fftw3.h>
 
 #include "micromag/types.hpp"
+#include "micromag/material_field.hpp"
 
 namespace micromag {
 
@@ -203,7 +204,8 @@ void DemagFieldPeriodic::accumulate(const VectorField3D& m,
     auto fft_comp = [&](int c, std::vector<std::complex<double>>& out) {
         for (std::size_t i = 0; i < N; ++i) {
             const Vec3& v = m[static_cast<Index>(i)];
-            r_buf_[i] = Ms * (c == 0 ? v.x : c == 1 ? v.y : v.z);
+            const double Ms_cell = matf_ ? matf_->Ms(static_cast<Index>(i)) : Ms;
+            r_buf_[i] = Ms_cell * (c == 0 ? v.x : c == 1 ? v.y : v.z);
         }
         fftw_execute(reinterpret_cast<fftw_plan>(plan_fwd_));
         out = c_buf_;
@@ -250,8 +252,10 @@ Real DemagFieldPeriodic::energy(const VectorField3D& m,
 
     Real E = 0.0;
     const Real dV = m.grid().cell_volume();
-    for (Index i = 0; i < m.size(); ++i)
-        E -= constants::mu_0 * mat.Ms * m[i].dot(H[i]) * dV;
+    for (Index i = 0; i < m.size(); ++i) {
+        const Real Ms_cell = matf_ ? matf_->Ms(i) : mat.Ms;
+        E -= constants::mu_0 * Ms_cell * m[i].dot(H[i]) * dV;
+    }
     return 0.5*E;
 }
 
