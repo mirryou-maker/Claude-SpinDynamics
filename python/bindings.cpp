@@ -337,7 +337,14 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mask"), py::keep_alive<1, 2>(),
              "Attach geometry mask: cells with mask<0.5 become Neumann boundaries.")
         .def("clear_mask", &ExchangeField::clear_mask,
-             "Remove geometry mask (no masking).");
+             "Remove geometry mask (no masking).")
+        .def("set_material_field",
+             [](ExchangeField& f, const MaterialField3D& matf) { f.set_material_field(&matf); },
+             py::arg("material_field"), py::keep_alive<1, 2>(),
+             "Attach per-cell Ms/A_exchange (MaterialField3D); harmonic-mean "
+             "stiffness A_ij at region boundaries.")
+        .def("clear_material_field", &ExchangeField::clear_material_field,
+             "Remove per-cell material field (use uniform Material).");
 
     py::class_<DemagField, IEffectiveField, std::shared_ptr<DemagField>>(m, "DemagField")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"))

@@ -1,34 +1,41 @@
 #include "micromag/exchange.hpp"
 #include "micromag/geom_mask.hpp"
+#include "micromag/material_field.hpp"
 
 namespace micromag {
 
 namespace {
 
-// Return neighbor m, with Neumann fallback for grid boundary AND mask boundary.
-// If mask != nullptr and the in-bounds neighbor has mask < 0.5, treat it as
-// a geometry boundary (return center m → zero exchange flux at interface).
-inline Vec3 get_neighbor(const VectorField3D& m, const StructuredGrid& g,
-                          Index i, Index j, Index k,
-                          Index di, Index dj, Index dk,
-                          BoundaryCondition bc,
-                          const GeomMask* mask) {
+// Linear index of the neighbor to use for the bond from (i,j,k) in direction
+// (di,dj,dk), with Neumann fallback for both grid AND mask boundaries.
+// If mask != nullptr and the in-bounds neighbor has mask < 0.5, the centre
+// index is returned (zero exchange flux at the geometry interface).
+inline Index neighbor_index(const StructuredGrid& g,
+                            Index i, Index j, Index k,
+                            Index di, Index dj, Index dk,
+                            BoundaryCondition bc,
+                            const GeomMask* mask) {
     Index ni = i + di, nj = j + dj, nk = k + dk;
     const bool out = (ni < 0 || ni >= g.nx() ||
                       nj < 0 || nj >= g.ny() ||
                       nk < 0 || nk >= g.nz());
     if (!out) {
-        // Mask-aware Neumann: neighbor is outside geometry → use self
         if (mask && (*mask)(ni, nj, nk) < Real{0.5})
-            return m.at(i, j, k);
-        return m.at(ni, nj, nk);
+            return g.linear_index(i, j, k);
+        return g.linear_index(ni, nj, nk);
     }
-    if (bc == BoundaryCondition::Neumann) return m.at(i, j, k);
+    if (bc == BoundaryCondition::Neumann) return g.linear_index(i, j, k);
     // Periodic — sign-safe modulo
     ni = (ni % g.nx() + g.nx()) % g.nx();
     nj = (nj % g.ny() + g.ny()) % g.ny();
     nk = (nk % g.nz() + g.nz()) % g.nz();
-    return m.at(ni, nj, nk);
+    return g.linear_index(ni, nj, nk);
+}
+
+// Region-boundary exchange stiffness (harmonic mean — Oxs/mumax3 convention).
+inline Real harmonic_mean(Real a, Real b) {
+    const Real s = a + b;
+    return (s > 0) ? (Real{2} * a * b / s) : Real{0};
 }
 
 }  // namespace
@@ -36,13 +43,13 @@ inline Vec3 get_neighbor(const VectorField3D& m, const StructuredGrid& g,
 void ExchangeField::accumulate(const VectorField3D& m,
                                 const Material& mat,
                                 VectorField3D& H_out) const {
-    if (mat.A_exchange == 0) return;
+    if (!matf_ && mat.A_exchange == 0) return;
 
     const StructuredGrid& g = m.grid();
     const Real idx2 = 1.0 / (g.dx() * g.dx());
     const Real idy2 = 1.0 / (g.dy() * g.dy());
     const Real idz2 = 1.0 / (g.dz() * g.dz());
-    const Real pre  = 2.0 * mat.A_exchange / (constants::mu_0 * mat.Ms);
+    const Real pre_uniform = 2.0 * mat.A_exchange / (constants::mu_0 * mat.Ms);
 
     for (Index k = 0; k < g.nz(); ++k)
     for (Index j = 0; j < g.ny(); ++j)
@@ -50,21 +57,46 @@ void ExchangeField::accumulate(const VectorField3D& m,
         // Skip cells outside the geometry (mask == 0 → inactive)
         if (mask_ && (*mask_)(i, j, k) < Real{0.5}) continue;
 
-        Vec3 mc = m.at(i, j, k);
-        Vec3 lap =
-            (get_neighbor(m, g, i,j,k, +1,0,0, bc_, mask_) - mc) * idx2 +
-            (get_neighbor(m, g, i,j,k, -1,0,0, bc_, mask_) - mc) * idx2 +
-            (get_neighbor(m, g, i,j,k, 0,+1,0, bc_, mask_) - mc) * idy2 +
-            (get_neighbor(m, g, i,j,k, 0,-1,0, bc_, mask_) - mc) * idy2 +
-            (get_neighbor(m, g, i,j,k, 0,0,+1, bc_, mask_) - mc) * idz2 +
-            (get_neighbor(m, g, i,j,k, 0,0,-1, bc_, mask_) - mc) * idz2;
-        H_out.at(i, j, k) += lap * pre;
+        const Index ic = g.linear_index(i, j, k);
+        const Vec3  mc = m[ic];
+
+        const Index in_px = neighbor_index(g, i,j,k, +1,0,0, bc_, mask_);
+        const Index in_mx = neighbor_index(g, i,j,k, -1,0,0, bc_, mask_);
+        const Index in_py = neighbor_index(g, i,j,k, 0,+1,0, bc_, mask_);
+        const Index in_my = neighbor_index(g, i,j,k, 0,-1,0, bc_, mask_);
+        const Index in_pz = neighbor_index(g, i,j,k, 0,0,+1, bc_, mask_);
+        const Index in_mz = neighbor_index(g, i,j,k, 0,0,-1, bc_, mask_);
+
+        if (!matf_) {
+            Vec3 lap = (m[in_px] - mc) * idx2 + (m[in_mx] - mc) * idx2 +
+                       (m[in_py] - mc) * idy2 + (m[in_my] - mc) * idy2 +
+                       (m[in_pz] - mc) * idz2 + (m[in_mz] - mc) * idz2;
+            H_out[ic] += lap * pre_uniform;
+            continue;
+        }
+
+        // Per-cell material: H_i = (2 / mu0 Ms_i) * Sum A_ij (m_j - m_i) / d^2
+        // with A_ij the harmonic mean of the two cells' exchange stiffness.
+        const Real Ms_c = matf_->Ms(ic);
+        if (Ms_c <= 0) continue;
+        const Real A_c   = matf_->A_exchange(ic);
+        const Real pre_c = 2.0 / (constants::mu_0 * Ms_c);
+
+        auto bond = [&](Index in, Real ih2) -> Vec3 {
+            const Real A_b = harmonic_mean(A_c, matf_->A_exchange(in));
+            return (m[in] - mc) * (A_b * ih2);
+        };
+
+        Vec3 acc = bond(in_px, idx2) + bond(in_mx, idx2)
+                 + bond(in_py, idy2) + bond(in_my, idy2)
+                 + bond(in_pz, idz2) + bond(in_mz, idz2);
+        H_out[ic] += acc * pre_c;
     }
 }
 
 Real ExchangeField::energy(const VectorField3D& m,
                             const Material& mat) const {
-    if (mat.A_exchange == 0) return 0;
+    if (!matf_ && mat.A_exchange == 0) return 0;
 
     const StructuredGrid& g = m.grid();
     const Real V    = g.cell_volume();
@@ -80,11 +112,16 @@ Real ExchangeField::energy(const VectorField3D& m,
     for (Index i = 0; i < g.nx(); ++i) {
         if (mask_ && (*mask_)(i, j, k) < Real{0.5}) continue;
 
-        Vec3 mc = m.at(i, j, k);
+        const Index ic = g.linear_index(i, j, k);
+        const Vec3  mc = m[ic];
+        const Real  A_c = matf_ ? matf_->A_exchange(ic) : mat.A_exchange;
+
         auto add_bond = [&](Index ni, Index nj, Index nk, Real ih2) {
             if (mask_ && (*mask_)(ni, nj, nk) < Real{0.5}) return;
-            Vec3 d = m.at(ni, nj, nk) - mc;
-            sum += d.norm_squared() * ih2;
+            const Index in = g.linear_index(ni, nj, nk);
+            const Real  A_b = matf_ ? harmonic_mean(A_c, matf_->A_exchange(in)) : A_c;
+            Vec3 d = m[in] - mc;
+            sum += A_b * d.norm_squared() * ih2;
         };
 
         if (i + 1 < g.nx())                              add_bond(i+1, j,   k,   idx2);
@@ -96,7 +133,7 @@ Real ExchangeField::energy(const VectorField3D& m,
         if (k + 1 < g.nz())                              add_bond(i,   j,   k+1, idz2);
         else if (bc_ == BoundaryCondition::Periodic)      add_bond(i,   j,   0,   idz2);
     }
-    return mat.A_exchange * sum * V;
+    return sum * V;
 }
 
 }  // namespace micromag

@@ -3,9 +3,22 @@
 
 #include "micromag/material_field.hpp"
 #include "micromag/grid.hpp"
+#include "micromag/exchange.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
+
+namespace {
+// Fill m with a smooth, non-uniform pattern (not normalised — fine for
+// testing the raw H formula, which is linear in m).
+void fill_smooth(VectorField3D& m) {
+    const auto& g = m.grid();
+    for (Index k = 0; k < g.nz(); ++k)
+    for (Index j = 0; j < g.ny(); ++j)
+    for (Index i = 0; i < g.nx(); ++i)
+        m.at(i, j, k) = Vec3{0.1 * i, 0.1 * j, 1.0 - 0.05 * k};
+}
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // C1-1: MaterialField3D — per-cell material parameters
@@ -101,4 +114,101 @@ TEST_CASE("MaterialField3D: component fields share grid layout with VectorField3
     Index idx = g.linear_index(2, 1, 1);
     matf.Ms_field()[idx] = 1.23e6;
     REQUIRE(matf.at(2, 1, 1).Ms == 1.23e6);
+}
+
+// ---------------------------------------------------------------------------
+// C1-2: ExchangeField — per-cell A_exchange / Ms
+// ---------------------------------------------------------------------------
+
+TEST_CASE("ExchangeField: uniform MaterialField3D matches uniform Material", "[material][exchange]") {
+    StructuredGrid g(6, 5, 4, 2e-9, 2e-9, 2e-9);
+    Material mat = Material::cobalt();
+    MaterialField3D matf(g, mat);
+
+    VectorField3D m(g), H_uniform(g), H_perCell(g);
+    fill_smooth(m);
+
+    ExchangeField ex_uniform(BoundaryCondition::Neumann);
+    ExchangeField ex_perCell(BoundaryCondition::Neumann);
+    ex_perCell.set_material_field(&matf);
+
+    ex_uniform.accumulate(m, mat, H_uniform);
+    ex_perCell.accumulate(m, mat, H_perCell);
+
+    for (Index idx = 0; idx < g.size(); ++idx) {
+        REQUIRE_THAT(H_perCell[idx].x, WithinAbs(H_uniform[idx].x, 1e-6));
+        REQUIRE_THAT(H_perCell[idx].y, WithinAbs(H_uniform[idx].y, 1e-6));
+        REQUIRE_THAT(H_perCell[idx].z, WithinAbs(H_uniform[idx].z, 1e-6));
+    }
+
+    Real E_uniform = ex_uniform.energy(m, mat);
+    Real E_perCell = ex_perCell.energy(m, mat);
+    REQUIRE_THAT(E_perCell, WithinAbs(E_uniform, std::abs(E_uniform) * 1e-9 + 1e-30));
+}
+
+TEST_CASE("ExchangeField: region-boundary bond uses harmonic-mean stiffness", "[material][exchange]") {
+    // 1D chain along x: cells {0,1} use material A1, cells {2,3} use A2.
+    // ny=nz=1 + Neumann ⇒ y/z neighbours equal self ⇒ no y/z contribution.
+    StructuredGrid g(4, 1, 1, 1e-9, 1e-9, 1e-9);
+    const Real Ms = 8e5, A1 = 1.3e-11, A2 = 2.6e-11;
+
+    Material base{};
+    base.Ms = Ms;
+    MaterialField3D matf(g, base);
+    matf.A_field()[0] = A1;  matf.A_field()[1] = A1;
+    matf.A_field()[2] = A2;  matf.A_field()[3] = A2;
+
+    VectorField3D m(g), H(g);
+    m.at(0,0,0) = {0.0, 0, 1.00};
+    m.at(1,0,0) = {0.2, 0, 0.98};
+    m.at(2,0,0) = {0.4, 0, 0.92};
+    m.at(3,0,0) = {0.6, 0, 0.80};
+
+    ExchangeField ex(BoundaryCondition::Neumann);
+    ex.set_material_field(&matf);
+    ex.accumulate(m, Material{}, H);
+
+    const Real idx2 = 1.0 / (g.dx() * g.dx());
+    const Real pre  = 2.0 / (constants::mu_0 * Ms);
+
+    auto harmonic = [](Real a, Real b) { return 2.0 * a * b / (a + b); };
+
+    // Cell 1: left bond within region A1 (harmonic(A1,A1)=A1),
+    //         right bond crosses into region A2 (harmonic(A1,A2)).
+    Vec3 expected_H1 =
+        (m.at(0,0,0) - m.at(1,0,0)) * (harmonic(A1, A1) * idx2 * pre) +
+        (m.at(2,0,0) - m.at(1,0,0)) * (harmonic(A1, A2) * idx2 * pre);
+
+    REQUIRE_THAT(H.at(1,0,0).x, WithinAbs(expected_H1.x, 1e-6));
+    REQUIRE_THAT(H.at(1,0,0).z, WithinAbs(expected_H1.z, 1e-6));
+
+    // Cell 2: left bond crosses A2←A1 boundary, right bond within A2.
+    Vec3 expected_H2 =
+        (m.at(1,0,0) - m.at(2,0,0)) * (harmonic(A2, A1) * idx2 * pre) +
+        (m.at(3,0,0) - m.at(2,0,0)) * (harmonic(A2, A2) * idx2 * pre);
+
+    REQUIRE_THAT(H.at(2,0,0).x, WithinAbs(expected_H2.x, 1e-6));
+    REQUIRE_THAT(H.at(2,0,0).z, WithinAbs(expected_H2.z, 1e-6));
+}
+
+TEST_CASE("ExchangeField: per-cell field still gives zero H for uniform m", "[material][exchange]") {
+    StructuredGrid g(5, 5, 1, 2e-9, 2e-9, 2e-9);
+    MaterialField3D matf(g, Material::permalloy());
+
+    // Randomly-varying A and Ms — uniform m must still give zero exchange field
+    // (no gradient ⇒ no torque, regardless of spatially-varying coefficients).
+    for (Index idx = 0; idx < matf.size(); ++idx) {
+        matf.A_field()[idx]  = 1e-11 * (1.0 + 0.3 * (idx % 5));
+        matf.Ms_field()[idx] = 6e5   * (1.0 + 0.1 * (idx % 3));
+    }
+
+    VectorField3D m(g), H(g);
+    m.set_uniform({0, 0.6, 0.8});
+
+    ExchangeField ex(BoundaryCondition::Neumann);
+    ex.set_material_field(&matf);
+    ex.accumulate(m, Material{}, H);
+
+    for (Index idx = 0; idx < g.size(); ++idx)
+        REQUIRE_THAT(H[idx].norm(), WithinAbs(0.0, 1e-6));
 }
