@@ -24,6 +24,9 @@ from _micromag import (
     cylinder,
     translate,
     rotate,
+    # Phase B2: MFM Imaging
+    TipMode,
+    MFMImage,
     # Phase 1b
     Material,
     BoundaryCondition,
@@ -63,6 +66,7 @@ __all__ = [
     "GeomMask", "union_", "sub_", "intersect_",
     "ellipse", "circle", "rect", "cylinder",
     "translate", "rotate",
+    "TipMode", "MFMImage",
     # Material / effective fields
     "Material", "BoundaryCondition", "IEffectiveField",
     "ZeemanField", "ZeemanFieldSpatial",

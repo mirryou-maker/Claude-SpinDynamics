@@ -57,6 +57,7 @@ add_library(micromag_core
     src/zeeman_spatial.cpp
     src/thermal_field.cpp
     src/geom_mask.cpp
+    src/mfm.cpp
 )
 target_include_directories(micromag_core
     PUBLIC

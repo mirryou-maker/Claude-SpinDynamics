@@ -17,6 +17,7 @@
 #include "micromag/rkky.hpp"
 #include "micromag/zeeman_spatial.hpp"
 #include "micromag/geom_mask.hpp"
+#include "micromag/mfm.hpp"
 #include "micromag/integrator.hpp"
 #include "micromag/thermal_field.hpp"
 #include "micromag/spin_torque.hpp"
@@ -218,6 +219,45 @@ PYBIND11_MODULE(_micromag, m) {
           py::arg("mask"), py::arg("theta"),
           "Rotate mask by theta radians (CCW) around box centre using bilinear "
           "interpolation. Returns new GeomMask.");
+
+    // ------------------------------------------------------------------
+    // Phase B2: MFM Imaging
+    // ------------------------------------------------------------------
+
+    py::enum_<TipMode>(m, "TipMode")
+        .value("Monopole", TipMode::Monopole,
+               "Monopole tip: signal ∝ Hz at lift height.")
+        .value("Dipole",   TipMode::Dipole,
+               "Dipole tip: signal ∝ ∂Hz/∂z at lift height (standard MFM).");
+
+    py::class_<MFMImage>(m, "MFMImage")
+        .def(py::init<const StructuredGrid&, Real, TipMode>(),
+             py::arg("grid"), py::arg("lift_m"),
+             py::arg("tip") = TipMode::Dipole,
+             py::keep_alive<1, 2>(),
+             "MFM image simulator. lift_m: tip height above sample [m]. "
+             "tip: TipMode.Monopole or TipMode.Dipole (default).")
+        .def("compute",
+             [](const MFMImage& mfm,
+                const VectorField3D& mv,
+                const Material& mat) -> py::array_t<double> {
+                 auto signal = mfm.compute(mv, mat);
+                 const Index nx = mfm.lift() >= 0 ? mv.grid().nx() : mv.grid().nx();
+                 const Index ny = mv.grid().ny();
+                 const Index nxg = mv.grid().nx();
+                 py::array_t<double> arr({(Py_ssize_t)ny, (Py_ssize_t)nxg});
+                 auto buf = arr.mutable_unchecked<2>();
+                 for (Index iy = 0; iy < ny; ++iy)
+                 for (Index ix = 0; ix < nxg; ++ix)
+                     buf(iy, ix) = signal[static_cast<std::size_t>(iy * nxg + ix)];
+                 return arr;
+             },
+             py::arg("m"), py::arg("mat"),
+             "Compute MFM signal. Returns (ny, nx) float64 numpy array.")
+        .def_property_readonly("lift", &MFMImage::lift,
+                               "Lift height above sample [m].")
+        .def_property_readonly("tip",  &MFMImage::tip,
+                               "Tip mode (Monopole or Dipole).");
 
     // ------------------------------------------------------------------
     // Phase 1b: Material + Effective fields
