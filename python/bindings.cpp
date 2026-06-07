@@ -88,6 +88,8 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("c"), py::arg("iy"), py::arg("iz"),
              "Find x-index of first sign change of component c in row (iy,iz). "
              "Returns -1 if none found.")
+        .def("apply_mask", &VectorField3D::apply_mask, py::arg("mask"),
+             "Multiply m by mask value per cell (m=0 where mask=0). In-place.")
         .def("crop",
              [](const VectorField3D& src,
                 Index ix0, Index ix1,

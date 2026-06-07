@@ -1,4 +1,5 @@
 #include "micromag/field.hpp"
+#include "micromag/geom_mask.hpp"
 
 #include <cmath>
 
@@ -108,6 +109,11 @@ ScalarField3D VectorField3D::component(int c) const {
     for (Index i = 0; i < size(); ++i)
         out[i] = (c == 0 ? data_[i].x : c == 1 ? data_[i].y : data_[i].z);
     return out;
+}
+
+void VectorField3D::apply_mask(const GeomMask& mask) {
+    for (Index i = 0; i < size(); ++i)
+        data_[static_cast<std::size_t>(i)] *= mask[i];
 }
 
 void VectorField3D::crop_into(VectorField3D& dst,

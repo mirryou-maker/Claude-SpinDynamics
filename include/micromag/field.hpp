@@ -6,6 +6,9 @@
 
 namespace micromag {
 
+// Forward declaration — avoids including geom_mask.hpp here.
+class GeomMask;
+
 // ---------------------------------------------------------------------------
 // ScalarField3D — per-cell Real-valued field on a StructuredGrid.
 // Same memory layout as VectorField3D: linear_index = i + nx*(j + ny*k).
@@ -90,6 +93,10 @@ public:
     // in the row (iy, iz). Returns -1 if no crossing found.
     // Useful for domain-wall tracking (c=0 for mz in PMA, c=2 for mx in Py).
     Index zero_crossing_x(int c, Index iy, Index iz) const;
+
+    // Zero m at every cell where mask < threshold (default 0.5).
+    // For edge-smoothed masks the magnetization is multiplied by the mask value.
+    void apply_mask(const GeomMask& mask);
 
     // Copy sub-region into dst.
     // dst must have size (ix1-ix0+1) × (iy1-iy0+1) × (iz1-iz0+1).
