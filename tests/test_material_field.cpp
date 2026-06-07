@@ -755,3 +755,114 @@ TEST_CASE("voronoi_grains: rejects non-positive grain counts", "[material][voron
     REQUIRE_THROWS_AS(voronoi_grains(g, 0, Material::permalloy()), std::invalid_argument);
     REQUIRE_THROWS_AS(voronoi_grains(g, -1, Material::permalloy()), std::invalid_argument);
 }
+
+// ---------------------------------------------------------------------------
+// C1-7: Phase C1 integration — full per-cell stack (Regions + Voronoi grains)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Phase C1 integration: voronoi_grains drives Exchange+Demag+Anisotropy+RK4 stably",
+          "[material][integration]") {
+    // End-to-end smoke test for the complete per-cell-material pipeline:
+    // generate a randomized grain structure, attach it to every relevant
+    // effective field AND the integrator (per-cell alpha), and confirm the
+    // simulation stays physical (|m|=1, finite, bounded energy) over several
+    // steps — the workflow needed for mumax3's "Regions"/"Voronoi" examples.
+    StructuredGrid g(8, 8, 2, 4e-9, 4e-9, 4e-9);
+    Material base = Material::cobalt();
+
+    MaterialField3D matf = voronoi_grains(g, 6, base, /*sigma_K=*/1e5, /*seed=*/42);
+    // Per-cell alpha varies independently of the grain tessellation (e.g. a
+    // soft/hard composite split) — exercises per-cell damping in the stack.
+    for (Index iz = 0; iz < g.nz(); ++iz)
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix)
+        matf.alpha_field()[g.linear_index(ix, iy, iz)] = (ix < g.nx() / 2) ? 0.02 : 0.1;
+
+    VectorField3D m(g);
+    fill_smooth(m);
+    m.normalize();
+
+    auto exch  = std::make_shared<ExchangeField>(BoundaryCondition::Neumann);
+    auto demag = std::make_shared<DemagField>(g);
+    auto aniso = std::make_shared<UniaxialAnisotropyField>();
+    exch->set_material_field(&matf);
+    demag->set_material_field(&matf);
+    aniso->set_material_field(&matf);
+
+    EffectiveFieldSum heff;
+    heff.add(exch);
+    heff.add(demag);
+    heff.add(aniso);
+    heff.add(std::make_shared<ZeemanField>(Vec3{0, 0, 5e4}));
+
+    RK4Integrator rk(2e-14);
+    rk.set_material_field(&matf);
+
+    for (int step = 0; step < 20; ++step) {
+        rk.step(m, base, heff);
+        for (Index idx = 0; idx < g.size(); ++idx) {
+            REQUIRE(std::isfinite(m[idx].x));
+            REQUIRE(std::isfinite(m[idx].y));
+            REQUIRE(std::isfinite(m[idx].z));
+            REQUIRE_THAT(m[idx].norm(), WithinAbs(1.0, 1e-9));
+        }
+    }
+
+    const Real E = heff.total_energy(m, base);
+    REQUIRE(std::isfinite(E));
+}
+
+TEST_CASE("Phase C1 integration: per-cell pipeline matches scalar-Material pipeline for uniform fields",
+          "[material][integration]") {
+    // The defining correctness property of the whole "optional attached
+    // pointer" design: a MaterialField3D that is uniform everywhere must be
+    // completely transparent — attaching it to the full Exchange+Demag+
+    // Anisotropy+RK4(per-cell alpha) stack must reproduce the plain
+    // scalar-Material trajectory bit-for-bit (fixed dt, no adaptive stepping).
+    StructuredGrid g(6, 6, 2, 4e-9, 4e-9, 4e-9);
+    Material mat = Material::cobalt();
+    MaterialField3D matf(g, mat);
+
+    VectorField3D m_ref(g), m_matf(g);
+    fill_smooth(m_ref);
+    m_ref.normalize();
+    m_matf = m_ref;
+
+    auto build_stack = [&](EffectiveFieldSum& heff,
+                           std::shared_ptr<ExchangeField>& exch,
+                           std::shared_ptr<DemagField>& demag,
+                           std::shared_ptr<UniaxialAnisotropyField>& aniso) {
+        exch  = std::make_shared<ExchangeField>(BoundaryCondition::Neumann);
+        demag = std::make_shared<DemagField>(g);
+        aniso = std::make_shared<UniaxialAnisotropyField>();
+        heff.add(exch);
+        heff.add(demag);
+        heff.add(aniso);
+        heff.add(std::make_shared<ZeemanField>(Vec3{0, 0, 5e4}));
+    };
+
+    EffectiveFieldSum heff_ref, heff_matf;
+    std::shared_ptr<ExchangeField> exch_ref, exch_matf;
+    std::shared_ptr<DemagField> demag_ref, demag_matf;
+    std::shared_ptr<UniaxialAnisotropyField> aniso_ref, aniso_matf;
+    build_stack(heff_ref,  exch_ref,  demag_ref,  aniso_ref);
+    build_stack(heff_matf, exch_matf, demag_matf, aniso_matf);
+
+    exch_matf->set_material_field(&matf);
+    demag_matf->set_material_field(&matf);
+    aniso_matf->set_material_field(&matf);
+
+    RK4Integrator rk_ref(2e-14), rk_matf(2e-14);
+    rk_matf.set_material_field(&matf);
+
+    for (int step = 0; step < 15; ++step) {
+        rk_ref.step (m_ref,  mat, heff_ref);
+        rk_matf.step(m_matf, mat, heff_matf);
+    }
+
+    for (Index idx = 0; idx < g.size(); ++idx) {
+        REQUIRE_THAT(m_matf[idx].x, WithinAbs(m_ref[idx].x, 1e-12));
+        REQUIRE_THAT(m_matf[idx].y, WithinAbs(m_ref[idx].y, 1e-12));
+        REQUIRE_THAT(m_matf[idx].z, WithinAbs(m_ref[idx].z, 1e-12));
+    }
+}
