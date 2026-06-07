@@ -6,6 +6,7 @@
 #include "micromag/exchange.hpp"
 #include "micromag/demag.hpp"
 #include "micromag/demag_periodic.hpp"
+#include "micromag/anisotropy.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -348,4 +349,112 @@ TEST_CASE("DemagFieldPeriodic: per-cell Ms equals uniform Ms with pre-scaled m (
     Real E_perCell = demag_perCell.energy(m, mat);
     Real E_scaled  = demag_scaled.energy(m_scaled, mat);
     REQUIRE_THAT(E_perCell, WithinAbs(E_scaled, std::abs(E_scaled) * 1e-9 + 1e-30));
+}
+
+// ---------------------------------------------------------------------------
+// C1-4: UniaxialAnisotropyField — per-cell K_uniaxial / easy_axis / Ms
+// ---------------------------------------------------------------------------
+
+TEST_CASE("UniaxialAnisotropyField: uniform MaterialField3D matches uniform Material",
+          "[material][anisotropy]") {
+    StructuredGrid g(5, 4, 3, 2e-9, 2e-9, 2e-9);
+    Material mat = Material::cobalt();
+    MaterialField3D matf(g, mat);
+
+    VectorField3D m(g), H_uniform(g), H_perCell(g);
+    fill_smooth(m);
+
+    UniaxialAnisotropyField an_uniform, an_perCell;
+    an_perCell.set_material_field(&matf);
+
+    an_uniform.accumulate(m, mat, H_uniform);
+    an_perCell.accumulate(m, mat, H_perCell);
+
+    for (Index idx = 0; idx < g.size(); ++idx) {
+        REQUIRE_THAT(H_perCell[idx].x, WithinAbs(H_uniform[idx].x, 1e-6));
+        REQUIRE_THAT(H_perCell[idx].y, WithinAbs(H_uniform[idx].y, 1e-6));
+        REQUIRE_THAT(H_perCell[idx].z, WithinAbs(H_uniform[idx].z, 1e-6));
+    }
+
+    Real E_uniform = an_uniform.energy(m, mat);
+    Real E_perCell = an_perCell.energy(m, mat);
+    REQUIRE_THAT(E_perCell, WithinAbs(E_uniform, std::abs(E_uniform) * 1e-9 + 1e-30));
+}
+
+TEST_CASE("UniaxialAnisotropyField: per-cell easy_axis gives region-dependent field & energy",
+          "[material][anisotropy]") {
+    // Left half: easy axis = x. Right half: easy axis = y. Same K, Ms everywhere
+    // (mumax3 "Regions" style — e.g. randomly-oriented grains).
+    StructuredGrid g(4, 2, 1, 2e-9, 2e-9, 2e-9);
+    const Real Ms = 8e5, K = 4e5;
+
+    Material base{};
+    base.Ms = Ms;
+    base.K_uniaxial = K;
+    base.easy_axis = {1, 0, 0};
+
+    MaterialField3D matf(g, base);
+    const Vec3 axis_y{0, 1, 0};
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = g.nx() / 2; ix < g.nx(); ++ix)
+        matf.easy_axis_field()[g.linear_index(ix, iy, 0)] = axis_y;
+
+    VectorField3D m(g), H(g);
+    fill_smooth(m);   // not normalised — H formula is linear in m, fine for this check
+
+    UniaxialAnisotropyField an;
+    an.set_material_field(&matf);
+    an.accumulate(m, base, H);
+
+    const Real prefactor = 2.0 * K / (constants::mu_0 * Ms);
+    const Real dV = g.cell_volume();
+    Real E_expected = 0;
+
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix) {
+        Index idx = g.linear_index(ix, iy, 0);
+        Vec3 u = (ix < g.nx() / 2) ? Vec3{1, 0, 0} : axis_y;
+        Real c = m[idx].dot(u);
+        Vec3 expected_H = u * (prefactor * c);
+
+        REQUIRE_THAT(H[idx].x, WithinAbs(expected_H.x, 1e-6));
+        REQUIRE_THAT(H[idx].y, WithinAbs(expected_H.y, 1e-6));
+        REQUIRE_THAT(H[idx].z, WithinAbs(expected_H.z, 1e-6));
+
+        E_expected += -K * c * c * dV;
+    }
+
+    Real E = an.energy(m, base);
+    REQUIRE_THAT(E, WithinAbs(E_expected, std::abs(E_expected) * 1e-9 + 1e-30));
+}
+
+TEST_CASE("UniaxialAnisotropyField: per-cell K=0 silences anisotropy in that region only",
+          "[material][anisotropy]") {
+    StructuredGrid g(4, 2, 1, 2e-9, 2e-9, 2e-9);
+    Material base = Material::cobalt();   // K=4.5e5, easy_axis = z
+    MaterialField3D matf(g, base);
+
+    // Zero out K in the left half (e.g. a non-magnetic / soft-region grain).
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx() / 2; ++ix)
+        matf.K_field()[g.linear_index(ix, iy, 0)] = 0.0;
+
+    VectorField3D m(g), H(g);
+    m.set_uniform({0.6, 0.0, 0.8});   // non-zero component along cobalt's z easy-axis
+
+    UniaxialAnisotropyField an;
+    an.set_material_field(&matf);
+    an.accumulate(m, base, H);
+
+    for (Index iy = 0; iy < g.ny(); ++iy) {
+        // Left half (K=0): no contribution.
+        Index idx_left = g.linear_index(0, iy, 0);
+        REQUIRE_THAT(H[idx_left].norm(), WithinAbs(0.0, 1e-12));
+
+        // Right half (K=cobalt's): non-zero, along z.
+        Index idx_right = g.linear_index(g.nx() - 1, iy, 0);
+        REQUIRE(H[idx_right].norm() > 1e3);
+        REQUIRE_THAT(H[idx_right].x, WithinAbs(0.0, 1e-12));
+        REQUIRE_THAT(H[idx_right].y, WithinAbs(0.0, 1e-12));
+    }
 }

@@ -327,7 +327,14 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<UniaxialAnisotropyField, IEffectiveField,
                std::shared_ptr<UniaxialAnisotropyField>>(m, "UniaxialAnisotropyField")
-        .def(py::init<>());
+        .def(py::init<>())
+        .def("set_material_field",
+             [](UniaxialAnisotropyField& f, const MaterialField3D& matf) { f.set_material_field(&matf); },
+             py::arg("material_field"), py::keep_alive<1, 2>(),
+             "Attach per-cell K_uniaxial/easy_axis/Ms (MaterialField3D); "
+             "mumax3 \"Regions\"-style spatially-varying anisotropy.")
+        .def("clear_material_field", &UniaxialAnisotropyField::clear_material_field,
+             "Remove per-cell material field (use uniform Material).");
 
     py::class_<ExchangeField, IEffectiveField, std::shared_ptr<ExchangeField>>(m, "ExchangeField")
         .def(py::init<BoundaryCondition>(), py::arg("bc") = BoundaryCondition::Neumann)
