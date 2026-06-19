@@ -20,6 +20,7 @@ add_executable(unit_tests
     test_material_field.cpp
     test_dmi.cpp
     test_phase_e.cpp
+    test_new_apis.cpp
 )
 
 target_link_libraries(unit_tests
@@ -46,6 +47,7 @@ if(MICROMAG_USE_CUDA)
         test_relax_gpu.cpp              # P4: RelaxGPU + MinimizeGPU tests
         test_field_sum_gpu.cpp          # P2: FieldSumGPU compositor tests
         test_spin_torque_gpu.cpp        # P3: GPU STT/SOT/Zhang-Li tests
+        test_new_apis_gpu.cpp           # Priority 1-2: per-cell material, RKKYFieldGPU, ZeemanSpatialGPU
     )
     target_link_libraries(unit_tests_gpu
         PRIVATE

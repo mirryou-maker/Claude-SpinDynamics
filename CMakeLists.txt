@@ -146,6 +146,7 @@ if(MICROMAG_USE_CUDA)
         src/magnetoelastic_gpu.cu       # Phase S: GPU magnetoelastic field
         src/surface_anisotropy_gpu.cu   # Phase S: GPU surface anisotropy field
         src/zeeman_spatial_gpu.cu       # ZeemanFieldSpatialGPU — per-cell spatial Zeeman
+        src/rkky_gpu.cu                 # RKKYFieldGPU — interlayer RKKY coupling GPU
     )
     target_include_directories(micromag_cuda
         PUBLIC

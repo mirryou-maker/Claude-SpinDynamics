@@ -235,7 +235,7 @@ __all__ = [
     # Phase D: dynamic write-head utility
     "moving_gaussian_field",
     # Utilities
-    "cuda_available",
+    "cuda_available", "parameter_sweep", "multi_gpu_sweep",
     # SP#2 / grid-sizing utilities (pure Python)
     "exchange_length", "optimal_dx", "sp2_grid",
     # GPU classes (conditionally available — only in CUDA build)
@@ -2577,3 +2577,169 @@ def run_until_converged(integ, m, mat, heff, tol_deg: float = 1.0,
 from micromag._phase_n import (mfm_signal, edge_smooth,  # noqa: E402
                                poisson_disk_grains,
                                mfm_overlap_integral)
+
+
+# ---------------------------------------------------------------------------
+# parameter_sweep — run a simulation function over a parameter grid
+# ---------------------------------------------------------------------------
+
+def parameter_sweep(
+    fn,
+    params: dict,
+    *,
+    progress: bool = True,
+    n_jobs: int = 1,
+):
+    """Run *fn* for every combination of values in *params*.
+
+    Parameters
+    ----------
+    fn : callable
+        ``fn(**kwargs) -> dict``  Must return a mapping whose keys will be
+        collected as output columns.  Extra keys are forwarded as-is.
+    params : dict[str, list]
+        Mapping from parameter name to the list of values to sweep over.
+        All combinations (Cartesian product) are evaluated.
+    progress : bool
+        Print a progress counter to stdout (default ``True``).
+    n_jobs : int
+        Number of parallel worker processes (default ``1`` = sequential).
+        Uses :mod:`multiprocessing.Pool` when *n_jobs* > 1.  Each worker
+        inherits the calling process's CUDA_VISIBLE_DEVICES setting (Approach A
+        for multi-GPU: set ``CUDA_VISIBLE_DEVICES=<N>`` per worker via the
+        *env* parameter or subprocess launcher, *not* here).
+
+    Returns
+    -------
+    list[dict]
+        One dictionary per parameter combination.  Each dictionary contains
+        all parameter key/value pairs plus whatever *fn* returned.
+
+    Examples
+    --------
+    >>> def sim(H_ext, alpha):
+    ...     return {"m_final": 0.9, "t_switch": 150e-12}
+    >>> results = parameter_sweep(sim, {"H_ext": [0.1, 0.2], "alpha": [0.01, 0.02]})
+    >>> len(results)
+    4
+    """
+    import itertools
+
+    keys   = list(params.keys())
+    values = list(params.values())
+    combos = list(itertools.product(*values))
+    total  = len(combos)
+
+    def _run_one(combo):
+        kwargs = dict(zip(keys, combo))
+        result = fn(**kwargs)
+        if not isinstance(result, dict):
+            result = {"result": result}
+        return {**kwargs, **result}
+
+    if n_jobs == 1:
+        results = []
+        for k, combo in enumerate(combos):
+            if progress:
+                print(f"[parameter_sweep] {k+1}/{total}  "
+                      + "  ".join(f"{k}={v}" for k, v in zip(keys, combo)))
+            results.append(_run_one(combo))
+    else:
+        import multiprocessing as _mp
+        with _mp.Pool(processes=n_jobs) as pool:
+            results = pool.map(_run_one, combos)
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# multi_gpu_sweep — ensemble parallelism via multiprocessing (Approach A)
+# ---------------------------------------------------------------------------
+
+def _worker_init_cuda(gpu_id: int) -> None:
+    """Set CUDA_VISIBLE_DEVICES in a worker process before importing the GPU module."""
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+
+
+def _worker_run(args):
+    """Entry point for each worker process in multi_gpu_sweep."""
+    gpu_id, fn, kwargs = args
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    result = fn(**kwargs)
+    if not isinstance(result, dict):
+        result = {"result": result}
+    return {**kwargs, **result}
+
+
+def multi_gpu_sweep(
+    fn,
+    params: dict,
+    gpu_ids=None,
+    *,
+    progress: bool = True,
+):
+    """Run *fn* over all parameter combinations, distributing across multiple GPUs.
+
+    This is **Approach A** (ensemble parallelism): each worker process is
+    assigned one GPU via ``CUDA_VISIBLE_DEVICES`` and runs independently.
+    No inter-GPU communication is required; C++ code is unchanged.
+
+    Parameters
+    ----------
+    fn : callable
+        ``fn(**kwargs) -> dict``.  The function is called in a subprocess
+        with ``CUDA_VISIBLE_DEVICES`` already set to the assigned GPU.
+        It must import micromag *inside* the function body so the GPU module
+        is imported after the environment variable is set.
+    params : dict[str, list]
+        Cartesian product of parameter values to sweep over.
+    gpu_ids : list[int] | None
+        List of GPU device indices to use.  Defaults to ``[0]``.
+        E.g. ``[0, 1, 2, 3]`` for four-GPU parallelism.
+    progress : bool
+        Print assignment info to stdout.
+
+    Returns
+    -------
+    list[dict]
+        One dict per parameter combination (same order as Cartesian product).
+
+    Example
+    -------
+    >>> def sim_gpu(H_ext, alpha):
+    ...     import micromag as mm          # imported inside worker
+    ...     # ... build grid, integrator, run ...
+    ...     return {"t_switch": 150e-12, "m_final": -0.98}
+    >>> results = multi_gpu_sweep(
+    ...     sim_gpu,
+    ...     {"H_ext": [0.1, 0.2, 0.3, 0.4], "alpha": [0.01, 0.02]},
+    ...     gpu_ids=[0, 1],
+    ... )
+    """
+    import itertools
+    import multiprocessing as _mp
+
+    if gpu_ids is None:
+        gpu_ids = [0]
+
+    keys   = list(params.keys())
+    values = list(params.values())
+    combos = list(itertools.product(*values))
+    total  = len(combos)
+
+    # Round-robin assign GPU IDs to each combo
+    task_args = []
+    for idx, combo in enumerate(combos):
+        gpu_id = gpu_ids[idx % len(gpu_ids)]
+        kwargs = dict(zip(keys, combo))
+        if progress:
+            print(f"[multi_gpu_sweep] job {idx+1}/{total} → GPU {gpu_id}  "
+                  + "  ".join(f"{k}={v}" for k, v in zip(keys, combo)))
+        task_args.append((gpu_id, fn, kwargs))
+
+    with _mp.Pool(processes=len(gpu_ids)) as pool:
+        results = pool.map(_worker_run, task_args)
+
+    return results

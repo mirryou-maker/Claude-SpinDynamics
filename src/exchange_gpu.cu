@@ -19,6 +19,7 @@
 
 #include "micromag/exchange.hpp"
 #include "micromag/exchange_gpu.hpp"
+#include "micromag/material_field.hpp"
 #include "micromag/types.hpp"
 
 // ---------------------------------------------------------------------------
@@ -118,6 +119,120 @@ __global__ static void exchange_kernel_periodic(
 }
 
 // ===========================================================================
+// CUDA kernel: 6-point Laplacian — per-cell A and Ms (Neumann BC)
+// ===========================================================================
+__global__ static void exchange_kernel_percell(
+    double* __restrict__       H_out,
+    const double* __restrict__ m,
+    const double* __restrict__ d_A,    // [N] A_exchange per cell
+    const double* __restrict__ d_Ms,   // [N] Ms per cell
+    int nx, int ny, int nz,
+    double mu0_inv2,   // 2.0 / mu_0
+    double idx2, double idy2, double idz2)
+{
+    const int N   = nx * ny * nz;
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+
+    const double A_c  = d_A[idx];
+    const double Ms_c = d_Ms[idx];
+    if (Ms_c <= 0.0 || A_c <= 0.0) return;
+    const double pre_c = mu0_inv2 / Ms_c;
+
+    const int ix = idx % nx;
+    const int iy = (idx / nx) % ny;
+    const int iz = idx / (nx * ny);
+
+    // Neighbor indices (Neumann: clamp to self → zero contribution)
+    const int idx_xm = (ix > 0)    ? idx - 1      : idx;
+    const int idx_xp = (ix < nx-1) ? idx + 1      : idx;
+    const int idx_ym = (iy > 0)    ? idx - nx      : idx;
+    const int idx_yp = (iy < ny-1) ? idx + nx      : idx;
+    const int idx_zm = (iz > 0)    ? idx - nx*ny   : idx;
+    const int idx_zp = (iz < nz-1) ? idx + nx*ny   : idx;
+
+    // Harmonic mean A at each bond
+    auto harm = [](double a, double b) -> double {
+        const double s = a + b;
+        return (s > 0.0) ? (2.0 * a * b / s) : 0.0;
+    };
+    const double A_xm = harm(A_c, d_A[idx_xm]);
+    const double A_xp = harm(A_c, d_A[idx_xp]);
+    const double A_ym = harm(A_c, d_A[idx_ym]);
+    const double A_yp = harm(A_c, d_A[idx_yp]);
+    const double A_zm = harm(A_c, d_A[idx_zm]);
+    const double A_zp = harm(A_c, d_A[idx_zp]);
+
+    for (int c = 0; c < 3; ++c) {
+        const int base = c * N;
+        const double mc = m[base + idx];
+        const double acc =
+            (m[base + idx_xm] - mc) * A_xm * idx2 +
+            (m[base + idx_xp] - mc) * A_xp * idx2 +
+            (m[base + idx_ym] - mc) * A_ym * idy2 +
+            (m[base + idx_yp] - mc) * A_yp * idy2 +
+            (m[base + idx_zm] - mc) * A_zm * idz2 +
+            (m[base + idx_zp] - mc) * A_zp * idz2;
+        H_out[base + idx] += acc * pre_c;
+    }
+}
+
+// Per-cell periodic BC version
+__global__ static void exchange_kernel_percell_periodic(
+    double* __restrict__       H_out,
+    const double* __restrict__ m,
+    const double* __restrict__ d_A,
+    const double* __restrict__ d_Ms,
+    int nx, int ny, int nz,
+    double mu0_inv2,
+    double idx2, double idy2, double idz2)
+{
+    const int N   = nx * ny * nz;
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+
+    const double A_c  = d_A[idx];
+    const double Ms_c = d_Ms[idx];
+    if (Ms_c <= 0.0 || A_c <= 0.0) return;
+    const double pre_c = mu0_inv2 / Ms_c;
+
+    const int ix = idx % nx;
+    const int iy = (idx / nx) % ny;
+    const int iz = idx / (nx * ny);
+
+    const int idx_xm = ((ix - 1 + nx) % nx) + nx * (iy + ny * iz);
+    const int idx_xp = ((ix + 1)      % nx) + nx * (iy + ny * iz);
+    const int idx_ym = ix + nx * (((iy - 1 + ny) % ny) + ny * iz);
+    const int idx_yp = ix + nx * (((iy + 1)      % ny) + ny * iz);
+    const int idx_zm = ix + nx * (iy + ny * ((iz - 1 + nz) % nz));
+    const int idx_zp = ix + nx * (iy + ny * ((iz + 1)      % nz));
+
+    auto harm = [](double a, double b) -> double {
+        const double s = a + b;
+        return (s > 0.0) ? (2.0 * a * b / s) : 0.0;
+    };
+    const double A_xm = harm(A_c, d_A[idx_xm]);
+    const double A_xp = harm(A_c, d_A[idx_xp]);
+    const double A_ym = harm(A_c, d_A[idx_ym]);
+    const double A_yp = harm(A_c, d_A[idx_yp]);
+    const double A_zm = harm(A_c, d_A[idx_zm]);
+    const double A_zp = harm(A_c, d_A[idx_zp]);
+
+    for (int c = 0; c < 3; ++c) {
+        const int base = c * N;
+        const double mc = m[base + idx];
+        const double acc =
+            (m[base + idx_xm] - mc) * A_xm * idx2 +
+            (m[base + idx_xp] - mc) * A_xp * idx2 +
+            (m[base + idx_ym] - mc) * A_ym * idy2 +
+            (m[base + idx_yp] - mc) * A_yp * idy2 +
+            (m[base + idx_zm] - mc) * A_zm * idz2 +
+            (m[base + idx_zp] - mc) * A_zp * idz2;
+        H_out[base + idx] += acc * pre_c;
+    }
+}
+
+// ===========================================================================
 // Constructor / Destructor
 // ===========================================================================
 ExchangeFieldGPU::ExchangeFieldGPU(const StructuredGrid& grid, BoundaryCondition bc)
@@ -139,6 +254,8 @@ ExchangeFieldGPU::ExchangeFieldGPU(const StructuredGrid& grid, BoundaryCondition
 ExchangeFieldGPU::~ExchangeFieldGPU() {
     cudaFree(d_m_scratch_);
     cudaFree(d_H_scratch_);
+    if (d_A_field_)  cudaFree(d_A_field_);
+    if (d_Ms_field_) cudaFree(d_Ms_field_);
     if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
@@ -213,24 +330,64 @@ void ExchangeFieldGPU::accumulate(const VectorField3D& m,
 void ExchangeFieldGPU::accumulate_gpu_ptr(const double* d_m,
                                             const Material& mat,
                                             double* d_H_out) const {
-    if (mat.A_exchange == 0.0) return;
-
-    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
-    const double pre = 2.0 * mat.A_exchange / (constants::mu_0 * mat.Ms);
-    const double fx  = pre / (dx_ * dx_);
-    const double fy  = pre / (dy_ * dy_);
-    const double fz  = pre / (dz_ * dz_);
-
+    const cudaStream_t s   = static_cast<cudaStream_t>(stream_);
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    if (bc_ == BoundaryCondition::Periodic)
-        exchange_kernel_periodic<<<grd, blk, 0, s>>>(
-            d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
-    else
-        exchange_kernel<<<grd, blk, 0, s>>>(
-            d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
+    const double idx2 = 1.0 / (dx_ * dx_);
+    const double idy2 = 1.0 / (dy_ * dy_);
+    const double idz2 = 1.0 / (dz_ * dz_);
+
+    if (d_A_field_) {
+        // Per-cell mode
+        const double mu0_inv2 = 2.0 / constants::mu_0;
+        if (bc_ == BoundaryCondition::Periodic)
+            exchange_kernel_percell_periodic<<<grd, blk, 0, s>>>(
+                d_H_out, d_m, d_A_field_, d_Ms_field_,
+                (int)nx_, (int)ny_, (int)nz_, mu0_inv2, idx2, idy2, idz2);
+        else
+            exchange_kernel_percell<<<grd, blk, 0, s>>>(
+                d_H_out, d_m, d_A_field_, d_Ms_field_,
+                (int)nx_, (int)ny_, (int)nz_, mu0_inv2, idx2, idy2, idz2);
+    } else {
+        // Uniform mode
+        if (mat.A_exchange == 0.0) return;
+        const double pre = 2.0 * mat.A_exchange / (constants::mu_0 * mat.Ms);
+        if (bc_ == BoundaryCondition::Periodic)
+            exchange_kernel_periodic<<<grd, blk, 0, s>>>(
+                d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_,
+                pre * idx2, pre * idy2, pre * idz2);
+        else
+            exchange_kernel<<<grd, blk, 0, s>>>(
+                d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_,
+                pre * idx2, pre * idy2, pre * idz2);
+    }
     CUDA_CHECK(cudaGetLastError());
-    // No sync — caller owns the stream synchronisation
+}
+
+void ExchangeFieldGPU::set_material_field(const MaterialField3D& matf) {
+    // Allocate per-cell buffers if not yet done
+    if (!d_A_field_) {
+        CUDA_CHECK(cudaMalloc(&d_A_field_,  N_ * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_Ms_field_, N_ * sizeof(double)));
+    }
+    // Upload A and Ms from CPU MaterialField3D
+    std::vector<double> h_A(N_), h_Ms(N_);
+    for (size_t i = 0; i < N_; ++i) {
+        h_A[i]  = matf.A_exchange(static_cast<Index>(i));
+        h_Ms[i] = matf.Ms(static_cast<Index>(i));
+    }
+    CUDA_CHECK(cudaMemcpyAsync(d_A_field_,  h_A.data(),  N_*sizeof(double),
+                               cudaMemcpyHostToDevice,
+                               static_cast<cudaStream_t>(stream_)));
+    CUDA_CHECK(cudaMemcpyAsync(d_Ms_field_, h_Ms.data(), N_*sizeof(double),
+                               cudaMemcpyHostToDevice,
+                               static_cast<cudaStream_t>(stream_)));
+    CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream_)));
+}
+
+void ExchangeFieldGPU::clear_material_field() {
+    if (d_A_field_)  { cudaFree(d_A_field_);  d_A_field_  = nullptr; }
+    if (d_Ms_field_) { cudaFree(d_Ms_field_); d_Ms_field_ = nullptr; }
 }
 
 // ===========================================================================

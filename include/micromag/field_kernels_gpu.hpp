@@ -19,6 +19,7 @@
 #include "field.hpp"
 #include "grid.hpp"
 #include "material.hpp"
+#include "material_field.hpp"
 #include "types.hpp"
 #include "zeeman.hpp"
 
@@ -77,11 +78,22 @@ public:
                              double* d_H_out) const;
     void set_stream(void* s) { stream_ = s; }
 
+    // Per-cell material: uploads K_uniaxial, easy_axis, Ms from MaterialField3D.
+    // Once set, per-cell mode is active; call clear_material_field() to revert.
+    void set_material_field(const MaterialField3D& matf);
+    void clear_material_field();
+    bool has_material_field() const { return d_K_field_ != nullptr; }
+
 private:
     size_t N_;
-    void*  d_m_scratch_ = nullptr;
-    void*  d_H_scratch_ = nullptr;
-    void*  stream_ = nullptr;
+    void*   d_m_scratch_ = nullptr;
+    void*   d_H_scratch_ = nullptr;
+    void*   stream_ = nullptr;
+
+    // Per-cell buffers (null = uniform mode)
+    double* d_K_field_    = nullptr;  // double[N]   — K_uniaxial per cell
+    double* d_axis_field_ = nullptr;  // double[3*N] — easy_axis per cell (component-major)
+    double* d_Ms_field_   = nullptr;  // double[N]   — Ms per cell
 };
 
 // ---------------------------------------------------------------------------

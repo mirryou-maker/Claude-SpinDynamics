@@ -48,6 +48,7 @@
 #include "micromag/magnetoelastic_gpu.hpp"
 #include "micromag/surface_anisotropy_gpu.hpp"
 #include "micromag/zeeman_spatial_gpu.hpp"
+#include "micromag/rkky_gpu.hpp"
 #include "micromag/spin_torque_gpu.hpp"
 #endif
 
@@ -1032,6 +1033,14 @@ PYBIND11_MODULE(_micromag, m) {
         .def("energy_density", &ExchangeFieldGPU::energy_density,
              py::arg("m"), py::arg("mat"),
              "Per-cell exchange energy density [J/m³] (delegates to CPU grad²).")
+        .def("set_material_field",
+             [](ExchangeFieldGPU& f, const MaterialField3D& matf) { f.set_material_field(matf); },
+             py::arg("matf"),
+             "Upload per-cell A_exchange and Ms to GPU. Activates per-cell mode with "
+             "harmonic-mean A at interfaces. Call again after MaterialField3D changes.")
+        .def("clear_material_field", &ExchangeFieldGPU::clear_material_field,
+             "Revert to uniform Material mode (free per-cell GPU buffers).")
+        .def_property_readonly("has_material_field", &ExchangeFieldGPU::has_material_field)
         .def_property_readonly("name", &ExchangeFieldGPU::name);
 
     py::class_<ZeemanFieldGPU, IEffectiveField, IEffectiveFieldGPU,
@@ -1057,6 +1066,15 @@ PYBIND11_MODULE(_micromag, m) {
         .def("energy_density", &UniaxialAnisotropyFieldGPU::energy_density,
              py::arg("m"), py::arg("mat"),
              "Per-cell uniaxial anisotropy energy density [J/m³].")
+        .def("set_material_field",
+             [](UniaxialAnisotropyFieldGPU& f, const MaterialField3D& matf) { f.set_material_field(matf); },
+             py::arg("matf"),
+             "Upload per-cell K_uniaxial, easy_axis, and Ms to GPU. Activates "
+             "per-cell mode for polycrystalline (voronoi_grains) simulations. "
+             "Call again after MaterialField3D changes.")
+        .def("clear_material_field", &UniaxialAnisotropyFieldGPU::clear_material_field,
+             "Revert to uniform Material mode (free per-cell GPU buffers).")
+        .def_property_readonly("has_material_field", &UniaxialAnisotropyFieldGPU::has_material_field)
         .def_property_readonly("name", &UniaxialAnisotropyFieldGPU::name);
 
     // Phase E: CubicAnisotropyFieldGPU
@@ -1503,6 +1521,27 @@ PYBIND11_MODULE(_micromag, m) {
         .def("accumulate", &SurfaceAnisotropyFieldGPU::accumulate)
         .def("energy",     &SurfaceAnisotropyFieldGPU::energy)
         .def_property_readonly("name", &SurfaceAnisotropyFieldGPU::name);
+
+    // RKKYFieldGPU — interlayer RKKY coupling GPU drop-in
+    py::class_<RKKYFieldGPU, IEffectiveField, IEffectiveFieldGPU,
+               std::shared_ptr<RKKYFieldGPU>>(m, "RKKYFieldGPU",
+        "GPU drop-in for RKKYField (interlayer exchange coupling). "
+        "H_RKKY = -J/(mu_0*Ms*d) * m_ref. "
+        "Upload reference layer via set_ref(m_ref_cpu) before each step.")
+        .def(py::init<const StructuredGrid&, Real, Real>(),
+             py::arg("grid"), py::arg("J_RKKY"), py::arg("d_spacer"),
+             py::keep_alive<1, 2>(),
+             "grid: shared grid; J_RKKY [J/m²] (< 0 = AFM); d_spacer [m] spacer thickness.")
+        .def("set_ref",
+             [](RKKYFieldGPU& f, const VectorField3D& ref) { f.set_ref(ref); },
+             py::arg("ref_m"),
+             "Upload reference magnetization CPU -> GPU. "
+             "Call after each step if reference layer evolves.")
+        .def("accumulate",   &RKKYFieldGPU::accumulate)
+        .def("energy",       &RKKYFieldGPU::energy)
+        .def_property("J",   &RKKYFieldGPU::J, &RKKYFieldGPU::set_J)
+        .def_property_readonly("d", &RKKYFieldGPU::d)
+        .def_property_readonly("name", &RKKYFieldGPU::name);
 
     // ZeemanFieldSpatialGPU — per-cell spatial Zeeman field (GPU drop-in)
     py::class_<ZeemanFieldSpatialGPU, IEffectiveField, IEffectiveFieldGPU,

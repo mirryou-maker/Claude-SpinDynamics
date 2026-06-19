@@ -15,6 +15,7 @@
 #include "field.hpp"
 #include "grid.hpp"
 #include "material.hpp"
+#include "material_field.hpp"
 #include "types.hpp"
 
 namespace micromag {
@@ -48,6 +49,12 @@ public:
     // Redirect all kernels to an external stream (used by G6 to run on one stream)
     void set_stream(void* s) { stream_ = s; }
 
+    // Per-cell material: uploads A_exchange and Ms from MaterialField3D to device.
+    // Once set, per-cell mode is active; call clear_material_field() to revert.
+    void set_material_field(const MaterialField3D& matf);
+    void clear_material_field();
+    bool has_material_field() const { return d_A_field_ != nullptr; }
+
 private:
     Index  nx_, ny_, nz_;
     Real   dx_, dy_, dz_;
@@ -56,6 +63,10 @@ private:
     // GPU scratch buffers (allocated once, reused per accumulate)
     void* d_m_scratch_ = nullptr;   // double[3 × N]
     void* d_H_scratch_ = nullptr;   // double[3 × N]
+
+    // Per-cell material buffers (null = uniform mode)
+    double* d_A_field_  = nullptr;  // double[N] — A_exchange per cell
+    double* d_Ms_field_ = nullptr;  // double[N] — Ms per cell
 
     // CUDA stream — all GPU work serialised here
     void* stream_ = nullptr;

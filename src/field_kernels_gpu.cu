@@ -16,6 +16,7 @@
 
 #include "micromag/anisotropy.hpp"
 #include "micromag/field_kernels_gpu.hpp"
+#include "micromag/material_field.hpp"
 #include "micromag/types.hpp"
 #include "micromag/zeeman.hpp"
 
@@ -133,6 +134,9 @@ UniaxialAnisotropyFieldGPU::UniaxialAnisotropyFieldGPU(const StructuredGrid& gri
 UniaxialAnisotropyFieldGPU::~UniaxialAnisotropyFieldGPU() {
     cudaFree(d_m_scratch_);
     cudaFree(d_H_scratch_);
+    if (d_K_field_)    cudaFree(d_K_field_);
+    if (d_axis_field_) cudaFree(d_axis_field_);
+    if (d_Ms_field_)   cudaFree(d_Ms_field_);
     if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
@@ -193,24 +197,96 @@ ScalarField3D UniaxialAnisotropyFieldGPU::energy_density(const VectorField3D& m,
     return cpu.energy_density(m, mat);
 }
 
+// Per-cell uniaxial anisotropy kernel
+// d_K:    [N]   — K_uniaxial per cell
+// d_axis: [3N]  — easy_axis per cell (component-major: [ux0..uxN-1 | uy | uz])
+// d_Ms:   [N]   — Ms per cell
+__global__ static void anisotropy_kernel_percell(
+    double* __restrict__       H_out,
+    const double* __restrict__ m,
+    const double* __restrict__ d_K,
+    const double* __restrict__ d_axis,
+    const double* __restrict__ d_Ms,
+    double mu0_inv2,   // 2.0 / mu_0
+    int N)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+
+    const double K_i  = d_K[idx];
+    const double Ms_i = d_Ms[idx];
+    if (Ms_i <= 0.0 || K_i == 0.0) return;
+
+    // Normalize easy axis
+    double ux = d_axis[0*N + idx];
+    double uy = d_axis[1*N + idx];
+    double uz = d_axis[2*N + idx];
+    const double unorm = sqrt(ux*ux + uy*uy + uz*uz);
+    if (unorm < 1e-30) return;
+    ux /= unorm; uy /= unorm; uz /= unorm;
+
+    const double factor = K_i * mu0_inv2 / Ms_i;
+    const double dot = m[0*N + idx]*ux + m[1*N + idx]*uy + m[2*N + idx]*uz;
+    const double h   = factor * dot;
+    H_out[0*N + idx] += h * ux;
+    H_out[1*N + idx] += h * uy;
+    H_out[2*N + idx] += h * uz;
+}
+
 // GPU-pointer path (no PCIe): used by G6 pipeline
 void UniaxialAnisotropyFieldGPU::accumulate_gpu_ptr(const double* d_m,
                                                       const Material& mat,
                                                       double* d_H_out) const {
-    if (mat.K_uniaxial == 0.0) return;
-
-    Vec3 u = mat.easy_axis;
-    const double unorm = std::sqrt(u.x*u.x + u.y*u.y + u.z*u.z);
-    if (unorm < 1e-30) return;
-    u.x /= unorm; u.y /= unorm; u.z /= unorm;
-    const double factor = 2.0 * mat.K_uniaxial / (constants::mu_0 * mat.Ms);
-
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    anisotropy_kernel<<<grd, blk, 0, s>>>(
-        d_H_out, d_m, factor, u.x, u.y, u.z, static_cast<int>(N_));
+
+    if (d_K_field_) {
+        // Per-cell mode
+        const double mu0_inv2 = 2.0 / constants::mu_0;
+        anisotropy_kernel_percell<<<grd, blk, 0, s>>>(
+            d_H_out, d_m, d_K_field_, d_axis_field_, d_Ms_field_,
+            mu0_inv2, static_cast<int>(N_));
+    } else {
+        // Uniform mode
+        if (mat.K_uniaxial == 0.0) return;
+        Vec3 u = mat.easy_axis;
+        const double unorm = std::sqrt(u.x*u.x + u.y*u.y + u.z*u.z);
+        if (unorm < 1e-30) return;
+        u.x /= unorm; u.y /= unorm; u.z /= unorm;
+        const double factor = 2.0 * mat.K_uniaxial / (constants::mu_0 * mat.Ms);
+        anisotropy_kernel<<<grd, blk, 0, s>>>(
+            d_H_out, d_m, factor, u.x, u.y, u.z, static_cast<int>(N_));
+    }
     CUDA_CHECK(cudaGetLastError());
+}
+
+void UniaxialAnisotropyFieldGPU::set_material_field(const MaterialField3D& matf) {
+    if (!d_K_field_) {
+        CUDA_CHECK(cudaMalloc(&d_K_field_,    N_   * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_axis_field_, 3*N_ * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_Ms_field_,   N_   * sizeof(double)));
+    }
+    std::vector<double> h_K(N_), h_Ms(N_), h_axis(3 * N_);
+    for (size_t i = 0; i < N_; ++i) {
+        h_K[i]  = matf.K_uniaxial(static_cast<Index>(i));
+        h_Ms[i] = matf.Ms(static_cast<Index>(i));
+        const Vec3& u = matf.easy_axis(static_cast<Index>(i));
+        h_axis[0*N_ + i] = u.x;
+        h_axis[1*N_ + i] = u.y;
+        h_axis[2*N_ + i] = u.z;
+    }
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemcpyAsync(d_K_field_,    h_K.data(),    N_  *sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_axis_field_, h_axis.data(), 3*N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_Ms_field_,   h_Ms.data(),   N_  *sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+}
+
+void UniaxialAnisotropyFieldGPU::clear_material_field() {
+    if (d_K_field_)    { cudaFree(d_K_field_);    d_K_field_    = nullptr; }
+    if (d_axis_field_) { cudaFree(d_axis_field_); d_axis_field_ = nullptr; }
+    if (d_Ms_field_)   { cudaFree(d_Ms_field_);   d_Ms_field_   = nullptr; }
 }
 
 // ===========================================================================
