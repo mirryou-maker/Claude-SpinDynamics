@@ -32,7 +32,7 @@ cmake --preset windows-msvc-cuda
 # Build
 cmake --build build/windows-msvc-cuda --config Release
 
-# Run GPU tests (53 tests)
+# Run GPU tests (100 tests)
 .\build\windows-msvc-cuda\bin\Release\unit_tests_gpu.exe
 
 # Run µMAG benchmarks
@@ -40,6 +40,14 @@ cmake --build build/windows-msvc-cuda --config Release
 .\build\windows-msvc-cuda\bin\Release\sp4_rk45_gpu.exe         # G9: GPU RK45 adaptive
 .\build\windows-msvc-cuda\bin\Release\sp4_gpu_1ns.exe          # SP#4 1 ns GPU validation
 .\build\windows-msvc-cuda\bin\Release\llg_large_bench.exe      # 2.5 M cell scaling
+```
+
+### CPU validation apps
+
+```powershell
+# Bloch DW width validation (Priority 2: µMAG extension)
+.\build\windows-msvc\bin\Release\bloch_dw.exe
+# Expected: λ_meas ≈ λ_theory = π√(A/K) within 10% for K=1e5–1e6 J/m³
 ```
 
 Debug build uses preset `windows-msvc-debug` and outputs to `build/windows-msvc-debug`.  
@@ -185,6 +193,64 @@ GPU RK45 vs GPU RK4 on SP#4 (0.3 ns): 1047 steps @ 2.1 ms vs 6000 steps @ 1.4 ms
 | `sp1`, `sp1_phase` | SP#1 | L_c = 115 nm, vortex/S-state phase diagram |
 | `sp3` | SP#3 | Hysteresis: H_sw ≈ −20 mT (1 µm × 1 µm × 20 nm, 10 nm cells) |
 | `sp4_gpu_1ns` | SP#4 GPU | ⟨mx⟩(1ns) = −0.944 (GPU RK4 fixed dt=5e-14 s) |
+| `bloch_dw` | Bloch DW | λ_meas ≈ λ_theory = π√(A/K) within 10% (K=1e5–4e6 J/m³, dx=0.5–1 nm) |
+
+## GPU per-cell field API
+
+All GPU fields support uniform and per-cell material parameters:
+
+```python
+import micromag as mm
+
+# Per-cell exchange (harmonic mean at grain boundaries)
+exch = mm.ExchangeFieldGPU(grid)
+exch.set_material_field(matf)   # MaterialField3D
+print(exch.has_material_field)  # True
+
+# Per-cell uniaxial anisotropy (K, easy_axis per cell)
+ani = mm.UniaxialAnisotropyFieldGPU(grid)
+ani.set_material_field(matf)
+
+# Per-cell DMI
+dmi = mm.InterfacialDMIFieldGPU(grid, D_uniform)
+dmi.set_D_field(D_sf, Ms_sf)   # ScalarField3D × 2
+print(dmi.has_D_field)
+
+# Per-cell cubic anisotropy
+cubic = mm.CubicAnisotropyFieldGPU(grid, Kc1, Kc2)
+cubic.set_Kc_field(Kc1_sf, Kc2_sf, Ms_sf)
+
+# Per-cell surface anisotropy
+surf = mm.SurfaceAnisotropyFieldGPU(grid, Ks, t_film)
+surf.set_Ks_field(Ks_sf, Ms_sf)
+
+# FieldSumGPU: pass extra fields to all GPU integrators
+fields = mm.FieldSumGPU()
+fields.add(exch); fields.add(ani); fields.add(dmi)
+
+# RK4 / RK45 / Heun all accept FieldSumGPU overload
+rk4   = mm.RK4IntegratorGPU(grid, dt);   rk4.step(mat, demag, fields)
+rk45  = mm.RK45IntegratorGPU(grid);      rk45.step(mat, demag, fields)
+heun  = mm.HeunIntegratorGPU(grid, dt);  heun.step(mat, demag, fields)
+relax = mm.RelaxGPU(grid);               relax.run(mat, demag, fields, opts)
+```
+
+## Python utility functions
+
+```python
+# Animation
+arr    = mm.batch_to_numpy(frames)               # (n_frames, nz, ny, nx, 3) ndarray
+mm.save_animation(frames, "out.gif", component="z", fps=10)
+
+# DW width (Lilley definition: λ = π/max|dm/dx|)
+lam, x0 = mm.bloch_dw_width(m, axis=0, comp=2)  # [m], [m]
+
+# Skyrmion phase diagram D×K sweep (GPU, convenience wrapper)
+res = mm.skyrmion_phase_diagram_gpu(D_vals, K_vals, grid, mat)
+
+# Parameter sweep (multiprocessing-safe, n_jobs>1 uses spawn context)
+results = mm.parameter_sweep(fn, {"D": D_vals, "K": K_vals}, n_jobs=4)
+```
 
 ## Response Size Constraints
 - Never produce a single response large enough to hit the 32,000 output token limit.
@@ -193,8 +259,8 @@ GPU RK45 vs GPU RK4 on SP#4 (0.3 ns): 1047 steps @ 2.1 ms vs 6000 steps @ 1.4 ms
 
 ## Test structure
 
-**CPU** (`tests/unit_tests`, 87 tests): Catch2 v3, tags below.  
-**GPU** (`tests/unit_tests_gpu`, 53 tests): same runner, all tagged `[gpu]`.
+**CPU** (`tests/unit_tests`, 224 tests): Catch2 v3, tags below.  
+**GPU** (`tests/unit_tests_gpu`, 100 tests): same runner, all tagged `[gpu]`.
 
 | Tag | Scope |
 |-----|-------|

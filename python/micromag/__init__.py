@@ -236,6 +236,8 @@ __all__ = [
     "moving_gaussian_field",
     # Utilities
     "cuda_available", "parameter_sweep", "multi_gpu_sweep",
+    "batch_to_numpy", "save_animation",
+    "skyrmion_phase_diagram_gpu", "bloch_dw_width",
     # SP#2 / grid-sizing utilities (pure Python)
     "exchange_length", "optimal_dx", "sp2_grid",
     # GPU classes (conditionally available — only in CUDA build)
@@ -2583,6 +2585,16 @@ from micromag._phase_n import (mfm_signal, edge_smooth,  # noqa: E402
 # parameter_sweep — run a simulation function over a parameter grid
 # ---------------------------------------------------------------------------
 
+def _sweep_worker(args):
+    """Module-level worker for parameter_sweep multiprocessing (pickle-safe)."""
+    fn, keys, combo = args
+    kwargs = dict(zip(keys, combo))
+    result = fn(**kwargs)
+    if not isinstance(result, dict):
+        result = {"result": result}
+    return {**kwargs, **result}
+
+
 def parameter_sweep(
     fn,
     params: dict,
@@ -2630,24 +2642,25 @@ def parameter_sweep(
     combos = list(itertools.product(*values))
     total  = len(combos)
 
-    def _run_one(combo):
-        kwargs = dict(zip(keys, combo))
-        result = fn(**kwargs)
-        if not isinstance(result, dict):
-            result = {"result": result}
-        return {**kwargs, **result}
-
     if n_jobs == 1:
         results = []
         for k, combo in enumerate(combos):
             if progress:
                 print(f"[parameter_sweep] {k+1}/{total}  "
-                      + "  ".join(f"{k}={v}" for k, v in zip(keys, combo)))
-            results.append(_run_one(combo))
+                      + "  ".join(f"{ky}={v}" for ky, v in zip(keys, combo)))
+            kwargs = dict(zip(keys, combo))
+            result = fn(**kwargs)
+            if not isinstance(result, dict):
+                result = {"result": result}
+            results.append({**kwargs, **result})
     else:
         import multiprocessing as _mp
-        with _mp.Pool(processes=n_jobs) as pool:
-            results = pool.map(_run_one, combos)
+        task_args = [(fn, keys, combo) for combo in combos]
+        ctx = _mp.get_context("spawn")  # spawn is pickle-safe on all platforms
+        with ctx.Pool(processes=n_jobs) as pool:
+            if progress:
+                print(f"[parameter_sweep] n_jobs={n_jobs}, total={total} cases")
+            results = pool.map(_sweep_worker, task_args)
 
     return results
 
@@ -2741,5 +2754,313 @@ def multi_gpu_sweep(
 
     with _mp.Pool(processes=len(gpu_ids)) as pool:
         results = pool.map(_worker_run, task_args)
+
+    return results
+
+
+# ===========================================================================
+# Priority 1-4: new utility functions
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# batch_to_numpy — convert a list of VectorField3D frames to a single array
+# ---------------------------------------------------------------------------
+
+def batch_to_numpy(m_list):
+    """Convert a list of VectorField3D snapshots to a single numpy array.
+
+    Parameters
+    ----------
+    m_list : list[VectorField3D]
+        Sequence of magnetisation frames (same grid).
+
+    Returns
+    -------
+    numpy.ndarray, shape (n_frames, nz, ny, nx, 3)
+        All frames stacked along axis 0.  Suitable for animation or analysis.
+
+    Example
+    -------
+    >>> frames = []
+    >>> for _ in range(n_steps):
+    ...     integ.step(mat, demag, fields)
+    ...     m = mm.VectorField3D(grid); integ.download(m); frames.append(m)
+    >>> arr = mm.batch_to_numpy(frames)   # (n_frames, nz, ny, nx, 3)
+    """
+    import numpy as _np
+    if not m_list:
+        return _np.empty((0,))
+    frames = [_np.asarray(to_numpy(m)) for m in m_list]
+    return _np.stack(frames, axis=0)
+
+
+# ---------------------------------------------------------------------------
+# save_animation — write VectorField3D sequence to GIF/MP4
+# ---------------------------------------------------------------------------
+
+def save_animation(
+    m_list,
+    filename: str,
+    component: str = "z",
+    colormap: str = "bwr",
+    vmin: float = -1.0,
+    vmax: float = 1.0,
+    fps: int = 10,
+    iz: int = 0,
+    dpi: int = 80,
+):
+    """Save a list of VectorField3D snapshots as an animated GIF or MP4.
+
+    Requires matplotlib and (for GIF) either Pillow or imageio. For MP4
+    additionally requires ffmpeg on PATH.
+
+    Parameters
+    ----------
+    m_list     : list[VectorField3D] — sequence of frames (same grid)
+    filename   : str — output path; extension determines format (.gif / .mp4)
+    component  : 'x' | 'y' | 'z' — magnetisation component to display
+    colormap   : matplotlib colormap name (default 'bwr')
+    vmin/vmax  : colour scale limits (default ±1)
+    fps        : frames per second
+    iz         : z-layer index to display (default 0)
+    dpi        : figure DPI
+
+    Example
+    -------
+    >>> mm.save_animation(frames, "skyrmion.gif", component="z", fps=15)
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as _plt
+        import matplotlib.animation as _anim
+    except ImportError as e:
+        raise ImportError("save_animation requires matplotlib. "
+                          "Install with: pip install matplotlib") from e
+
+    comp_idx = {"x": 0, "y": 1, "z": 2}[component]
+    arr = batch_to_numpy(m_list)          # (n_frames, nz, ny, nx, 3)
+    data = arr[:, iz, :, :, comp_idx]    # (n_frames, ny, nx)
+
+    fig, ax = _plt.subplots(figsize=(4, 4), dpi=dpi)
+    ax.set_axis_off()
+    im = ax.imshow(data[0], cmap=colormap, vmin=vmin, vmax=vmax,
+                   origin="lower", interpolation="nearest")
+    title = ax.set_title("Frame 0")
+
+    def _update(frame_idx):
+        im.set_data(data[frame_idx])
+        title.set_text(f"Frame {frame_idx}")
+        return [im, title]
+
+    ani = _anim.FuncAnimation(fig, _update, frames=len(m_list),
+                              interval=1000 // fps, blit=True)
+
+    if filename.endswith(".gif"):
+        ani.save(filename, writer="pillow", fps=fps)
+    elif filename.endswith(".mp4"):
+        ani.save(filename, writer="ffmpeg", fps=fps)
+    else:
+        ani.save(filename, fps=fps)
+
+    _plt.close(fig)
+    print(f"[save_animation] saved {len(m_list)} frames → {filename}")
+
+
+# ---------------------------------------------------------------------------
+# bloch_dw_width — extract Bloch DW width from 1D magnetisation profile
+# ---------------------------------------------------------------------------
+
+def bloch_dw_width(m, axis: int = 0, comp: int = 2):
+    """Estimate Bloch/Neel domain-wall width from a VectorField3D.
+
+    Uses the Lilley (1950) width definition:
+        λ_Lilley = π × Δ,  where Δ = √(A/K) (exchange-anisotropy length).
+
+    From the equilibrium tanh profile mz(x) = tanh(x/Δ):
+        |dm/dx|_max = 1/Δ  →  λ_Lilley = π / |dm/dx|_max
+
+    Parameters
+    ----------
+    m    : VectorField3D — 1D strip (ny=nz=1 ideal) or profile averaged over y/z
+    axis : int           — propagation axis (0=x, 1=y, 2=z)
+    comp : int           — component to analyse (2=mz for standard easy-z DW)
+
+    Returns
+    -------
+    (lam, x0) : (float, float)
+        lam — Lilley DW width λ [m]
+        x0  — DW centre position [m]
+
+    Example
+    -------
+    >>> lam, x0 = mm.bloch_dw_width(m, axis=0, comp=2)
+    >>> import math
+    >>> lam_theory = math.pi * math.sqrt(A / K)
+    >>> print(f"DW width: measured={lam*1e9:.1f} nm, theory={lam_theory*1e9:.1f} nm")
+    """
+    import numpy as _np
+    import math as _m
+    g = m.grid
+    cell_sizes = [g.dx, g.dy, g.dz]
+    ds = cell_sizes[axis]
+
+    arr = _np.asarray(to_numpy(m))      # (nz, ny, nx, 3)
+
+    # Average over the two non-propagation axes
+    if axis == 0:
+        profile = arr.mean(axis=(0, 1))  # (nx, 3)
+    elif axis == 1:
+        profile = arr.mean(axis=(0, 2))  # (ny, 3)
+    else:
+        profile = arr.mean(axis=(1, 2))  # (nz, 3)
+
+    mc = profile[:, comp]
+    n = len(mc)
+    pos = (_np.arange(n) + 0.5) * ds
+
+    dm_dx = _np.gradient(mc, ds)        # [1/m]
+    peak_grad = _np.max(_np.abs(dm_dx))
+
+    if peak_grad < 1e-20:
+        return 0.0, pos[n // 2]
+
+    # Lilley width: λ = π / |dm/dx|_max = π × Δ
+    lam = _m.pi / peak_grad
+
+    # Centre: position of steepest gradient
+    x0 = pos[_np.argmax(_np.abs(dm_dx))]
+    return float(lam), float(x0)
+
+
+# ---------------------------------------------------------------------------
+# skyrmion_phase_diagram_gpu — convenience D×K sweep on GPU
+# ---------------------------------------------------------------------------
+
+def skyrmion_phase_diagram_gpu(
+    D_vals,
+    K_vals,
+    grid=None,
+    mat=None,
+    *,
+    n_relax_steps: int = 200000,
+    threshold: float = 5000.0,
+    progress: bool = True,
+):
+    """Sweep DMI strength D and PMA K to map skyrmion stability.
+
+    Each (D, K) point: initialise an inward Neel skyrmion seed → RelaxGPU
+    → compute topological charge Q. Returns a list of result dicts.
+
+    Requires GPU build (CUDA).
+
+    Parameters
+    ----------
+    D_vals         : list[float] — DMI values [J/m²]
+    K_vals         : list[float] — PMA K_uniaxial values [J/m³]
+    grid           : StructuredGrid | None — defaults to 32×32×1 at 3nm
+    mat            : Material | None — defaults to Co/Pt-like (Ms=0.58MA/m, A=15pJ/m)
+    n_relax_steps  : max relaxation steps per point
+    threshold      : |m×H|_max threshold [A/m] for convergence
+    progress       : print progress
+
+    Returns
+    -------
+    list[dict]  — keys: D, K, Q, is_skyrmion (|Q|>0.5), steps
+
+    Example
+    -------
+    >>> res = mm.skyrmion_phase_diagram_gpu(
+    ...     D_vals=[2e-3, 3e-3, 4e-3],
+    ...     K_vals=[0.4e6, 0.6e6, 0.8e6],
+    ... )
+    >>> for r in res:
+    ...     print(f"D={r['D']*1e3:.1f} mJ/m²  K={r['K']/1e6:.1f} MJ/m³  Q={r['Q']:.2f}")
+    """
+    import math as _m
+    import numpy as _np
+
+    if grid is None:
+        grid = StructuredGrid(32, 32, 1, 3e-9, 3e-9, 1e-9)
+    if mat is None:
+        mat = Material()
+        mat.Ms         = 0.58e6
+        mat.A_exchange = 15e-12
+        mat.alpha      = 0.5
+
+    nx, ny, nz = grid.nx, grid.ny, grid.nz
+    N = nx * ny * nz
+    cell = grid.dx
+    cx = nx * cell * 0.5
+    cy = ny * cell * 0.5
+    pi = _m.pi
+
+    def _init_neel_sky(K_val):
+        R = max(2 * cell, _m.pi * _m.sqrt(15e-12 / max(K_val, 1e3)) * 0.5)
+        m0 = VectorField3D(grid)
+        for iz in range(nz):
+            for iy in range(ny):
+                for ix in range(nx):
+                    rx = (ix + 0.5) * cell - cx
+                    ry = (iy + 0.5) * cell - cy
+                    r = _m.sqrt(rx*rx + ry*ry)
+                    cos_t = _m.cos(pi * r / (2 * R)) if r < 2 * R else -1.0
+                    sin_t = _m.sqrt(max(0.0, 1.0 - cos_t**2))
+                    lin = ix + nx * (iy + ny * iz)
+                    if r < 1e-30:
+                        m0[lin] = Vec3(0, 0, 1)
+                    else:
+                        # inward Neel: favoured by D>0 interfacial DMI
+                        m0[lin] = Vec3(-(rx/r)*sin_t, -(ry/r)*sin_t, cos_t)
+        return m0
+
+    results = []
+    total = len(D_vals) * len(K_vals)
+    idx = 0
+
+    for K in K_vals:
+        for D in D_vals:
+            idx += 1
+            if progress:
+                print(f"[skyrmion_phase_diagram_gpu] {idx}/{total}  "
+                      f"D={D*1e3:.2f} mJ/m²  K={K/1e6:.3f} MJ/m³", flush=True)
+
+            mat.K_uniaxial = K
+            mat.easy_axis  = Vec3(0, 0, 1)
+
+            m0 = _init_neel_sky(K)
+            Q_init = topological_charge_Q(m0)
+
+            demag = DemagFieldGPU(grid)
+            exch  = ExchangeFieldGPU(grid)
+            ani   = UniaxialAnisotropyFieldGPU(grid)
+            dmi   = InterfacialDMIFieldGPU(grid, D)
+
+            fields = FieldSumGPU()
+            fields.add(exch)
+            fields.add(ani)
+            fields.add(dmi)
+
+            relax = RelaxGPU(grid)
+            relax.upload(m0)
+
+            opts = RelaxGPU.Options()
+            opts.threshold   = threshold
+            opts.max_steps   = n_relax_steps
+            opts.check_every = 2000
+            opts.dt          = 5e-13
+            steps = relax.run(mat, demag, fields, opts)
+
+            m_out = VectorField3D(grid)
+            relax.download(m_out)
+            m_out.normalize()
+
+            Q = topological_charge_Q(m_out)
+            results.append({
+                "D": D, "K": K,
+                "Q_init": Q_init, "Q": Q,
+                "is_skyrmion": abs(Q) > 0.5,
+                "steps": steps,
+            })
 
     return results

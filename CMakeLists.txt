@@ -121,6 +121,10 @@ target_link_libraries(sp4_thermal PRIVATE micromag_core)
 add_executable(sp3 apps/sp3.cpp)
 target_link_libraries(sp3 PRIVATE micromag_core)
 
+# Bloch DW width validation (Priority 2: µMAG validation extension)
+add_executable(bloch_dw apps/bloch_dw.cpp)
+target_link_libraries(bloch_dw PRIVATE micromag_core)
+
 # CUDA/cuFFT GPU backend (Phase 3) -----------------------------------------
 if(MICROMAG_USE_CUDA)
     enable_language(CUDA)
