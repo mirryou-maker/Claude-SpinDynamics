@@ -102,6 +102,9 @@ from _micromag import (
     skyrmion_count,
     # CUDA availability probe
     cuda_available,
+    # Phase N: MFM imaging
+    MFMImage,
+    TipMode,
 )
 
 # GPU classes are only present in the CUDA build — import conditionally
@@ -196,6 +199,8 @@ __all__ = [
     # Phase M: torque field observable + custom field + stray field
     "get_torque_field", "max_torque_field",
     "PythonField", "stray_field",
+    # Phase N: MFM, EdgeSmooth, poisson_disk_grains
+    "MFMImage", "TipMode", "mfm_signal", "edge_smooth", "poisson_disk_grains",
     # Phase K: spin-wave dispersion wrapper
     "spin_wave_dispersion",
     # Phase D: dynamic write-head utility
@@ -1619,3 +1624,10 @@ def stray_field(grid, Ms_ext: float, volume_ext: float,
     result = VectorField3D(g)
     from_numpy(result, H_arr)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Phase N: MFM, EdgeSmooth, Poisson-disk grains
+# ---------------------------------------------------------------------------
+from micromag._phase_n import (mfm_signal, edge_smooth,  # noqa: E402
+                               poisson_disk_grains)
