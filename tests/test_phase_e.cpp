@@ -672,3 +672,49 @@ TEST_CASE("InterExchange: clear_inter_exchange resets all pairs", "[inter_exchan
     exch.clear_inter_exchange();
     REQUIRE_THAT(exch.inter_exchange(0, 1), WithinAbs(-1.0, 1e-10));
 }
+
+TEST_CASE("InterExchange: negative A_IEC (AFM) is applied, not silently replaced by harmonic mean",
+          "[inter_exchange]") {
+    // 3-cell chain: region 0 | region 1 | region 0
+    // m: left=(1,0,0), center=(-1,0,0), right=(1,0,0) — Neel order
+    //
+    // Exchange field on center:
+    //   H = (2*A_IEC / mu0*Ms*dx^2) * (m_left + m_right - 2*m_center)
+    //     = coeff * ((+x) + (+x) - 2*(-x)) = coeff * 4x
+    //
+    // AFM (A_IEC < 0): coeff < 0 → H.x < 0  (field maintains -x, AFM restoring force)
+    // FM fallback  (A_IEC > 0): coeff > 0 → H.x > 0  (would try to flip center to +x)
+    //
+    // Before the fix: negative A_IEC was silently replaced by harmonic-mean (+A_Py)
+    // → H.x > 0, which means FM coupling was applied instead of AFM.
+    // After the fix:  A_IEC = -A_Py is used correctly → H.x < 0.
+    StructuredGrid g(3, 1, 1, 5e-9, 5e-9, 5e-9);
+    Material mat = Material::permalloy();
+
+    RegionMap rm(g, 0);
+    rm[1] = 1;  // center cell: region 1
+
+    ExchangeField exch(BoundaryCondition::Neumann);
+    exch.set_region_map(&rm);
+    exch.set_inter_exchange(0, 1, -mat.A_exchange);   // AFM coupling
+
+    VectorField3D m(g);
+    m[0] = { 1, 0, 0};   // region 0: +x
+    m[1] = {-1, 0, 0};   // region 1: -x  (Neel order)
+    m[2] = { 1, 0, 0};   // region 0: +x
+
+    VectorField3D H(g);
+    exch.accumulate(m, mat, H);
+
+    // AFM exchange field on center cell: points in -x (maintains anti-alignment).
+    // FM fallback would give +x.  This distinguishes the two behaviours.
+    REQUIRE(H[1].x < 0.0);
+
+    // Also verify: with FM coupling (+A) the field flips sign
+    ExchangeField exch_fm(BoundaryCondition::Neumann);
+    exch_fm.set_region_map(&rm);
+    exch_fm.set_inter_exchange(0, 1, +mat.A_exchange);   // FM coupling
+    VectorField3D H_fm(g);
+    exch_fm.accumulate(m, mat, H_fm);
+    REQUIRE(H_fm[1].x > 0.0);  // FM: field pushes center toward +x neighbors
+}

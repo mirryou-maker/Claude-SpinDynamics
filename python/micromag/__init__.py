@@ -174,6 +174,8 @@ __all__ = [
     # Phase I: mumax3 utility extensions
     "thermalize", "sinusoidal_field", "domain_wall_pos",
     "field_fft2d", "compute_heff",
+    # Phase J: analysis + material utilities
+    "save_profile", "rotate_mag", "checkerboard_regions", "zhang_li_from_current",
     # Utilities
     "cuda_available",
     # SP#2 / grid-sizing utilities (pure Python)
@@ -851,3 +853,131 @@ def compute_heff(m, mat, heff):
     H = VectorField3D(m.grid)
     heff.accumulate(m, mat, H)
     return H
+
+
+# ===========================================================================
+# Phase J — mumax3 analysis + material utilities
+# ===========================================================================
+
+def save_profile(m, fname: str, component: str = "z", axis: int = 0,
+                 scale: float = 1.0) -> str:
+    """Save a 1D averaged magnetization profile to CSV (mumax3 SaveProfile analog).
+
+    Averages m[component] over the two transverse dimensions, then writes
+    (position [m], value) rows.
+
+    Parameters
+    ----------
+    m         : VectorField3D
+    fname     : str   — output CSV filename
+    component : str   — 'x', 'y', or 'z'
+    axis      : int   — scan axis: 0=x, 1=y, 2=z
+    scale     : float — multiply values before writing (e.g. for Ms·m)
+
+    Returns
+    -------
+    str — the filename written
+    """
+    import csv
+    arr   = _np.asarray(to_numpy(m))
+    g     = m.grid
+    sizes = (g.nx, g.ny, g.nz)
+    steps = (g.dx, g.dy, g.dz)
+    comp  = {"x": 0, "y": 1, "z": 2}[component]
+    n, ds = sizes[axis], steps[axis]
+
+    if axis == 0:
+        profile = arr[:, :, :, comp].mean(axis=(0, 1))
+    elif axis == 1:
+        profile = arr[:, :, :, comp].mean(axis=(0, 2))
+    else:
+        profile = arr[:, :, :, comp].mean(axis=(1, 2))
+
+    pos = (_np.arange(n) + 0.5) * ds - 0.5 * n * ds
+
+    with open(fname, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow([f"pos_{'xyz'[axis]}_m", f"m{component}"])
+        for p, v in zip(pos, profile * scale):
+            w.writerow([f"{p:.6e}", f"{v:.9g}"])
+    return fname
+
+
+def rotate_mag(m, theta: float, axis=(0.0, 0.0, 1.0)):
+    """Rotate all magnetization vectors in-place by theta [rad] around axis.
+
+    Uses Rodrigues' formula:
+      m' = m cos θ + (k × m) sin θ + k(k·m)(1 − cos θ)
+
+    Parameters
+    ----------
+    m     : VectorField3D  — modified in-place
+    theta : float  — rotation angle [rad]
+    axis  : Vec3 | tuple  — rotation axis (does not need to be normalised)
+
+    Example
+    -------
+    >>> mm.rotate_mag(m, _math.pi/4, axis=mm.Vec3(0, 0, 1))   # 45° around z
+    """
+    arr = _np.asarray(to_numpy(m))
+    if hasattr(axis, "x"):
+        k = _np.array([axis.x, axis.y, axis.z], dtype=float)
+    else:
+        k = _np.asarray(axis, dtype=float)
+    k = k / _np.linalg.norm(k)
+    ct, st = _math.cos(theta), _math.sin(theta)
+    kxm   = _np.cross(k, arr)
+    kdotm = _np.einsum("...i,i->...", arr, k)[..., _np.newaxis]
+    rot   = arr * ct + kxm * st + k * kdotm * (1 - ct)
+    from_numpy(m, rot)
+
+
+def checkerboard_regions(grid) -> "RegionMap":
+    """Create a RegionMap with an alternating 0/1 checkerboard pattern.
+
+    Region ID = (ix + iy + iz) % 2.  Useful for antiferromagnetic coupling:
+
+    >>> rmap = mm.checkerboard_regions(g)
+    >>> exch.set_region_map(rmap)
+    >>> exch.set_inter_exchange(0, 1, -abs_A)   # antiferromagnetic
+
+    Returns
+    -------
+    RegionMap (region 0 and region 1 in 3D checkerboard)
+    """
+    rm = RegionMap(grid, 0)
+    nx, ny, nz = grid.nx, grid.ny, grid.nz
+    for iz in range(nz):
+        for iy in range(ny):
+            for ix in range(nx):
+                rm[ix + nx * (iy + ny * iz)] = (ix + iy + iz) % 2
+    return rm
+
+
+def zhang_li_from_current(j_amp: float, direction,
+                           Ms: float, P: float = 0.5, xi: float = 0.04):
+    """Create ZhangLiSTT from scalar current density and direction.
+
+    Convenience wrapper for ZhangLiSTT(J_vec, P, xi) where J_vec is
+    computed from a scalar magnitude and a direction vector.
+
+    Parameters
+    ----------
+    j_amp     : float — current density magnitude [A/m²]
+    direction : Vec3 | tuple — current direction (auto-normalised)
+    Ms        : float — saturation magnetisation [A/m]  (used to report u)
+    P         : float — spin polarisation (default 0.5)
+    xi        : float — non-adiabaticity β (default 0.04)
+
+    Returns
+    -------
+    ZhangLiSTT
+    """
+    if hasattr(direction, "x"):
+        d = _np.array([direction.x, direction.y, direction.z], dtype=float)
+    else:
+        d = _np.asarray(direction, dtype=float)
+    d = d / _np.linalg.norm(d)
+    J_vec = Vec3(float(d[0] * j_amp), float(d[1] * j_amp), float(d[2] * j_amp))
+    stt   = ZhangLiSTT(J_vec, P, xi)
+    return stt

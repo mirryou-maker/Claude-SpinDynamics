@@ -107,7 +107,7 @@ void ExchangeField::accumulate(const VectorField3D& m,
                 uint8_t rid_n = (*rmap_)[in];
                 if (rid_n != rid_c) {
                     Real iec = lookup_inter(rid_c, rid_n);
-                    if (iec >= 0) return iec;
+                    if (!std::isnan(iec)) return iec;
                 }
             }
             const Real A_n = matf_ ? matf_->A_exchange(in) : mat.A_exchange;

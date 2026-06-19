@@ -2,6 +2,8 @@
 
 #include "effective_field.hpp"
 #include <cstdint>
+#include <cmath>
+#include <limits>
 #include <unordered_map>
 
 namespace micromag {
@@ -93,11 +95,12 @@ private:
         uint8_t hi = ri < rj ? rj : ri;
         return static_cast<uint32_t>(lo) * 256u + hi;
     }
-    // Returns -1 if not set.
+    // Returns NaN if not set — distinguishes "unset" from valid negative A (AFM).
     Real lookup_inter(uint8_t ri, uint8_t rj) const {
-        if (inter_A_.empty()) return Real{-1};
+        if (inter_A_.empty()) return std::numeric_limits<Real>::quiet_NaN();
         auto it = inter_A_.find(inter_key(ri, rj));
-        return (it != inter_A_.end()) ? it->second : Real{-1};
+        return (it != inter_A_.end()) ? it->second
+                                      : std::numeric_limits<Real>::quiet_NaN();
     }
 };
 
