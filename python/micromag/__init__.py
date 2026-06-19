@@ -169,6 +169,8 @@ __all__ = [
     # Visualisation / output (Phase G)
     "snapshot", "cross_section_z", "cross_section_y", "cross_section_x",
     "grain_id_map", "make_scalar_gradient",
+    # Phase H: inter-exchange + geometry utilities
+    "snap", "invert_mask",
     # Utilities
     "cuda_available",
     # SP#2 / grid-sizing utilities (pure Python)
@@ -629,3 +631,64 @@ def grain_id_map(region_map):
     N = g.size
     ids = np.array([region_map[i] for i in range(N)], dtype=np.uint8)
     return ids.reshape(g.nz, g.ny, g.nx)
+
+
+# ---------------------------------------------------------------------------
+# snap — numbered OVF snapshot (mumax3 Snap analog)
+# ---------------------------------------------------------------------------
+
+class _SnapCounter:
+    """Per-prefix sequential counter for snap()."""
+    _counts: dict = {}
+
+    @classmethod
+    def next(cls, prefix: str) -> int:
+        n = cls._counts.get(prefix, 0)
+        cls._counts[prefix] = n + 1
+        return n
+
+
+def snap(m, prefix: str, field_name: str = "m", fmt=None) -> str:
+    """Save a numbered OVF snapshot: ``<prefix>_000000.ovf``, ``…_000001.ovf``, …
+
+    Each call increments the counter for the given ``prefix`` independently.
+    Counters persist for the duration of the Python session.
+
+    Parameters
+    ----------
+    m          : VectorField3D
+    prefix     : str  — output filename prefix (directories must already exist)
+    field_name : str  — OVF field label (default 'm')
+    fmt        : OVFFormat | None — None → OVFFormat.Binary8
+
+    Returns
+    -------
+    str — the filename that was written
+
+    Example
+    -------
+    >>> for _ in range(100):
+    ...     integ.step(m, mat, heff)
+    ...     mm.snap(m, 'output/relax')   # writes relax_000000.ovf, …
+    """
+    fmt_ = fmt if fmt is not None else OVFFormat.Binary8
+    idx = _SnapCounter.next(prefix)
+    fname = f"{prefix}_{idx:06d}.ovf"
+    save_ovf(fname, m, field_name, fmt_)
+    return fname
+
+
+def invert_mask(mask):
+    """Return a new GeomMask with inverted occupancy (1 - v for each cell).
+
+    Equivalent to ``~mask`` (Python bitwise NOT operator).
+
+    Parameters
+    ----------
+    mask : GeomMask
+
+    Returns
+    -------
+    GeomMask — new mask, does not modify the input
+    """
+    return ~mask

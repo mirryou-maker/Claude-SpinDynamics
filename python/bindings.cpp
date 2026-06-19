@@ -183,6 +183,14 @@ PYBIND11_MODULE(_micromag, m) {
         .def("set_uniform", &GeomMask::set_uniform, py::arg("v"))
         .def("invert", &GeomMask::invert,
              "In-place invert: v → 1-v for each cell.")
+        .def("__invert__",
+             [](const GeomMask& src) {
+                 GeomMask result(src.grid());
+                 for (Index i = 0; i < src.size(); ++i)
+                     result[i] = Real{1} - src[i];
+                 return result;
+             },
+             "Return a new inverted mask (~mask): v → 1-v for each cell.")
         .def("at", [](GeomMask& mask, Index i, Index j, Index k) -> Real& {
             return mask(i, j, k);
         }, py::arg("i"), py::arg("j"), py::arg("k"),
@@ -379,7 +387,13 @@ PYBIND11_MODULE(_micromag, m) {
              "Copy material properties into MaterialField3D for all cells in region id.")
         .def("__getitem__",
              [](const RegionMap& rm, Index idx) { return rm[idx]; },
-             py::arg("idx"), "Region ID at flat linear index idx.");
+             py::arg("idx"), "Region ID at flat linear index idx.")
+        .def("__setitem__",
+             [](RegionMap& rm, Index idx, uint8_t id) { rm[idx] = id; },
+             py::arg("idx"), py::arg("id"), "Set region ID at flat linear index idx.")
+        .def_property_readonly("grid", &RegionMap::grid,
+                               py::return_value_policy::reference_internal)
+        .def_property_readonly("size", &RegionMap::size);
 
     // Phase E: initial magnetization state factories
     m.def("uniform_mag", &uniform_mag,
@@ -514,7 +528,33 @@ PYBIND11_MODULE(_micromag, m) {
              "Attach per-cell Ms/A_exchange (MaterialField3D); harmonic-mean "
              "stiffness A_ij at region boundaries.")
         .def("clear_material_field", &ExchangeField::clear_material_field,
-             "Remove per-cell material field (use uniform Material).");
+             "Remove per-cell material field (use uniform Material).")
+        // Inter-region exchange coupling (mumax3 SetInterExchange analog)
+        .def("set_region_map",
+             [](ExchangeField& f, const RegionMap& rm) { f.set_region_map(&rm); },
+             py::arg("region_map"), py::keep_alive<1, 2>(),
+             "Attach RegionMap so per-region-pair exchange coupling can be applied.")
+        .def("clear_region_map", &ExchangeField::clear_region_map,
+             "Detach RegionMap (revert to per-cell or uniform A).")
+        .def("set_inter_exchange",
+             [](ExchangeField& f, int ri, int rj, Real A_IEC) {
+                 f.set_inter_exchange(static_cast<uint8_t>(ri),
+                                      static_cast<uint8_t>(rj), A_IEC);
+             },
+             py::arg("region_i"), py::arg("region_j"), py::arg("A_IEC"),
+             "Set exchange coupling A_IEC [J/m] between regions region_i and region_j.\n"
+             "Overrides harmonic-mean default at region boundaries.\n"
+             "A_IEC=0 → no exchange at that boundary (effectively cuts exchange).\n"
+             "Symmetric: set_inter_exchange(i,j,A) also sets (j,i,A).")
+        .def("inter_exchange",
+             [](const ExchangeField& f, int ri, int rj) {
+                 return f.inter_exchange(static_cast<uint8_t>(ri),
+                                         static_cast<uint8_t>(rj));
+             },
+             py::arg("region_i"), py::arg("region_j"),
+             "Query stored inter-exchange A [J/m] between two regions (-1 = not set).")
+        .def("clear_inter_exchange", &ExchangeField::clear_inter_exchange,
+             "Remove all inter-exchange overrides (revert to harmonic-mean defaults).");
 
     py::class_<DemagField, IEffectiveField, std::shared_ptr<DemagField>>(m, "DemagField")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"))

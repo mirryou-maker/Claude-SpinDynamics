@@ -1,6 +1,7 @@
 #include "micromag/exchange.hpp"
 #include "micromag/geom_mask.hpp"
 #include "micromag/material_field.hpp"
+#include "micromag/region_map.hpp"
 #include "micromag/detail/grad_helpers.hpp"
 
 namespace micromag {
@@ -41,10 +42,25 @@ inline Real harmonic_mean(Real a, Real b) {
 
 }  // namespace
 
+// ---------------------------------------------------------------------------
+// set_inter_exchange / inter_exchange / clear_inter_exchange
+// ---------------------------------------------------------------------------
+void ExchangeField::set_inter_exchange(uint8_t ri, uint8_t rj, Real A_IEC) {
+    inter_A_[inter_key(ri, rj)] = A_IEC;
+}
+
+Real ExchangeField::inter_exchange(uint8_t ri, uint8_t rj) const {
+    auto it = inter_A_.find(inter_key(ri, rj));
+    return (it != inter_A_.end()) ? it->second : Real{-1};
+}
+
+// ---------------------------------------------------------------------------
+// accumulate
+// ---------------------------------------------------------------------------
 void ExchangeField::accumulate(const VectorField3D& m,
                                 const Material& mat,
                                 VectorField3D& H_out) const {
-    if (!matf_ && mat.A_exchange == 0) return;
+    if (!matf_ && mat.A_exchange == 0 && !rmap_) return;
 
     const StructuredGrid& g = m.grid();
     const Real idx2 = 1.0 / (g.dx() * g.dx());
@@ -68,7 +84,9 @@ void ExchangeField::accumulate(const VectorField3D& m,
         const Index in_pz = neighbor_index(g, i,j,k, 0,0,+1, bc_, mask_);
         const Index in_mz = neighbor_index(g, i,j,k, 0,0,-1, bc_, mask_);
 
-        if (!matf_) {
+        const bool need_per_bond = (matf_ != nullptr) || (rmap_ != nullptr && !inter_A_.empty());
+
+        if (!need_per_bond) {
             Vec3 lap = (m[in_px] - mc) * idx2 + (m[in_mx] - mc) * idx2 +
                        (m[in_py] - mc) * idy2 + (m[in_my] - mc) * idy2 +
                        (m[in_pz] - mc) * idz2 + (m[in_mz] - mc) * idz2;
@@ -76,16 +94,28 @@ void ExchangeField::accumulate(const VectorField3D& m,
             continue;
         }
 
-        // Per-cell material: H_i = (2 / mu0 Ms_i) * Sum A_ij (m_j - m_i) / d^2
-        // with A_ij the harmonic mean of the two cells' exchange stiffness.
-        const Real Ms_c = matf_->Ms(ic);
+        // Per-bond path: per-cell material or inter-region coupling
+        const Real Ms_c = matf_ ? matf_->Ms(ic) : mat.Ms;
         if (Ms_c <= 0) continue;
-        const Real A_c   = matf_->A_exchange(ic);
+        const Real A_c   = matf_ ? matf_->A_exchange(ic) : mat.A_exchange;
         const Real pre_c = 2.0 / (constants::mu_0 * Ms_c);
 
+        // Returns A_ij for the bond (ic → in), respecting inter-region table.
+        const uint8_t rid_c = rmap_ ? (*rmap_)[ic] : uint8_t{0};
+        auto bond_A = [&](Index in) -> Real {
+            if (rmap_) {
+                uint8_t rid_n = (*rmap_)[in];
+                if (rid_n != rid_c) {
+                    Real iec = lookup_inter(rid_c, rid_n);
+                    if (iec >= 0) return iec;
+                }
+            }
+            const Real A_n = matf_ ? matf_->A_exchange(in) : mat.A_exchange;
+            return harmonic_mean(A_c, A_n);
+        };
+
         auto bond = [&](Index in, Real ih2) -> Vec3 {
-            const Real A_b = harmonic_mean(A_c, matf_->A_exchange(in));
-            return (m[in] - mc) * (A_b * ih2);
+            return (m[in] - mc) * (bond_A(in) * ih2);
         };
 
         Vec3 acc = bond(in_px, idx2) + bond(in_mx, idx2)

@@ -575,3 +575,100 @@ TEST_CASE("SkyrmionTools: bubble_pos returns (0,0) for uniform state", "[skyrmio
     REQUIRE_THAT(bpx, WithinAbs(0.0, 1e-20));
     REQUIRE_THAT(bpy, WithinAbs(0.0, 1e-20));
 }
+
+// ===========================================================================
+// Inter-region exchange coupling — set_inter_exchange / [inter_exchange]
+// ===========================================================================
+
+TEST_CASE("InterExchange: uniform state → H_exch=0 regardless of inter_A", "[inter_exchange]") {
+    // A uniform m has zero Laplacian → exchange field = 0 regardless of A values.
+    StructuredGrid g(4, 1, 1, 5e-9, 5e-9, 5e-9);
+    Material mat = Material::permalloy();
+    VectorField3D m(g);
+    for (Index i = 0; i < m.size(); ++i) m[i] = {1, 0, 0};
+
+    RegionMap rm(g);
+    rm[0] = 0; rm[1] = 1; rm[2] = 1; rm[3] = 0;
+
+    ExchangeField exch;
+    exch.set_region_map(&rm);
+    exch.set_inter_exchange(0, 1, 1e-12);
+
+    VectorField3D H(g);
+    for (Index i = 0; i < H.size(); ++i) H[i] = {0, 0, 0};
+    exch.accumulate(m, mat, H);
+
+    for (Index i = 0; i < H.size(); ++i) {
+        REQUIRE_THAT(H[i].x, WithinAbs(0.0, 1e-3));
+        REQUIRE_THAT(H[i].y, WithinAbs(0.0, 1e-3));
+        REQUIRE_THAT(H[i].z, WithinAbs(0.0, 1e-3));
+    }
+}
+
+TEST_CASE("InterExchange: A_IEC=0 cuts exchange at region boundary", "[inter_exchange]") {
+    // 4-cell 1D chain: left 2 cells (region 0) + right 2 cells (region 1).
+    // m: left → (1,0,0), right → (0,0,1) [spin texture at boundary].
+    // With A_IEC=0, the boundary bond has zero A → no torque across it.
+    // Check: exchange field at boundary cells (cells 1 and 2) is influenced
+    // only by same-region neighbours.
+    StructuredGrid g(4, 1, 1, 5e-9, 5e-9, 5e-9);
+    Material mat;
+    mat.Ms = 8e5; mat.A_exchange = 13e-12; mat.alpha = 0.01;
+
+    VectorField3D m(g);
+    m[0] = m[1] = {1, 0, 0};   // region 0
+    m[2] = m[3] = {0, 0, 1};   // region 1
+
+    RegionMap rm(g, 0);
+    rm[2] = 1; rm[3] = 1;
+
+    // Case 1: default (harmonic mean) → non-zero field at boundary cells
+    {
+        ExchangeField exch;
+        exch.set_region_map(&rm);
+        // No set_inter_exchange → harmonic mean = mat.A_exchange
+        VectorField3D H(g);
+        for (Index i = 0; i < H.size(); ++i) H[i] = {0,0,0};
+        exch.accumulate(m, mat, H);
+        // At cell 1 (region 0): right neighbour is cell 2 (different orientation) →
+        // should see z component from exchange
+        REQUIRE(H[1].norm() > 1e3);
+    }
+
+    // Case 2: A_IEC=0 → boundary bond disabled
+    {
+        ExchangeField exch;
+        exch.set_region_map(&rm);
+        exch.set_inter_exchange(0, 1, Real{0});
+
+        VectorField3D H(g);
+        for (Index i = 0; i < H.size(); ++i) H[i] = {0,0,0};
+        exch.accumulate(m, mat, H);
+
+        // Cell 1 (region 0, right edge): only left bond (cell 0) is active.
+        // Both cells 0,1 have m=(1,0,0) → left bond contributes zero gradient.
+        // Right bond to region 1 is disabled (A=0).
+        REQUIRE_THAT(H[1].norm(), WithinAbs(0.0, 1e3));
+        // Cell 2 (region 1, left edge): same reasoning.
+        REQUIRE_THAT(H[2].norm(), WithinAbs(0.0, 1e3));
+    }
+}
+
+TEST_CASE("InterExchange: set_inter_exchange is symmetric", "[inter_exchange]") {
+    StructuredGrid g(1, 1, 1, 5e-9, 5e-9, 5e-9);
+    Material mat = Material::permalloy();
+    ExchangeField exch(BoundaryCondition::Neumann);
+    exch.set_inter_exchange(uint8_t{3}, uint8_t{7}, Real{5e-12});
+    REQUIRE_THAT(exch.inter_exchange(3, 7), WithinRel(5e-12, 1e-10));
+    REQUIRE_THAT(exch.inter_exchange(7, 3), WithinRel(5e-12, 1e-10));
+    // Unset pair returns -1
+    REQUIRE_THAT(exch.inter_exchange(0, 1), WithinAbs(-1.0, 1e-10));
+}
+
+TEST_CASE("InterExchange: clear_inter_exchange resets all pairs", "[inter_exchange]") {
+    StructuredGrid g(1, 1, 1, 5e-9, 5e-9, 5e-9);
+    ExchangeField exch;
+    exch.set_inter_exchange(0, 1, Real{1e-12});
+    exch.clear_inter_exchange();
+    REQUIRE_THAT(exch.inter_exchange(0, 1), WithinAbs(-1.0, 1e-10));
+}
