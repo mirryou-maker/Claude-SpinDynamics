@@ -44,6 +44,7 @@ from _micromag import (
     ZeemanField,
     ZeemanFieldSpatial,
     UniaxialAnisotropyField,
+    SurfaceAnisotropyField,
     ExchangeField,
     DemagField,
     DemagFieldPeriodic,
@@ -201,6 +202,10 @@ __all__ = [
     "PythonField", "stray_field",
     # Phase N: MFM, EdgeSmooth, poisson_disk_grains
     "MFMImage", "TipMode", "mfm_signal", "edge_smooth", "poisson_disk_grains",
+    # Phase O: convergence observables + energy table + Table extensions
+    "max_angle", "B_eff", "energy_table",
+    # Phase P: FrozenSpins, def_region, SurfaceAnisotropyField
+    "SurfaceAnisotropyField", "FrozenIntegrator", "def_region", "new_region_map",
     # Phase K: spin-wave dispersion wrapper
     "spin_wave_dispersion",
     # Phase D: dynamic write-head utility
@@ -459,20 +464,49 @@ class Table:
     >>> tbl.add_row(t, m, mat=mat, heff=heff)      # per-step callback
     >>> tbl.save("output/table.csv")
 
-    Custom quantities
-    -----------------
+    Custom columns (mumax3 TableAdd analog)
+    ----------------------------------------
+    >>> tbl.add_column("Q", lambda t, m: mm.topological_charge_Q(m))
+    >>> tbl.add_column("max_angle", lambda t, m: mm.max_angle(m))
+    >>> # Now add_row() automatically evaluates and stores these columns.
+    >>> tbl.add_row(t, m, mat=mat, heff=heff)
+
+    Custom quantities via extra dict (legacy, still supported)
+    -----------------------------------------------------------
     >>> tbl.add_row(t, m, extra={"Q": mm.topological_charge_Q(m)})
     """
 
     def __init__(self):
         self._header = None
         self._rows = []
+        self._custom_cols = {}   # name -> callable(t, m)
+
+    def add_column(self, name: str, fn):
+        """Register a custom column evaluated on each add_row() call.
+
+        Parameters
+        ----------
+        name : str   -- column label in the CSV header
+        fn   : callable(t: float, m: VectorField3D) -> float
+
+        Example
+        -------
+        >>> tbl.add_column("Q", lambda t, m: mm.topological_charge_Q(m))
+        >>> tbl.add_column("max_angle", lambda t, m: mm.max_angle(m))
+        """
+        self._custom_cols[name] = fn
 
     def add_row(self, t: float, m, mat=None, heff=None, extra: dict = None):
         mx, my, mz = mean_magnetization(m)
         row = {"t": t, "mx": mx, "my": my, "mz": mz}
         if mat is not None and heff is not None:
             row["E_total"] = heff.total_energy(m, mat)
+        # Evaluate registered custom columns
+        for col_name, fn in self._custom_cols.items():
+            try:
+                row[col_name] = float(fn(t, m))
+            except Exception:
+                row[col_name] = float("nan")
         if extra:
             row.update(extra)
         if self._header is None:
@@ -484,6 +518,11 @@ class Table:
             f.write(",".join(self._header) + "\n")
             for row in self._rows:
                 f.write(",".join(f"{v:.12g}" for v in row) + "\n")
+
+    def to_numpy(self):
+        """Return table data as numpy array, shape (n_rows, n_cols)."""
+        import numpy as _np2
+        return _np2.array(self._rows, dtype=float)
 
     def __len__(self):
         return len(self._rows)
@@ -1624,6 +1663,260 @@ def stray_field(grid, Ms_ext: float, volume_ext: float,
     result = VectorField3D(g)
     from_numpy(result, H_arr)
     return result
+
+
+# ===========================================================================
+# Phase O — Convergence observables + energy breakdown + B_eff
+# ===========================================================================
+
+def max_angle(m) -> float:
+    """Maximum angle [degrees] between adjacent cells in the magnetization field.
+
+    Equivalent to mumax3's MaxAngle quantity.  Used as a convergence criterion:
+    a fully relaxed state typically has MaxAngle < 1 degree.
+
+    Checks all 6 nearest-neighbour pairs (+/-x, +/-y, +/-z).
+
+    Parameters
+    ----------
+    m : VectorField3D
+
+    Returns
+    -------
+    float -- max inter-cell angle in degrees (0 for single-cell grids)
+
+    Example
+    -------
+    >>> mm.relax(m, mat, heff)
+    >>> print(f"MaxAngle = {mm.max_angle(m):.2f} deg")
+    """
+    m_np = _np.asarray(to_numpy(m))   # (nz, ny, nx, 3)
+    nz, ny, nx = m_np.shape[:3]
+    min_dot = 1.0
+    if nx > 1:
+        d = (m_np[:, :, :-1, :] * m_np[:, :, 1:, :]).sum(-1)
+        v = float(d.min())
+        if v < min_dot:
+            min_dot = v
+    if ny > 1:
+        d = (m_np[:, :-1, :, :] * m_np[:, 1:, :, :]).sum(-1)
+        v = float(d.min())
+        if v < min_dot:
+            min_dot = v
+    if nz > 1:
+        d = (m_np[:-1, :, :, :] * m_np[1:, :, :, :]).sum(-1)
+        v = float(d.min())
+        if v < min_dot:
+            min_dot = v
+    min_dot = max(-1.0, min(1.0, min_dot))
+    import math as _m2
+    return float(_m2.degrees(_m2.acos(min_dot)))
+
+
+def B_eff(m, mat, heff):
+    """Effective magnetic flux density B_eff = mu0 * H_eff [T].
+
+    Equivalent to mumax3's B_eff quantity.  Returns the total effective
+    field scaled by mu0, useful for plotting field distributions in Tesla.
+
+    Parameters
+    ----------
+    m    : VectorField3D
+    mat  : Material
+    heff : EffectiveFieldSum
+
+    Returns
+    -------
+    VectorField3D -- B_eff [T] at each cell
+
+    Example
+    -------
+    >>> B = mm.B_eff(m, mat, heff)
+    >>> B_np = mm.to_numpy(B)    # (nz, ny, nx, 3) in Tesla
+    """
+    mu0 = 4e-7 * _math.pi
+    H = VectorField3D(m.grid)
+    heff.compute(m, mat, H)
+    H_np = _np.asarray(to_numpy(H))
+    result = VectorField3D(m.grid)
+    from_numpy(result, H_np * mu0)
+    return result
+
+
+def energy_table(m, mat, heff) -> dict:
+    """Per-term energy breakdown [J] for all fields in an EffectiveFieldSum.
+
+    Equivalent to querying mumax3's E_Zeeman, E_exch, E_demag, E_anis, ...
+    individually.  Returns a dict with each term's name as key and energy [J]
+    as value, plus the key 'total' for the sum.
+
+    Parameters
+    ----------
+    m    : VectorField3D
+    mat  : Material
+    heff : EffectiveFieldSum
+
+    Returns
+    -------
+    dict[str, float] -- {term_name: energy_J, ..., 'total': total_J}
+
+    Example
+    -------
+    >>> E = mm.energy_table(m, mat, heff)
+    >>> for k, v in E.items():
+    ...     print(f"  {k:20s} = {v:.4e} J")
+    """
+    result = {}
+    total = 0.0
+    for term in heff.terms:
+        name = term.name
+        # handle duplicate names (e.g., two Zeeman fields)
+        base = name
+        idx = 1
+        while name in result:
+            name = f"{base}_{idx}"
+            idx += 1
+        e = float(term.energy(m, mat))
+        result[name] = e
+        total += e
+    result["total"] = total
+    return result
+
+
+# ===========================================================================
+# Phase P — FrozenSpins, DefRegion, (SurfaceAnisotropyField via C++ below)
+# ===========================================================================
+
+def def_region(region_map, region_id: int, geom_mask):
+    """Assign region_id to all cells where geom_mask > 0.5.
+
+    Equivalent to mumax3's DefRegion(id, shape).  Cells outside the shape
+    are left unchanged (non-destructive: only writes into cells where mask > 0.5).
+
+    Parameters
+    ----------
+    region_map : RegionMap  -- modified in place
+    region_id  : int        -- region ID to assign (1..254; 0 = unassigned)
+    geom_mask  : GeomMask   -- shape (cells > 0.5 get region_id)
+
+    Example
+    -------
+    >>> rm = mm.RegionMap(grid)
+    >>> mm.def_region(rm, 1, mm.circle(grid, 100e-9))
+    >>> mm.def_region(rm, 2, mm.x_range(grid, 50e-9, 200e-9))
+    """
+    g = region_map.grid
+    n = g.nx * g.ny * g.nz
+    rid = min(max(int(region_id), 0), 255)
+    for i in range(n):
+        if geom_mask[i] > 0.5:
+            region_map[i] = rid
+
+
+def new_region_map(grid, *region_specs):
+    """Build a RegionMap from (region_id, geom_mask) pairs.
+
+    Convenience wrapper around def_region() for building a complete
+    RegionMap from multiple geometry shapes in one call.
+
+    Parameters
+    ----------
+    grid          : StructuredGrid
+    *region_specs : (int, GeomMask) pairs -- assigned in order
+
+    Returns
+    -------
+    RegionMap -- cells not covered by any spec have ID 0
+
+    Example
+    -------
+    >>> rm = mm.new_region_map(
+    ...     grid,
+    ...     (1, mm.circle(grid, 100e-9)),
+    ...     (2, mm.y_range(grid, -50e-9, 0)),
+    ... )
+    """
+    rm = RegionMap(grid)
+    for rid, geom in region_specs:
+        def_region(rm, rid, geom)
+    return rm
+
+
+class FrozenIntegrator:
+    """Integrator wrapper that holds selected cells fixed (pinned spins).
+
+    Equivalent to mumax3's FreezeSpins(region) — after each LLG step the
+    magnetization of frozen cells is restored to their initial values,
+    effectively removing them from the dynamics.
+
+    Works with any CPU integrator (RK4, RK45, Heun).  GPU integrators are
+    not supported (the step executes entirely on-device; use a GeomMask on
+    the effective field instead for GPU pinning).
+
+    Parameters
+    ----------
+    integ       : RK4Integrator | RK45Integrator | HeunIntegrator
+    freeze_mask : GeomMask -- cells with mask > 0.5 are frozen
+    m_init      : VectorField3D -- initial (pinned) magnetization values
+
+    Example
+    -------
+    >>> # Pin the left quarter of the strip
+    >>> pin = mm.x_range(grid, -Lx/2, -Lx/4)
+    >>> frozen = mm.FrozenIntegrator(integ, pin, m)
+    >>> mm.run(frozen, m, mat, heff, t_total=1e-9)
+    >>> # Cells outside pin evolve; cells inside pin stay fixed.
+    """
+
+    def __init__(self, integ, freeze_mask, m_init):
+        self._integ = integ
+        g = freeze_mask.grid
+        nx, ny, nz = g.nx, g.ny, g.nz
+        n = nx * ny * nz
+        # Snapshot frozen cells as numpy array for fast restore.
+        # Store (linear_idx, (x, y, z)) tuples.
+        m_np = _np.asarray(to_numpy(m_init))   # (nz, ny, nx, 3)
+        self._frozen = []   # list of (lin_idx, x, y, z)
+        for iz in range(nz):
+            for iy in range(ny):
+                for ix in range(nx):
+                    lin = ix + nx*(iy + ny*iz)
+                    if freeze_mask[lin] > 0.5:
+                        v = m_np[iz, iy, ix, :]
+                        self._frozen.append((iz, iy, ix, float(v[0]), float(v[1]), float(v[2])))
+
+    # ------------------------------------------------------------------
+    # Forward dt / set_dt / dt property to wrapped integrator
+    # ------------------------------------------------------------------
+    @property
+    def dt(self):
+        return self._integ.dt
+
+    def set_dt(self, dt):
+        self._integ.set_dt(dt)
+
+    # ------------------------------------------------------------------
+    # step — performs the LLG step then restores frozen cells
+    # ------------------------------------------------------------------
+    def step(self, m, mat, heff, stt=None):
+        if stt is not None:
+            result = self._integ.step(m, mat, heff, stt)
+        else:
+            result = self._integ.step(m, mat, heff)
+        if self._frozen:
+            # Read current state, overwrite frozen cells, write back
+            m_np = _np.asarray(to_numpy(m)).copy()
+            for (iz, iy, ix, vx, vy, vz) in self._frozen:
+                m_np[iz, iy, ix, 0] = vx
+                m_np[iz, iy, ix, 1] = vy
+                m_np[iz, iy, ix, 2] = vz
+            from_numpy(m, m_np)
+        return result
+
+    # Expose the underlying integrator for inspection
+    @property
+    def integrator(self):
+        return self._integ
 
 
 # ---------------------------------------------------------------------------

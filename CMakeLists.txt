@@ -67,6 +67,7 @@ add_library(micromag_core
     src/init_mag.cpp
     src/topological_charge.cpp
     src/skyrmion_tools.cpp
+    src/surface_anisotropy.cpp
 )
 target_include_directories(micromag_core
     PUBLIC

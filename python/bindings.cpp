@@ -26,6 +26,7 @@
 #include "micromag/solver.hpp"
 #include "micromag/ovf_io.hpp"
 #include "micromag/cubic_anisotropy.hpp"
+#include "micromag/surface_anisotropy.hpp"
 #include "micromag/region_map.hpp"
 #include "micromag/init_mag.hpp"
 #include "micromag/topological_charge.hpp"
@@ -525,6 +526,36 @@ PYBIND11_MODULE(_micromag, m) {
              "mumax3 \"Regions\"-style spatially-varying anisotropy.")
         .def("clear_material_field", &UniaxialAnisotropyField::clear_material_field,
              "Remove per-cell material field (use uniform Material).");
+
+    // SurfaceAnisotropyField — interface/surface PMA (mumax3 Ks parameter)
+    py::class_<SurfaceAnisotropyField, IEffectiveField,
+               std::shared_ptr<SurfaceAnisotropyField>>(m, "SurfaceAnisotropyField",
+        "Interface/surface anisotropy K_s [J/m²] applied to boundary cells.\n\n"
+        "Equivalent to mumax3's Ks parameter.\n"
+        "H_s = (2Ks / (mu0 Ms t_cell)) * (m dot n_hat) * n_hat\n\n"
+        "Only surface cells — cells adjacent to vacuum (mask < 0.5) along n_hat —\n"
+        "receive this field.  Interior cells are unaffected.\n\n"
+        "Example (Co/Pt PMA interface):\n"
+        "  sa = mm.SurfaceAnisotropyField(Ks=1.2e-3)   # z-axis default\n"
+        "  sa.set_mask(disk_mask)                        # optional geometry\n"
+        "  heff.add(sa_ptr)")
+        .def(py::init<Real, Vec3>(),
+             py::arg("Ks"), py::arg("n_hat") = Vec3{0, 0, 1},
+             "Ks    : surface anisotropy constant [J/m²] (Ks > 0 = PMA easy perp.)\n"
+             "n_hat : surface normal direction (default z-axis)")
+        .def("set_mask",
+             [](SurfaceAnisotropyField& f, const GeomMask& mask) { f.set_mask(&mask); },
+             py::arg("mask"), py::keep_alive<1, 2>(),
+             "Attach geometry mask; surface cells are those adjacent to vacuum (mask<0.5).")
+        .def("clear_mask", &SurfaceAnisotropyField::clear_mask,
+             "Remove geometry mask (outermost layers treated as surface).")
+        .def_property("Ks",    &SurfaceAnisotropyField::Ks,    &SurfaceAnisotropyField::set_Ks,
+             "Surface anisotropy constant [J/m²].")
+        .def_property("n_hat", &SurfaceAnisotropyField::n_hat, &SurfaceAnisotropyField::set_n_hat,
+             "Surface normal direction (unit vector).")
+        .def("accumulate", &SurfaceAnisotropyField::accumulate)
+        .def("energy",     &SurfaceAnisotropyField::energy)
+        .def_property_readonly("name", &SurfaceAnisotropyField::name);
 
     // CubicAnisotropyField — Kc1/Kc2 (mumax3 parameters)
     py::class_<CubicAnisotropyField, IEffectiveField,
