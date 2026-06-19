@@ -22,6 +22,9 @@
 #include "micromag/integrator.hpp"
 #include "micromag/thermal_field.hpp"
 #include "micromag/spin_torque.hpp"
+#include "micromag/dmi.hpp"
+#include "micromag/solver.hpp"
+#include "micromag/ovf_io.hpp"
 
 #ifdef MICROMAG_CUDA
 #include "micromag/demag_gpu.hpp"
@@ -797,4 +800,123 @@ PYBIND11_MODULE(_micromag, m) {
              "Optional aniso adds uniaxial anisotropy.")
         .def_property("dt", &HeunIntegratorGPU::dt, &HeunIntegratorGPU::set_dt);
 #endif  // MICROMAG_CUDA
+
+    // ------------------------------------------------------------------
+    // DMI — Bulk and Interfacial Dzyaloshinskii-Moriya Interaction
+    // ------------------------------------------------------------------
+
+    py::class_<BulkDMIField, IEffectiveField, std::shared_ptr<BulkDMIField>>(
+            m, "BulkDMIField")
+        .def(py::init<Real>(), py::arg("D") = Real{0.0},
+             "Bulk DMI field (mumax3 Dbulk). D in [J/m²]. "
+             "H = (2D/μ₀Ms) ∇×m. Favours Bloch skyrmions.")
+        .def("accumulate", &BulkDMIField::accumulate)
+        .def("energy",     &BulkDMIField::energy)
+        .def_property("D", &BulkDMIField::D, &BulkDMIField::set_D)
+        .def_property_readonly("name", &BulkDMIField::name);
+
+    py::class_<InterfacialDMIField, IEffectiveField,
+               std::shared_ptr<InterfacialDMIField>>(m, "InterfacialDMIField")
+        .def(py::init<Real>(), py::arg("D") = Real{0.0},
+             "Interfacial DMI field (mumax3 Dind). D in [J/m²]. Film normal = ẑ. "
+             "H_x=2D/μ₀Ms ∂mz/∂x, H_z=-2D/μ₀Ms(∂mx/∂x+∂my/∂y). "
+             "Favours Néel skyrmions.")
+        .def("accumulate", &InterfacialDMIField::accumulate)
+        .def("energy",     &InterfacialDMIField::energy)
+        .def_property("D", &InterfacialDMIField::D, &InterfacialDMIField::set_D)
+        .def_property_readonly("name", &InterfacialDMIField::name);
+
+    // ------------------------------------------------------------------
+    // Zhang-Li STT — current-driven domain wall motion (CIP)
+    // ------------------------------------------------------------------
+
+    py::class_<ZhangLiSTT, ISpinTorque, std::shared_ptr<ZhangLiSTT>>(
+            m, "ZhangLiSTT")
+        .def(py::init<Vec3, Real, Real>(),
+             py::arg("J"), py::arg("P"), py::arg("xi") = Real{0.04},
+             "Zhang-Li current-in-plane STT (mumax3 J + Pol + xi).\n"
+             "J: current density vector [A/m²]; P: polarisation; xi: non-adiabaticity.")
+        .def("accumulate", &ZhangLiSTT::accumulate)
+        .def("u",          &ZhangLiSTT::u, py::arg("Ms"),
+             "Spin-drift velocity u = P*μ_B*|J|/(e*Ms) [m/s].")
+        .def_property("J",  &ZhangLiSTT::J,  &ZhangLiSTT::set_J)
+        .def_property("P",  &ZhangLiSTT::P,  &ZhangLiSTT::set_P)
+        .def_property("xi", &ZhangLiSTT::xi, &ZhangLiSTT::set_xi)
+        .def_property_readonly("name", &ZhangLiSTT::name);
+
+    // ------------------------------------------------------------------
+    // Relax / Minimize — energy minimisation
+    // ------------------------------------------------------------------
+
+    py::class_<RelaxOptions>(m, "RelaxOptions")
+        .def(py::init<>())
+        .def_readwrite("alpha_relax",        &RelaxOptions::alpha_relax)
+        .def_readwrite("threshold",           &RelaxOptions::threshold)
+        .def_readwrite("dt",                  &RelaxOptions::dt)
+        .def_readwrite("max_steps",           &RelaxOptions::max_steps)
+        .def_readwrite("throw_on_max_steps",  &RelaxOptions::throw_on_max_steps);
+
+    m.def("max_torque",
+          [](const VectorField3D& mv, const Material& mat,
+             const EffectiveFieldSum& heff) {
+              return max_torque(mv, mat, heff);
+          },
+          py::arg("m"), py::arg("mat"), py::arg("heff"),
+          "Maximum |m × H_eff| over all cells [A/m]. "
+          "Convergence criterion for Relax/Minimize.");
+
+    m.def("relax",
+          [](VectorField3D& mv, const Material& mat,
+             const EffectiveFieldSum& heff, RelaxOptions opts,
+             const MaterialField3D* matf, const SpinTorqueSum* stt) {
+              return relax(mv, mat, heff, opts, matf, stt);
+          },
+          py::arg("m"), py::arg("mat"), py::arg("heff"),
+          py::arg("opts")  = RelaxOptions{},
+          py::arg("matf")  = static_cast<const MaterialField3D*>(nullptr),
+          py::arg("stt")   = static_cast<const SpinTorqueSum*>(nullptr),
+          "Energy minimisation via damping-only LLG (mumax3 Relax()). "
+          "Runs until max|m×H_eff| < opts.threshold. Returns step count.");
+
+    py::class_<MinimizeOptions>(m, "MinimizeOptions")
+        .def(py::init<>())
+        .def_readwrite("threshold",          &MinimizeOptions::threshold)
+        .def_readwrite("dt_init",            &MinimizeOptions::dt_init)
+        .def_readwrite("dt_max",             &MinimizeOptions::dt_max)
+        .def_readwrite("dt_min",             &MinimizeOptions::dt_min)
+        .def_readwrite("max_steps",          &MinimizeOptions::max_steps)
+        .def_readwrite("throw_on_max_steps", &MinimizeOptions::throw_on_max_steps);
+
+    m.def("minimize",
+          [](VectorField3D& mv, const Material& mat,
+             const EffectiveFieldSum& heff, MinimizeOptions opts,
+             const MaterialField3D* matf) {
+              return minimize(mv, mat, heff, opts, matf);
+          },
+          py::arg("m"), py::arg("mat"), py::arg("heff"),
+          py::arg("opts") = MinimizeOptions{},
+          py::arg("matf") = static_cast<const MaterialField3D*>(nullptr),
+          "Energy minimisation via steepest descent with backtracking line search "
+          "(mumax3 Minimize()). Returns step count.");
+
+    // ------------------------------------------------------------------
+    // OVF file I/O
+    // ------------------------------------------------------------------
+
+    py::enum_<OVFFormat>(m, "OVFFormat")
+        .value("Text",    OVFFormat::Text,    "ASCII text — portable, larger files.")
+        .value("Binary8", OVFFormat::Binary8, "IEEE 754 double (8 bytes) — lossless, default.");
+
+    m.def("save_ovf",
+          &save_ovf,
+          py::arg("filename"), py::arg("m"),
+          py::arg("title")  = std::string("m"),
+          py::arg("fmt")    = OVFFormat::Binary8,
+          "Save VectorField3D to OVF 2.0 file (mumax3/OOMMF compatible). "
+          "fmt: OVFFormat.Binary8 (default, lossless) or OVFFormat.Text.");
+
+    m.def("load_ovf",
+          &load_ovf,
+          py::arg("filename"),
+          "Load an OVF 1.0/2.0 file (text or binary). Returns VectorField3D.");
 }

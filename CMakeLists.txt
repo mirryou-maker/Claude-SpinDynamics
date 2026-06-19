@@ -59,6 +59,9 @@ add_library(micromag_core
     src/thermal_field.cpp
     src/geom_mask.cpp
     src/mfm.cpp
+    src/solver.cpp
+    src/dmi.cpp
+    src/ovf_io.cpp
 )
 target_include_directories(micromag_core
     PUBLIC

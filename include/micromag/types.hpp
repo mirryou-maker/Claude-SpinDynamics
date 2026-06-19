@@ -46,6 +46,7 @@ inline constexpr Real hbar     = 1.054571817e-34;         // ħ [J·s]
 inline constexpr Real e_charge = 1.602176634e-19;         // e [C]
 inline constexpr Real gamma_0  = 1.760859630e11;          // |γ| [rad/(T·s)]
 inline constexpr Real k_B      = 1.380649e-23;             // Boltzmann [J/K]
+inline constexpr Real mu_B     = 9.2740100783e-24;         // Bohr magneton [J/T]
 }  // namespace constants
 
 }  // namespace micromag

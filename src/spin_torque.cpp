@@ -1,4 +1,5 @@
 #include "micromag/spin_torque.hpp"
+#include "micromag/grid.hpp"
 
 namespace micromag {
 
@@ -60,6 +61,75 @@ void SpinOrbitTorque::accumulate(const VectorField3D& m,
         Vec3 mxs     = mi.cross(sigma_);
         Vec3 mxmxs   = mi.cross(mxs);
         dm_out[i]   += mxmxs * (a * eta_DL_) + mxs * (a * eta_FL_);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ZhangLiSTT
+// ---------------------------------------------------------------------------
+
+ZhangLiSTT::ZhangLiSTT(Vec3 J, Real P, Real xi)
+    : J_(J), P_(P), xi_(xi) {}
+
+Real ZhangLiSTT::u(Real Ms) const {
+    // u = P μ_B |J| / (e Ms)  [m/s]
+    // |J| is the scalar magnitude of the current density vector
+    const Real Jmag = J_.norm();
+    return P_ * constants::mu_B * Jmag / (constants::e_charge * Ms);
+}
+
+void ZhangLiSTT::accumulate(const VectorField3D& m,
+                              const Material& mat,
+                              VectorField3D& dm_out) const {
+    const Real u_val = u(mat.Ms);
+    if (u_val == 0.0) return;
+
+    const StructuredGrid& g = m.grid();
+    const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
+    const Real  dx = g.dx(), dy = g.dy(), dz = g.dz();
+    // Unit current direction
+    const Real Jmag = J_.norm();
+    if (Jmag < 1e-30) return;
+    const Vec3 Jhat = J_ / Jmag;
+
+    // Compute (ĵ·∇)m  at each cell via finite differences (Neumann BC)
+    // Then add u*(grad_m - xi*m×grad_m) to dm_out
+
+    for (Index iz = 0; iz < nz; ++iz)
+    for (Index iy = 0; iy < ny; ++iy)
+    for (Index ix = 0; ix < nx; ++ix) {
+        const Index idx = g.linear_index(ix, iy, iz);
+        Vec3 mi = m[idx];
+
+        // ∂m/∂x
+        Vec3 dm_dx;
+        if (Jhat.x != 0.0) {
+            if (ix == 0)      dm_dx = (m[g.linear_index(1,  iy, iz)] - m[g.linear_index(0, iy, iz)]) / dx;
+            else if (ix == nx-1) dm_dx = (m[g.linear_index(nx-1, iy, iz)] - m[g.linear_index(nx-2, iy, iz)]) / dx;
+            else               dm_dx = (m[g.linear_index(ix+1, iy, iz)] - m[g.linear_index(ix-1, iy, iz)]) / (2.0*dx);
+        }
+
+        // ∂m/∂y
+        Vec3 dm_dy;
+        if (Jhat.y != 0.0) {
+            if (iy == 0)      dm_dy = (m[g.linear_index(ix, 1,  iz)] - m[g.linear_index(ix, 0, iz)]) / dy;
+            else if (iy == ny-1) dm_dy = (m[g.linear_index(ix, ny-1, iz)] - m[g.linear_index(ix, ny-2, iz)]) / dy;
+            else               dm_dy = (m[g.linear_index(ix, iy+1, iz)] - m[g.linear_index(ix, iy-1, iz)]) / (2.0*dy);
+        }
+
+        // ∂m/∂z
+        Vec3 dm_dz;
+        if (Jhat.z != 0.0) {
+            if (iz == 0)      dm_dz = (m[g.linear_index(ix, iy, 1   )] - m[g.linear_index(ix, iy, 0)]) / dz;
+            else if (iz == nz-1) dm_dz = (m[g.linear_index(ix, iy, nz-1)] - m[g.linear_index(ix, iy, nz-2)]) / dz;
+            else               dm_dz = (m[g.linear_index(ix, iy, iz+1)] - m[g.linear_index(ix, iy, iz-1)]) / (2.0*dz);
+        }
+
+        // (ĵ·∇)m = Jhat.x * ∂m/∂x + Jhat.y * ∂m/∂y + Jhat.z * ∂m/∂z
+        Vec3 grad_m = dm_dx * Jhat.x + dm_dy * Jhat.y + dm_dz * Jhat.z;
+
+        // τ_ZL = u [(ĵ·∇)m − ξ m×(ĵ·∇)m]
+        dm_out[idx] += (grad_m - mi.cross(grad_m) * xi_) * u_val;
     }
 }
 

@@ -53,6 +53,21 @@ from _micromag import (
     SpinTorqueSum,
     # Thermal
     ThermalField,
+    # DMI
+    BulkDMIField,
+    InterfacialDMIField,
+    # Zhang-Li STT
+    ZhangLiSTT,
+    # Relax / Minimize
+    RelaxOptions,
+    MinimizeOptions,
+    max_torque,
+    relax,
+    minimize,
+    # OVF I/O
+    OVFFormat,
+    save_ovf,
+    load_ovf,
     # CUDA availability probe
     cuda_available,
 )
@@ -73,12 +88,21 @@ __all__ = [
     "UniaxialAnisotropyField", "ExchangeField",
     "DemagField", "DemagFieldPeriodic", "EffectiveFieldSum",
     "RKKYField",
+    # DMI
+    "BulkDMIField", "InterfacialDMIField",
     # Integrators
     "gamma_0", "llg_torque",
     "RK4Integrator", "RK45Integrator", "RK45Options",
     "HeunIntegrator", "ThermalField",
     # Spin torques
     "ISpinTorque", "SlonczewskiSTT", "SpinOrbitTorque", "SpinTorqueSum",
+    "ZhangLiSTT",
+    # Relax / Minimize
+    "RelaxOptions", "MinimizeOptions", "max_torque", "relax", "minimize",
+    # OVF I/O
+    "OVFFormat", "save_ovf", "load_ovf",
+    # Run/Steps convenience
+    "run", "steps",
     # Utilities
     "cuda_available",
     # SP#2 / grid-sizing utilities (pure Python)
@@ -137,6 +161,78 @@ def optimal_dx(mat, cells_per_lex: float = 1.0) -> float:
         Recommended cell size in metres.
     """
     return exchange_length(mat) / cells_per_lex
+
+
+# ---------------------------------------------------------------------------
+# Run(t) / Steps(n) — mumax3-style simulation helpers
+# ---------------------------------------------------------------------------
+
+def run(integ, m, mat, heff, t_total: float,
+        stt=None, callback=None, callback_dt: float = 0.0):
+    """Run the integrator for t_total seconds.
+
+    Works with RK4Integrator (fixed dt), RK45Integrator (adaptive), and
+    HeunIntegrator.  For RK4/Heun the step size is integ.dt; for RK45 the
+    returned dt from step() is used.
+
+    Parameters
+    ----------
+    integ      : RK4Integrator | RK45Integrator | HeunIntegrator
+    m          : VectorField3D  (modified in-place)
+    mat        : Material
+    heff       : EffectiveFieldSum
+    t_total    : float  — simulation time [s]
+    stt        : SpinTorqueSum | None
+    callback   : callable(t, m) | None — called periodically
+    callback_dt: float — minimum interval between callback calls [s] (0 = every step)
+
+    Returns
+    -------
+    float — actual simulated time
+    """
+    t = 0.0
+    t_last_cb = -1.0
+    while t < t_total:
+        # Step
+        result = integ.step(m, mat, heff, stt) if stt is not None else integ.step(m, mat, heff)
+        # Determine dt used
+        if isinstance(result, float):
+            dt_used = result
+        else:
+            dt_used = integ.dt
+        t += dt_used
+        # Callback
+        if callback is not None:
+            if callback_dt <= 0 or (t - t_last_cb) >= callback_dt:
+                callback(t, m)
+                t_last_cb = t
+    return t
+
+
+def steps(integ, m, mat, heff, n: int, stt=None):
+    """Run the integrator for exactly n steps.
+
+    Parameters
+    ----------
+    integ : RK4Integrator | RK45Integrator | HeunIntegrator
+    m     : VectorField3D  (modified in-place)
+    mat   : Material
+    heff  : EffectiveFieldSum
+    n     : int — number of steps
+    stt   : SpinTorqueSum | None
+
+    Returns
+    -------
+    float — total simulated time (dt * n for fixed-step; sum for adaptive)
+    """
+    t = 0.0
+    for _ in range(n):
+        result = integ.step(m, mat, heff, stt) if stt is not None else integ.step(m, mat, heff)
+        if isinstance(result, float):
+            t += result
+        else:
+            t += integ.dt
+    return t
 
 
 def sp2_grid(mat, Lx: float, Ly: float, Lz: float,

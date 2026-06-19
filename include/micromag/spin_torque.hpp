@@ -127,6 +127,48 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Zhang-Li Spin Transfer Torque (CIP-STT)
+//
+// Describes current-driven domain-wall motion for current flowing in-plane.
+// Corresponds to mumax3 J + Pol + xi (DisableZhangLiTorque=false).
+//
+//   τ_ZL = u [(ĵ·∇)m − ξ m×(ĵ·∇)m]    [1/s]
+//
+//   u  = P μ_B |J| / (e Ms)   [m/s]  (spin-drift velocity)
+//   ξ  = xi (non-adiabaticity parameter, typically 0.01–0.1)
+//
+// Gradient (ĵ·∇)m is computed by finite differences (central, Neumann BC).
+// J is a 3-component vector [A/m²]; direction encodes current orientation.
+// ---------------------------------------------------------------------------
+class ZhangLiSTT : public ISpinTorque {
+public:
+    // J  : current density vector [A/m²], e.g. {1e12, 0, 0} for +x current
+    // P  : spin polarisation [0,1]
+    // xi : non-adiabaticity (β in some notations); typical 0.01–0.1
+    ZhangLiSTT(Vec3 J, Real P, Real xi);
+
+    void accumulate(const VectorField3D& m, const Material& mat,
+                    VectorField3D& dm_out) const override;
+
+    const char* name() const override { return "ZhangLiSTT"; }
+
+    Vec3  J()    const { return J_; }
+    Real  P()    const { return P_; }
+    Real  xi()   const { return xi_; }
+
+    void  set_J(Vec3 J)   { J_  = J;  }
+    void  set_P(Real P)   { P_  = P;  }
+    void  set_xi(Real xi) { xi_ = xi; }
+
+    // Spin-drift velocity [m/s] for a given Ms
+    Real u(Real Ms) const;
+
+private:
+    Vec3 J_;
+    Real P_, xi_;
+};
+
+// ---------------------------------------------------------------------------
 // Compositor: accumulates all spin torque terms
 // ---------------------------------------------------------------------------
 class SpinTorqueSum {
