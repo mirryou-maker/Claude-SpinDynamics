@@ -26,10 +26,12 @@
 
 #include "demag_gpu.hpp"
 #include "demag_gpu_iface.hpp"
+#include "effective_field_gpu_iface.hpp"
 #include "exchange_gpu.hpp"
 #include "field_kernels_gpu.hpp"
 #include "gpu_state.hpp"
 #include "material.hpp"
+#include "spin_torque_gpu.hpp"
 #include "types.hpp"
 
 namespace micromag {
@@ -48,7 +50,7 @@ public:
     void upload(const VectorField3D& m)   { state_.upload(m);   }
     void download(VectorField3D& m) const { state_.download(m); }
 
-    // One Stratonovich Heun step.
+    // One Stratonovich Heun step (fixed-field overload).
     // T_K = 0 disables noise (σ = 0, cuRAND skipped).
     // demag may be DemagFieldGPU (open BC) or DemagFieldPeriodicGPU (periodic BC).
     void step(const Material&               mat,
@@ -57,6 +59,13 @@ public:
               ZeemanFieldGPU&               zeeman,
               Real                          T_K  = 0.0,
               UniaxialAnisotropyFieldGPU*   aniso = nullptr);
+
+    // Flexible overload: arbitrary FieldSumGPU + optional spin torques.
+    // Spin torques are applied AFTER LLG torque (same convention as RK4/RK45).
+    void step(const Material& mat, IDemagGPU& demag,
+              FieldSumGPU& extra_fields,
+              Real T_K = 0.0,
+              SpinTorqueSumGPU* torques = nullptr);
 
     Real dt() const      { return dt_; }
     void set_dt(Real dt) { dt_ = dt;   }
@@ -73,6 +82,7 @@ private:
     // cuRAND generator (opaque void* to avoid curand.h in header)
     void*  curand_gen_ = nullptr;
 
+    // Fixed-field run_half (original)
     void run_half(const Material& mat,
                    const double*   d_m_in,
                    double*         d_H,
@@ -80,6 +90,16 @@ private:
                    IDemagGPU& demag, ExchangeFieldGPU& exch,
                    ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
                    bool add_noise);
+
+    // FieldSumGPU run_half (new overload)
+    void run_half(const Material& mat,
+                   const double*   d_m_in,
+                   double*         d_H,
+                   double*         d_ki,
+                   IDemagGPU& demag, FieldSumGPU& extra_fields,
+                   bool add_noise,
+                   SpinTorqueSumGPU* torques = nullptr);
+
 };
 
 }  // namespace micromag

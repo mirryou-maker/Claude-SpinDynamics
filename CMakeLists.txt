@@ -140,6 +140,7 @@ if(MICROMAG_USE_CUDA)
         src/rk4_integrator_gpu.cu   # G6: RK4IntegratorGPU (full-GPU LLG step)
         src/heun_integrator_gpu.cu  # G8: HeunIntegratorGPU (GPU SLLG, cuRAND)
         src/rk45_integrator_gpu.cu  # G9: RK45IntegratorGPU (adaptive DOPRI5)
+        src/spin_torque_gpu.cu      # P3: GPU STT/SOT/Zhang-Li spin torque kernels
     )
     target_include_directories(micromag_cuda
         PUBLIC

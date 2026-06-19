@@ -32,6 +32,7 @@
 
 #include "micromag/heun_integrator_gpu.hpp"
 #include "micromag/rk4_gpu.hpp"
+#include "micromag/spin_torque_gpu.hpp"
 #include "micromag/types.hpp"
 
 #define CUDA_CHECK(call)                                                \
@@ -159,6 +160,84 @@ void HeunIntegratorGPU::step(
              demag, exch, zeeman, aniso, thermal);
 
     // m^{n+1} = normalize(m^n + dt/2·(k1 + k2))
+    launch_heun_corrector(state_.d_m(), state_.d_ki(), state_.d_k_acc(),
+                           h * 0.5, N, s);
+    launch_normalize(state_.d_m(), N, s);
+    state_.sync();
+}
+
+// ---------------------------------------------------------------------------
+// run_half — FieldSumGPU overload
+// ---------------------------------------------------------------------------
+void HeunIntegratorGPU::run_half(
+    const Material& mat,
+    const double*   d_m_in,
+    double*         d_H,
+    double*         d_ki,
+    IDemagGPU& demag, FieldSumGPU& extra_fields,
+    bool add_noise,
+    SpinTorqueSumGPU* torques)
+{
+    void* s = state_.stream();
+    const int N = static_cast<int>(state_.N());
+
+    CUDA_CHECK(cudaMemsetAsync(d_H, 0, 3*N*sizeof(double),
+                               static_cast<cudaStream_t>(s)));
+
+    extra_fields.accumulate_gpu_ptr(d_m_in, mat, d_H);
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    demag.accumulate_gpu_ptr(d_m_in, mat, d_H);
+
+    if (add_noise)
+        launch_add_3N(d_H,
+                      reinterpret_cast<const double*>(d_noise_),
+                      N, s);
+
+    launch_llg_torque(d_ki, d_m_in, d_H, mat.alpha, N, s);
+
+    if (torques && torques->size() > 0) {
+        torques->accumulate_gpu_ptr(d_m_in, mat, d_ki);
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// step — FieldSumGPU overload (optional spin torques, optional noise)
+// ---------------------------------------------------------------------------
+void HeunIntegratorGPU::step(
+    const Material& mat, IDemagGPU& demag,
+    FieldSumGPU& extra_fields,
+    Real T_K, SpinTorqueSumGPU* torques)
+{
+    const int  N = static_cast<int>(state_.N());
+    const Real h = dt_;
+    void*      s = state_.stream();
+
+    const bool thermal = (T_K > 0.0 && mat.Ms > 0.0);
+    if (thermal) {
+        const Real V   = dx_ * dy_ * dz_;
+        const Real num = 2.0 * mat.alpha * constants::k_B * T_K;
+        const Real den = constants::mu_0 * mat.Ms * constants::gamma_0 * V * h;
+        const double sig = std::sqrt(num / den);
+        CURAND_CHECK(curandGenerateNormalDouble(
+            static_cast<curandGenerator_t>(curand_gen_),
+            reinterpret_cast<double*>(d_noise_),
+            static_cast<size_t>(N_pad_), 0.0, sig));
+    }
+
+    // Predictor
+    run_half(mat, state_.d_m(), state_.d_H(), state_.d_ki(),
+             demag, extra_fields, thermal, torques);
+
+    launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, s);
+    launch_normalize(state_.d_m0(), N, s);
+    state_.sync();
+
+    // Corrector (same noise — Stratonovich)
+    run_half(mat, state_.d_m0(), state_.d_H(), state_.d_k_acc(),
+             demag, extra_fields, thermal, torques);
+
     launch_heun_corrector(state_.d_m(), state_.d_ki(), state_.d_k_acc(),
                            h * 0.5, N, s);
     launch_normalize(state_.d_m(), N, s);

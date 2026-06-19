@@ -45,6 +45,7 @@ if(MICROMAG_USE_CUDA)
         test_dmi_gpu.cpp                # K2: BulkDMIFieldGPU + InterfacialDMIFieldGPU tests
         test_relax_gpu.cpp              # P4: RelaxGPU + MinimizeGPU tests
         test_field_sum_gpu.cpp          # P2: FieldSumGPU compositor tests
+        test_spin_torque_gpu.cpp        # P3: GPU STT/SOT/Zhang-Li tests
     )
     target_link_libraries(unit_tests_gpu
         PRIVATE

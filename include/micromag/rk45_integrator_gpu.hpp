@@ -25,6 +25,7 @@
 #include "field_kernels_gpu.hpp"
 #include "gpu_state.hpp"
 #include "material.hpp"
+#include "spin_torque_gpu.hpp"
 #include "types.hpp"
 
 namespace micromag {
@@ -61,6 +62,10 @@ public:
 
     // Flexible overload: demag + arbitrary FieldSumGPU.
     Real step(const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields);
+
+    // FieldSumGPU + spin torques.
+    Real step(const Material& mat, IDemagGPU& demag,
+              FieldSumGPU& extra_fields, SpinTorqueSumGPU& torques);
 
     Real dt() const         { return dt_; }
     Real dt_current() const { return dt_; }
@@ -99,8 +104,10 @@ private:
                  const double* d_m_in, double* d_ki_out);
 
     // Compute H_eff(d_m_in) + LLG torque → d_ki_out (FieldSumGPU overload).
+    // Optional torques are added to d_ki_out after LLG torque.
     void eval_ki(const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields,
-                 const double* d_m_in, double* d_ki_out);
+                 const double* d_m_in, double* d_ki_out,
+                 SpinTorqueSumGPU* torques = nullptr);
 };
 
 }  // namespace micromag

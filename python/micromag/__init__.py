@@ -123,6 +123,12 @@ try:
         RK45IntegratorGPU,
         RK45GPUOptions,
         HeunIntegratorGPU,
+        # P3: GPU spin torques
+        ISpinTorqueGPU,
+        SpinTorqueSumGPU,
+        SlonczewskiSTTGPU,
+        SpinOrbitTorqueGPU,
+        ZhangLiSTTGPU,
     )
     _GPU_AVAILABLE = True
 except ImportError:
@@ -201,6 +207,8 @@ __all__ = [
     "UniaxialAnisotropyFieldGPU", "CubicAnisotropyFieldGPU",
     "RK4IntegratorGPU", "RK45IntegratorGPU", "RK45GPUOptions",
     "HeunIntegratorGPU",
+    "ISpinTorqueGPU", "SpinTorqueSumGPU",
+    "SlonczewskiSTTGPU", "SpinOrbitTorqueGPU", "ZhangLiSTTGPU",
 ]
 
 __version__ = "0.1.0"

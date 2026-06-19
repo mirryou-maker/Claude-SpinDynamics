@@ -137,12 +137,13 @@ void RK4IntegratorGPU::step(
 }
 
 // ---------------------------------------------------------------------------
-// run_stage — FieldSumGPU overload
+// run_stage — FieldSumGPU overload (optional spin torques)
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::run_stage(
     const Material& mat,
     IDemagGPU& demag, FieldSumGPU& extra_fields,
-    double stage_scale, double accum_weight)
+    double stage_scale, double accum_weight,
+    SpinTorqueSumGPU* torques)
 {
     void* s = state_.stream();
     double* dm  = state_.d_m();
@@ -155,14 +156,19 @@ void RK4IntegratorGPU::run_stage(
     state_.zero_H();
     state_.sync();
 
-    // Run all extra fields (exchange, zeeman, aniso, dmi, …) in sequence.
     extra_fields.accumulate_gpu_ptr(dm, mat, dH);
     CUDA_CHECK(cudaDeviceSynchronize());
 
-    // Demag last (syncs internally).
     demag.accumulate_gpu_ptr(dm, mat, dH);
 
     launch_llg_torque(dki, dm, dH, mat.alpha, N, s);
+
+    // Spin torques: add dm/dt contributions AFTER LLG torque
+    if (torques && torques->size() > 0) {
+        torques->accumulate_gpu_ptr(dm, mat, dki);
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
+
     launch_rk4_accumulate(dka, dki, accum_weight, N, s);
 
     if (stage_scale != 0.0)
@@ -170,7 +176,7 @@ void RK4IntegratorGPU::run_stage(
 }
 
 // ---------------------------------------------------------------------------
-// step — FieldSumGPU overload
+// step — FieldSumGPU overload (no spin torques)
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::step(
     const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields)
@@ -186,6 +192,31 @@ void RK4IntegratorGPU::step(
     run_stage(mat, demag, extra_fields, h * 0.5, 2.0/6.0); // k2
     run_stage(mat, demag, extra_fields, h * 1.0, 2.0/6.0); // k3
     run_stage(mat, demag, extra_fields, 0.0,     1.0/6.0); // k4
+
+    launch_rk4_finalize(state_.d_m(), state_.d_m0(), state_.d_k_acc(),
+                         h, static_cast<int>(state_.N()), s);
+    launch_normalize(state_.d_m(), static_cast<int>(state_.N()), s);
+    state_.sync();
+}
+
+// ---------------------------------------------------------------------------
+// step — FieldSumGPU + SpinTorqueSumGPU overload
+// ---------------------------------------------------------------------------
+void RK4IntegratorGPU::step(
+    const Material& mat, IDemagGPU& demag,
+    FieldSumGPU& extra_fields, SpinTorqueSumGPU& torques)
+{
+    void* s = state_.stream();
+
+    state_.save_m0();
+    state_.zero_k_acc();
+
+    const double h = static_cast<double>(dt_);
+
+    run_stage(mat, demag, extra_fields, h * 0.5, 1.0/6.0, &torques); // k1
+    run_stage(mat, demag, extra_fields, h * 0.5, 2.0/6.0, &torques); // k2
+    run_stage(mat, demag, extra_fields, h * 1.0, 2.0/6.0, &torques); // k3
+    run_stage(mat, demag, extra_fields, 0.0,     1.0/6.0, &torques); // k4
 
     launch_rk4_finalize(state_.d_m(), state_.d_m0(), state_.d_k_acc(),
                          h, static_cast<int>(state_.N()), s);

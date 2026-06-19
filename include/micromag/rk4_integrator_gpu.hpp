@@ -32,6 +32,7 @@
 #include "field_kernels_gpu.hpp"
 #include "gpu_state.hpp"
 #include "material.hpp"
+#include "spin_torque_gpu.hpp"
 #include "types.hpp"
 
 namespace micromag {
@@ -63,6 +64,11 @@ public:
     // UniaxialAnisotropyFieldGPU, BulkDMIFieldGPU, InterfacialDMIFieldGPU, etc.
     void step(const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields);
 
+    // FieldSumGPU + spin torques (STT/SOT/Zhang-Li).
+    // torques are applied AFTER LLG torque at each stage.
+    void step(const Material& mat, IDemagGPU& demag,
+              FieldSumGPU& extra_fields, SpinTorqueSumGPU& torques);
+
     Real dt() const        { return dt_; }
     void set_dt(Real dt)   { dt_ = dt;  }
 
@@ -76,10 +82,11 @@ private:
                    ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
                    double stage_scale, double accum_weight);
 
-    // Run one RK4 stage (FieldSumGPU overload).
+    // Run one RK4 stage (FieldSumGPU overload, optional spin torques).
     void run_stage(const Material& mat, IDemagGPU& demag,
                    FieldSumGPU& extra_fields,
-                   double stage_scale, double accum_weight);
+                   double stage_scale, double accum_weight,
+                   SpinTorqueSumGPU* torques = nullptr);
 };
 
 }  // namespace micromag

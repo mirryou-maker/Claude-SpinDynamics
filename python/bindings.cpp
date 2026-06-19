@@ -43,6 +43,7 @@
 #include "micromag/rk4_integrator_gpu.hpp"
 #include "micromag/rk45_integrator_gpu.hpp"
 #include "micromag/heun_integrator_gpu.hpp"
+#include "micromag/spin_torque_gpu.hpp"
 #endif
 
 namespace py = pybind11;
@@ -1136,6 +1137,16 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
              "One full RK4 step using FieldSumGPU. Demag runs first, then extra_fields "
              "(exchange, zeeman, DMI, anisotropy, etc.) in add() order.")
+        .def("step",
+             [](RK4IntegratorGPU& integ, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& extra_fields,
+                SpinTorqueSumGPU& torques) {
+                 integ.step(mat, demag, extra_fields, torques);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
+             py::arg("torques"),
+             "One full RK4 step with FieldSumGPU + SpinTorqueSumGPU (STT/SOT). "
+             "Spin torques are applied after LLG torque at each RK4 stage.")
         .def_property("dt", &RK4IntegratorGPU::dt, &RK4IntegratorGPU::set_dt);
 
     // ------------------------------------------------------------------
@@ -1186,6 +1197,15 @@ PYBIND11_MODULE(_micromag, m) {
              },
              py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
              "One adaptive DOPRI5 step using FieldSumGPU. Returns dt taken.")
+        .def("step",
+             [](RK45IntegratorGPU& integ, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& extra_fields,
+                SpinTorqueSumGPU& torques) {
+                 return integ.step(mat, demag, extra_fields, torques);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
+             py::arg("torques"),
+             "One adaptive DOPRI5 step with FieldSumGPU + SpinTorqueSumGPU. Returns dt taken.")
         .def_property_readonly("dt",         &RK45IntegratorGPU::dt_current)
         .def_property_readonly("dt_current", &RK45IntegratorGPU::dt_current)
         .def_property_readonly("n_accepted", &RK45IntegratorGPU::n_accepted)
@@ -1224,7 +1244,90 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
              "One Stratonovich Heun step on GPU. "
              "T_K=0 disables noise. demag may be DemagFieldGPU or DemagFieldPeriodicGPU.")
+        .def("step",
+             [](HeunIntegratorGPU& integ, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& extra_fields, Real T_K) {
+                 integ.step(mat, demag, extra_fields, T_K, nullptr);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
+             py::arg("T_K") = Real{0.0},
+             "One Stratonovich Heun step with FieldSumGPU. T_K=0 disables noise.")
+        .def("step",
+             [](HeunIntegratorGPU& integ, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& extra_fields,
+                Real T_K, SpinTorqueSumGPU& torques) {
+                 integ.step(mat, demag, extra_fields, T_K, &torques);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
+             py::arg("T_K"), py::arg("torques"),
+             "One Stratonovich Heun step with FieldSumGPU + SpinTorqueSumGPU.")
         .def_property("dt", &HeunIntegratorGPU::dt, &HeunIntegratorGPU::set_dt);
+
+    // ------------------------------------------------------------------
+    // GPU Spin Torques: ISpinTorqueGPU, SpinTorqueSumGPU,
+    //   SlonczewskiSTTGPU, SpinOrbitTorqueGPU, ZhangLiSTTGPU
+    // ------------------------------------------------------------------
+
+    // Base interface — registered before derived classes
+    py::class_<ISpinTorqueGPU, std::shared_ptr<ISpinTorqueGPU>>(
+            m, "ISpinTorqueGPU");
+
+    py::class_<SpinTorqueSumGPU>(m, "SpinTorqueSumGPU")
+        .def(py::init<>(),
+             "GPU spin torque compositor. add() any ISpinTorqueGPU; "
+             "pass to integ.step(mat, demag, fields, torques).")
+        .def("add", [](SpinTorqueSumGPU& self, ISpinTorqueGPU& t) { self.add(t); },
+             py::arg("torque"),
+             "Append a spin torque term (reference held; caller owns lifetime).")
+        .def("clear", &SpinTorqueSumGPU::clear, "Remove all spin torque terms.")
+        .def("__len__", &SpinTorqueSumGPU::size);
+
+    // SlonczewskiSTTGPU
+    py::class_<SlonczewskiSTTGPU, ISpinTorqueGPU,
+               std::shared_ptr<SlonczewskiSTTGPU>>(m, "SlonczewskiSTTGPU")
+        .def(py::init<const StructuredGrid&, Real, Real, Real, Vec3, Real>(),
+             py::arg("grid"), py::arg("J"), py::arg("P"), py::arg("d"),
+             py::arg("p"), py::arg("beta") = Real{0.0},
+             "GPU Slonczewski CPP-STT. "
+             "J: current density [A/m²]; P: polarisation [0,1]; "
+             "d: FL thickness [m]; p: reference polarisation direction; "
+             "beta: field-like/damping-like ratio.")
+        .def_property("J",    &SlonczewskiSTTGPU::J,    &SlonczewskiSTTGPU::set_J)
+        .def_property("P",    &SlonczewskiSTTGPU::P,    &SlonczewskiSTTGPU::set_P)
+        .def_property("beta", &SlonczewskiSTTGPU::beta, &SlonczewskiSTTGPU::set_beta)
+        .def_property_readonly("d", &SlonczewskiSTTGPU::d)
+        .def_property_readonly("p", &SlonczewskiSTTGPU::p);
+
+    // SpinOrbitTorqueGPU
+    py::class_<SpinOrbitTorqueGPU, ISpinTorqueGPU,
+               std::shared_ptr<SpinOrbitTorqueGPU>>(m, "SpinOrbitTorqueGPU")
+        .def(py::init<const StructuredGrid&, Real, Real, Real, Vec3, Real, Real>(),
+             py::arg("grid"), py::arg("J_c"), py::arg("theta_SH"), py::arg("d_fm"),
+             py::arg("sigma"), py::arg("eta_DL") = Real{1.0},
+             py::arg("eta_FL") = Real{0.0},
+             "GPU spin-orbit torque (spin Hall). "
+             "J_c: charge current [A/m²]; theta_SH: spin Hall angle (signed); "
+             "d_fm: FM thickness [m]; sigma: spin polarisation direction; "
+             "eta_DL: damping-like efficiency; eta_FL: field-like efficiency.")
+        .def_property("J_c",      &SpinOrbitTorqueGPU::J_c,      &SpinOrbitTorqueGPU::set_J_c)
+        .def_property("theta_SH", &SpinOrbitTorqueGPU::theta_SH, &SpinOrbitTorqueGPU::set_theta_SH)
+        .def_property("eta_DL",   &SpinOrbitTorqueGPU::eta_DL,   &SpinOrbitTorqueGPU::set_eta_DL)
+        .def_property("eta_FL",   &SpinOrbitTorqueGPU::eta_FL,   &SpinOrbitTorqueGPU::set_eta_FL)
+        .def_property_readonly("d_fm",  &SpinOrbitTorqueGPU::d_fm)
+        .def_property_readonly("sigma", &SpinOrbitTorqueGPU::sigma);
+
+    // ZhangLiSTTGPU
+    py::class_<ZhangLiSTTGPU, ISpinTorqueGPU,
+               std::shared_ptr<ZhangLiSTTGPU>>(m, "ZhangLiSTTGPU")
+        .def(py::init<const StructuredGrid&, Vec3, Real, Real>(),
+             py::arg("grid"), py::arg("J"), py::arg("P"), py::arg("xi"),
+             "GPU Zhang-Li CIP-STT (current-driven DW motion). "
+             "J: current density vector [A/m²]; P: spin polarisation; "
+             "xi: non-adiabaticity parameter.")
+        .def_property("J",  &ZhangLiSTTGPU::J,  &ZhangLiSTTGPU::set_J)
+        .def_property("P",  &ZhangLiSTTGPU::P,  &ZhangLiSTTGPU::set_P)
+        .def_property("xi", &ZhangLiSTTGPU::xi, &ZhangLiSTTGPU::set_xi);
+
 #endif  // MICROMAG_CUDA
 
     // ------------------------------------------------------------------
