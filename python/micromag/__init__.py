@@ -171,6 +171,9 @@ __all__ = [
     "grain_id_map", "make_scalar_gradient",
     # Phase H: inter-exchange + geometry utilities
     "snap", "invert_mask",
+    # Phase I: mumax3 utility extensions
+    "thermalize", "sinusoidal_field", "domain_wall_pos",
+    "field_fft2d", "compute_heff",
     # Utilities
     "cuda_available",
     # SP#2 / grid-sizing utilities (pure Python)
@@ -692,3 +695,159 @@ def invert_mask(mask):
     GeomMask — new mask, does not modify the input
     """
     return ~mask
+
+
+# ===========================================================================
+# Phase I — mumax3 utility extensions
+# ===========================================================================
+
+def thermalize(m, mat, heff, T_K: float, t_therm: float = 0.5e-9,
+               dt: float = 1e-13, seed: int = 42) -> float:
+    """Run Stochastic LLG (Heun) to reach thermal equilibrium at T_K.
+
+    Creates a temporary HeunIntegrator + ThermalField, runs SLLG for
+    ``t_therm`` seconds.  ``m`` is modified in-place.
+
+    Parameters
+    ----------
+    m       : VectorField3D  — modified in-place
+    mat     : Material
+    heff    : EffectiveFieldSum — deterministic fields (exchange, demag, …)
+    T_K     : float — temperature [K]
+    t_therm : float — equilibration time [s] (default 0.5 ns)
+    dt      : float — Heun timestep [s] (default 0.1 ps)
+    seed    : int   — random seed (default 42)
+
+    Returns
+    -------
+    float — actual simulated time
+
+    Example
+    -------
+    >>> mm.relax(m, mat, heff)          # find energy minimum first
+    >>> mm.thermalize(m, mat, heff, T_K=300.0)  # add thermal fluctuations
+    >>> mm.run(integ, m, mat, heff, 2e-9)       # dynamics at 300 K
+    """
+    heun    = HeunIntegrator(dt)
+    thermal = ThermalField(m.grid, T_K, dt, seed)
+    t = 0.0
+    while t < t_therm:
+        heun.step(m, mat, heff, thermal)
+        t += dt
+    return t
+
+
+def sinusoidal_field(t: float, H0, freq: float):
+    """Sinusoidal applied field for FMR / spin-wave ring-down excitation.
+
+    H(t) = H0 · sin(2π·freq·t)
+
+    Parameters
+    ----------
+    t    : float — current time [s]
+    H0   : Vec3  — peak amplitude [A/m]
+    freq : float — frequency [Hz]
+
+    Returns
+    -------
+    Vec3 — field at time t
+
+    Example
+    -------
+    >>> z_ac = mm.ZeemanField(mm.Vec3(0,0,0))
+    >>> def cb(t, m): z_ac.H_ext = mm.sinusoidal_field(t, mm.Vec3(1e3,0,0), 2.8e9)
+    >>> mm.run(integ, m, mat, heff, 5e-9, callback=cb)
+    """
+    phase = 2.0 * _math.pi * freq * t
+    s = _math.sin(phase)
+    return Vec3(H0.x * s, H0.y * s, H0.z * s)
+
+
+def domain_wall_pos(m, component: int = 2, threshold: float = 0.0,
+                    axis: int = 0) -> float:
+    """Find domain wall position by linear interpolation along ``axis``.
+
+    Averages ``m[component]`` over transverse dimensions, then locates the
+    first zero crossing of (profile − threshold).
+
+    Parameters
+    ----------
+    m         : VectorField3D
+    component : int   — 0=mx, 1=my, 2=mz (default 2)
+    threshold : float — crossing level (default 0.0 → 50 %-contour)
+    axis      : int   — scan axis: 0=x, 1=y, 2=z
+
+    Returns
+    -------
+    float — wall position in box-centred coords [m], or nan if no crossing
+    """
+    arr   = _np.array(to_numpy(m))          # (nz, ny, nx, 3)
+    g     = m.grid
+    sizes = (g.nx, g.ny, g.nz)
+    steps = (g.dx, g.dy, g.dz)
+    n  = sizes[axis]
+    ds = steps[axis]
+
+    if axis == 0:
+        profile = arr[:, :, :, component].mean(axis=(0, 1))
+    elif axis == 1:
+        profile = arr[:, :, :, component].mean(axis=(0, 2))
+    else:
+        profile = arr[:, :, :, component].mean(axis=(1, 2))
+
+    for i in range(n - 1):
+        v0 = profile[i]     - threshold
+        v1 = profile[i + 1] - threshold
+        if v0 * v1 < 0:
+            frac = -v0 / (v1 - v0)
+            return (i + frac + 0.5) * ds - 0.5 * n * ds
+    return float("nan")
+
+
+def field_fft2d(data_xt, dt: float, dx: float):
+    """2D FFT of m(x,t) data → spin-wave dispersion S(k, f).
+
+    Parameters
+    ----------
+    data_xt : array (nt, nx) — time-series of one magnetization component
+    dt      : float — time between frames [s]
+    dx      : float — spatial cell size [m]
+
+    Returns
+    -------
+    kvals : array (nx,) — wavenumber [rad/m], centred at k=0
+    freqs : array (nt,) — frequency [Hz]
+    S     : array (nt, nx) — |FFT|² power, k-axis fftshifted
+
+    Example
+    -------
+    >>> kvals, freqs, S = mm.field_fft2d(my_xt, dt=10e-12, dx=20e-9)
+    >>> plt.pcolormesh(kvals, freqs[:nt//2]/1e9, S[:nt//2], norm=LogNorm())
+    """
+    nt, nx = data_xt.shape
+    F = _np.fft.fft2(data_xt)
+    S = _np.fft.fftshift(_np.abs(F) ** 2, axes=1)
+    freqs = _np.fft.fftfreq(nt, d=dt)
+    kvals = _np.fft.fftshift(_np.fft.fftfreq(nx, d=dx / (2 * _math.pi)))
+    return kvals, freqs, S
+
+
+def compute_heff(m, mat, heff):
+    """Compute H_eff and return as a new VectorField3D [A/m].
+
+    Useful for visualising the effective field or computing derived
+    quantities (torque, energy density) outside the integrator.
+
+    Parameters
+    ----------
+    m    : VectorField3D
+    mat  : Material
+    heff : EffectiveFieldSum
+
+    Returns
+    -------
+    VectorField3D — H_eff [A/m]
+    """
+    H = VectorField3D(m.grid)
+    heff.accumulate(m, mat, H)
+    return H

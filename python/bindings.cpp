@@ -1077,6 +1077,22 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<RelaxOptions>(m, "RelaxOptions")
         .def(py::init<>())
+        .def(py::init([](Real threshold, Real dt, Real alpha_relax,
+                         int max_steps, bool throw_on_max_steps) {
+                 RelaxOptions o;
+                 o.threshold          = threshold;
+                 o.dt                 = dt;
+                 o.alpha_relax        = alpha_relax;
+                 o.max_steps          = max_steps;
+                 o.throw_on_max_steps = throw_on_max_steps;
+                 return o;
+             }),
+             py::arg("threshold")          = Real{1.0},
+             py::arg("dt")                 = Real{1e-12},
+             py::arg("alpha_relax")        = Real{1.0},
+             py::arg("max_steps")          = 500'000,
+             py::arg("throw_on_max_steps") = false,
+             "Keyword-argument constructor: RelaxOptions(threshold=1.0, dt=1e-12, …)")
         .def_readwrite("alpha_relax",        &RelaxOptions::alpha_relax)
         .def_readwrite("threshold",           &RelaxOptions::threshold)
         .def_readwrite("dt",                  &RelaxOptions::dt)
@@ -1107,6 +1123,24 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<MinimizeOptions>(m, "MinimizeOptions")
         .def(py::init<>())
+        .def(py::init([](Real threshold, Real dt_init, Real dt_max, Real dt_min,
+                         int max_steps, bool throw_on_max_steps) {
+                 MinimizeOptions o;
+                 o.threshold          = threshold;
+                 o.dt_init            = dt_init;
+                 o.dt_max             = dt_max;
+                 o.dt_min             = dt_min;
+                 o.max_steps          = max_steps;
+                 o.throw_on_max_steps = throw_on_max_steps;
+                 return o;
+             }),
+             py::arg("threshold")          = Real{1.0},
+             py::arg("dt_init")            = Real{1e-12},
+             py::arg("dt_max")             = Real{1e-10},
+             py::arg("dt_min")             = Real{1e-17},
+             py::arg("max_steps")          = 200'000,
+             py::arg("throw_on_max_steps") = false,
+             "Keyword-argument constructor: MinimizeOptions(threshold=1.0, dt_init=1e-12, …)")
         .def_readwrite("threshold",          &MinimizeOptions::threshold)
         .def_readwrite("dt_init",            &MinimizeOptions::dt_init)
         .def_readwrite("dt_max",             &MinimizeOptions::dt_max)
