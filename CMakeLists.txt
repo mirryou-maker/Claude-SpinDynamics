@@ -130,6 +130,7 @@ if(MICROMAG_USE_CUDA)
     # Separate CUDA library — keeps nvcc and MSVC compilation units isolated
     add_library(micromag_cuda
         src/demag_cuda.cu
+        src/demag_periodic_gpu.cu   # J5: GPU periodic-BC demag (no zero-padding)
         src/exchange_gpu.cu      # G1: GPU exchange field (6-point Laplacian)
         src/field_kernels_gpu.cu # G2: GPU Zeeman + Uniaxial-Anisotropy
         src/gpu_state.cu         # G3: GPU-resident magnetization state

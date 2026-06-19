@@ -33,6 +33,7 @@
 
 #ifdef MICROMAG_CUDA
 #include "micromag/demag_gpu.hpp"
+#include "micromag/demag_periodic_gpu.hpp"
 #include "micromag/exchange_gpu.hpp"
 #include "micromag/field_kernels_gpu.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
@@ -855,6 +856,19 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("m"), py::arg("mat"),
              "Per-cell demag energy density [J/m³] (GPU accumulate + CPU reduce).")
         .def_property_readonly("name", &DemagFieldGPU::name);
+
+    py::class_<DemagFieldPeriodicGPU, IEffectiveField,
+               std::shared_ptr<DemagFieldPeriodicGPU>>(m, "DemagFieldPeriodicGPU")
+        .def(py::init<const StructuredGrid&, int>(),
+             py::arg("grid"), py::arg("n_rep") = 2,
+             "GPU periodic-BC demag field (no zero-padding, 8x smaller FFT than "
+             "DemagFieldGPU). Kernel precomputed on CPU via periodic Newell image "
+             "sum then uploaded once. Uniform m -> H=0 (k=0 zeroed).")
+        .def("accumulate",     &DemagFieldPeriodicGPU::accumulate)
+        .def("energy",         &DemagFieldPeriodicGPU::energy)
+        .def("energy_density", &DemagFieldPeriodicGPU::energy_density,
+             py::arg("m"), py::arg("mat"))
+        .def_property_readonly("name", &DemagFieldPeriodicGPU::name);
 
     py::class_<ExchangeFieldGPU, IEffectiveField, std::shared_ptr<ExchangeFieldGPU>>(
             m, "ExchangeFieldGPU")
