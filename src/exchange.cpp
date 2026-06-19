@@ -1,6 +1,7 @@
 #include "micromag/exchange.hpp"
 #include "micromag/geom_mask.hpp"
 #include "micromag/material_field.hpp"
+#include "micromag/detail/grad_helpers.hpp"
 
 namespace micromag {
 
@@ -134,6 +135,28 @@ Real ExchangeField::energy(const VectorField3D& m,
         else if (bc_ == BoundaryCondition::Periodic)      add_bond(i,   j,   0,   idz2);
     }
     return sum * V;
+}
+
+ScalarField3D ExchangeField::energy_density(const VectorField3D& m,
+                                             const Material& mat) const {
+    ScalarField3D edens(m.grid());
+    if (!matf_ && mat.A_exchange == 0) return edens;
+
+    const StructuredGrid& g = m.grid();
+    for (Index iz = 0; iz < g.nz(); ++iz)
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix) {
+        if (mask_ && (*mask_)(ix, iy, iz) < Real{0.5}) continue;
+        const Index idx = g.linear_index(ix, iy, iz);
+        const Real A = matf_ ? matf_->A_exchange(idx) : mat.A_exchange;
+        using detail::grad_x; using detail::grad_y; using detail::grad_z;
+        Vec3 gx = grad_x(m, g, ix, iy, iz);
+        Vec3 gy = grad_y(m, g, ix, iy, iz);
+        Vec3 gz = grad_z(m, g, ix, iy, iz);
+        // e = A*(|∂m/∂x|² + |∂m/∂y|² + |∂m/∂z|²) [J/m³]
+        edens[idx] = A * (gx.dot(gx) + gy.dot(gy) + gz.dot(gz));
+    }
+    return edens;
 }
 
 }  // namespace micromag

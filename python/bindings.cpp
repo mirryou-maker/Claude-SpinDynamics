@@ -25,6 +25,9 @@
 #include "micromag/dmi.hpp"
 #include "micromag/solver.hpp"
 #include "micromag/ovf_io.hpp"
+#include "micromag/cubic_anisotropy.hpp"
+#include "micromag/region_map.hpp"
+#include "micromag/init_mag.hpp"
 
 #ifdef MICROMAG_CUDA
 #include "micromag/demag_gpu.hpp"
@@ -221,6 +224,24 @@ PYBIND11_MODULE(_micromag, m) {
     m.def("cylinder", &cylinder, py::arg("grid"), py::arg("r"), py::arg("h"),
           "Finite cylinder along z: x^2+y^2<=r^2, |z|<=h/2. Returns GeomMask.");
 
+    // Phase E: additional shape factories
+    m.def("square",  &square,  py::arg("grid"), py::arg("side"),
+          "Square in xy-plane: side×side, centred at box centre. Returns GeomMask.");
+    m.def("cuboid",  &cuboid,  py::arg("grid"), py::arg("lx"), py::arg("ly"), py::arg("lz"),
+          "Rectangular box: |x|<=lx/2, |y|<=ly/2, |z|<=lz/2. Returns GeomMask.");
+    m.def("sphere",  &sphere,  py::arg("grid"), py::arg("r"),
+          "Sphere: x²+y²+z²<=r². Returns GeomMask.");
+    m.def("layer",   &layer,   py::arg("grid"), py::arg("n"),
+          "Select single z-layer n (0-based). Returns GeomMask.");
+    m.def("layers",  &layers,  py::arg("grid"), py::arg("n1"), py::arg("n2"),
+          "Select z-layers n1..n2 inclusive. Returns GeomMask.");
+    m.def("x_range", &x_range, py::arg("grid"), py::arg("x1"), py::arg("x2"),
+          "Slab x1<=x<=x2 (box-centred coords). Returns GeomMask.");
+    m.def("y_range", &y_range, py::arg("grid"), py::arg("y1"), py::arg("y2"),
+          "Slab y1<=y<=y2 (box-centred coords). Returns GeomMask.");
+    m.def("z_range", &z_range, py::arg("grid"), py::arg("z1"), py::arg("z2"),
+          "Slab z1<=z<=z2 (box-centred coords). Returns GeomMask.");
+
     // Geometric transformations
     m.def("translate", &translate,
           py::arg("mask"), py::arg("shift_x"), py::arg("shift_y"),
@@ -281,6 +302,9 @@ PYBIND11_MODULE(_micromag, m) {
         .def_readwrite("K_uniaxial",  &Material::K_uniaxial)
         .def_readwrite("easy_axis",   &Material::easy_axis)
         .def_readwrite("alpha",       &Material::alpha)
+        .def_readwrite("Ku2",         &Material::Ku2,
+                       "Second uniaxial anisotropy constant K2 [J/m³]. "
+                       "ΔE = -Ku2*(m·û)^4")
         .def_static("permalloy", &Material::permalloy)
         .def_static("cobalt",    &Material::cobalt)
         .def_static("iron",      &Material::iron);
@@ -325,13 +349,75 @@ PYBIND11_MODULE(_micromag, m) {
           "N(0, sigma_K)) and a uniformly-random easy-axis orientation. "
           "Ms/A_exchange/alpha are taken uniformly from `base`. Returns MaterialField3D.");
 
+    // Phase E: RegionMap — integer region IDs (0-255), mumax3 DefRegion system
+    py::class_<RegionMap>(m, "RegionMap")
+        .def(py::init<const StructuredGrid&, uint8_t>(),
+             py::arg("grid"), py::arg("default_id") = uint8_t{0},
+             py::keep_alive<1, 2>(),
+             "Integer region map (0-255 IDs per cell). Default all cells = default_id.")
+        .def("def_region",
+             [](RegionMap& rm, uint8_t id, const GeomMask& mask) {
+                 rm.def_region(id, mask);
+             },
+             py::arg("id"), py::arg("mask"),
+             "Assign region id to all cells where mask > 0.5 (last call wins).")
+        .def("region_mask", &RegionMap::region_mask, py::arg("id"),
+             "Return GeomMask with 1 where region==id, 0 elsewhere.")
+        .def("set_magnetization",
+             [](const RegionMap& rm, uint8_t id, VectorField3D& m, Vec3 val) {
+                 rm.set_magnetization(id, m, val);
+             },
+             py::arg("id"), py::arg("m"), py::arg("val"),
+             "Set m[i] = val (normalised) for all cells in region id.")
+        .def("set_material",
+             [](const RegionMap& rm, uint8_t id, MaterialField3D& matf, const Material& mat) {
+                 rm.set_material(id, matf, mat);
+             },
+             py::arg("id"), py::arg("material_field"), py::arg("material"),
+             "Copy material properties into MaterialField3D for all cells in region id.")
+        .def("__getitem__",
+             [](const RegionMap& rm, Index idx) { return rm[idx]; },
+             py::arg("idx"), "Region ID at flat linear index idx.");
+
+    // Phase E: initial magnetization state factories
+    m.def("uniform_mag", &uniform_mag,
+          py::arg("grid"), py::arg("dir") = Vec3{0, 0, 1},
+          "Uniform magnetization state. dir is normalised automatically.");
+    m.def("neel_skyrmion", &neel_skyrmion,
+          py::arg("grid"), py::arg("r"),
+          py::arg("charge") = 1, py::arg("pol") = 1,
+          py::arg("cx") = Real{0}, py::arg("cy") = Real{0},
+          "Néel-type skyrmion: θ=2*atan(r/ρ), in-plane component radial.\n"
+          "charge=topological charge (±1), pol=polarity (±1 sets mz sign at core).\n"
+          "cx,cy: offset from box centre [m].");
+    m.def("bloch_skyrmion", &bloch_skyrmion,
+          py::arg("grid"), py::arg("r"),
+          py::arg("charge") = 1, py::arg("pol") = 1,
+          py::arg("cx") = Real{0}, py::arg("cy") = Real{0},
+          "Bloch-type skyrmion: in-plane component tangential (φ_in=charge*φ+π/2).");
+    m.def("two_domain", &two_domain,
+          py::arg("grid"), py::arg("m1"), py::arg("m2"),
+          py::arg("axis") = 'x',
+          "Two-domain state split at box centre along axis ('x','y','z').\n"
+          "m1 fills x<0 (or y<0 / z<0), m2 fills the other half.");
+    m.def("vortex_state", &vortex_state,
+          py::arg("grid"), py::arg("circ") = 1, py::arg("pol") = 1,
+          "Vortex state: core at box centre, mz=pol at core, in-plane tangential.\n"
+          "circ=circulation (±1), pol=polarity (±1).");
+    m.def("random_mag", &random_mag,
+          py::arg("grid"), py::arg("seed") = 42u,
+          "Random unit-vector magnetization (uniform on sphere). seed: RNG seed.");
+
     py::enum_<BoundaryCondition>(m, "BoundaryCondition")
         .value("Neumann",  BoundaryCondition::Neumann)
         .value("Periodic", BoundaryCondition::Periodic);
 
     py::class_<IEffectiveField, std::shared_ptr<IEffectiveField>>(m, "IEffectiveField")
-        .def("accumulate", &IEffectiveField::accumulate)
-        .def("energy",     &IEffectiveField::energy)
+        .def("accumulate",      &IEffectiveField::accumulate)
+        .def("energy",          &IEffectiveField::energy)
+        .def("energy_density",  &IEffectiveField::energy_density,
+             py::arg("m"), py::arg("mat"),
+             "Per-cell energy density [J/m³]. Returns ScalarField3D (mumax3 Edens_*).")
         .def_property_readonly("name", &IEffectiveField::name);
 
     py::class_<ZeemanField, IEffectiveField, std::shared_ptr<ZeemanField>>(m, "ZeemanField")
@@ -348,6 +434,25 @@ PYBIND11_MODULE(_micromag, m) {
              "mumax3 \"Regions\"-style spatially-varying anisotropy.")
         .def("clear_material_field", &UniaxialAnisotropyField::clear_material_field,
              "Remove per-cell material field (use uniform Material).");
+
+    // CubicAnisotropyField — Kc1/Kc2 (mumax3 parameters)
+    py::class_<CubicAnisotropyField, IEffectiveField,
+               std::shared_ptr<CubicAnisotropyField>>(m, "CubicAnisotropyField")
+        .def(py::init<Real, Real, Vec3, Vec3>(),
+             py::arg("Kc1") = Real{0}, py::arg("Kc2") = Real{0},
+             py::arg("c1") = Vec3{1,0,0}, py::arg("c2") = Vec3{0,1,0},
+             "Cubic magnetocrystalline anisotropy.\n"
+             "e = Kc1*(a1²a2² + a2²a3² + a3²a1²) + Kc2*(a1²a2²a3²)\n"
+             "where ai = m·ci.  c3 = c1×c2 computed internally.\n"
+             "Default: c1={1,0,0}, c2={0,1,0} (crystal aligned with grid).\n"
+             "Fe: Kc1 ≈ +48kJ/m³, Ni: Kc1 ≈ -5kJ/m³.")
+        .def_property("Kc1", &CubicAnisotropyField::Kc1, &CubicAnisotropyField::set_Kc1)
+        .def_property("Kc2", &CubicAnisotropyField::Kc2, &CubicAnisotropyField::set_Kc2)
+        .def_property_readonly("c1", &CubicAnisotropyField::c1)
+        .def_property_readonly("c2", &CubicAnisotropyField::c2)
+        .def_property_readonly("c3", &CubicAnisotropyField::c3)
+        .def("set_axes", &CubicAnisotropyField::set_axes,
+             py::arg("c1"), py::arg("c2"), "Set cubic axes (c3=c1×c2).");
 
     py::class_<ExchangeField, IEffectiveField, std::shared_ptr<ExchangeField>>(m, "ExchangeField")
         .def(py::init<BoundaryCondition>(), py::arg("bc") = BoundaryCondition::Neumann)
@@ -439,9 +544,12 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<EffectiveFieldSum>(m, "EffectiveFieldSum")
         .def(py::init<>())
-        .def("add",          &EffectiveFieldSum::add)
-        .def("compute",      &EffectiveFieldSum::compute)
-        .def("total_energy", &EffectiveFieldSum::total_energy)
+        .def("add",             &EffectiveFieldSum::add)
+        .def("compute",         &EffectiveFieldSum::compute)
+        .def("total_energy",    &EffectiveFieldSum::total_energy)
+        .def("energy_density",  &EffectiveFieldSum::energy_density,
+             py::arg("m"), py::arg("mat"),
+             "Sum per-cell energy densities from all terms [J/m³]. Returns ScalarField3D.")
         .def_property_readonly("terms",     &EffectiveFieldSum::terms)
         .def_property_readonly("num_terms", &EffectiveFieldSum::num_terms);
 

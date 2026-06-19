@@ -31,6 +31,9 @@ public:
 
     Real energy(const VectorField3D& m, const Material& mat) const override;
 
+    ScalarField3D energy_density(const VectorField3D& m,
+                                  const Material& mat) const override;
+
     const char* name() const override { return "Exchange"; }
 
     BoundaryCondition boundary() const { return bc_; }

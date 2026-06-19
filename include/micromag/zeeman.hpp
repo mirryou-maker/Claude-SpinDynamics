@@ -16,6 +16,9 @@ public:
 
     Real energy(const VectorField3D& m, const Material& mat) const override;
 
+    ScalarField3D energy_density(const VectorField3D& m,
+                                  const Material& mat) const override;
+
     const char* name() const override { return "Zeeman"; }
 
     Vec3 H_ext() const { return H_ext_; }

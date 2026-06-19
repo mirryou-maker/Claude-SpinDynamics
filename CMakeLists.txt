@@ -62,6 +62,9 @@ add_library(micromag_core
     src/solver.cpp
     src/dmi.cpp
     src/ovf_io.cpp
+    src/cubic_anisotropy.cpp
+    src/region_map.cpp
+    src/init_mag.cpp
 )
 target_include_directories(micromag_core
     PUBLIC

@@ -43,6 +43,10 @@ public:
     Real energy(const VectorField3D& m,
                 const Material& mat) const override;
 
+    // Per-cell: e_i = -μ₀/2 Ms_i (m_i·H_demag_i) [J/m³]
+    ScalarField3D energy_density(const VectorField3D& m,
+                                  const Material& mat) const override;
+
     const char* name() const override { return "DemagField"; }
 
     // Attach per-cell Ms. nullptr disables it (default), falling back to the

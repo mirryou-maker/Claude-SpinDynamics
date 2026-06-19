@@ -7,12 +7,13 @@ namespace micromag {
 // Forward declaration — include material_field.hpp for the full definition.
 class MaterialField3D;
 
-// Uniaxial anisotropy (easy-axis from Material::easy_axis):
-//   E = -K ∫ (m·û)² dV,   H = (2K / μ₀ Ms) (m·û) û
+// Uniaxial anisotropy with first and second-order terms.
+// E = -∫(K1*(m·û)² + Ku2*(m·û)⁴) dV
+// H = (1/μ₀Ms)(2K1*(m·û) + 4Ku2*(m·û)³) û
+// K1 = mat.K_uniaxial, Ku2 = mat.Ku2, û = mat.easy_axis (normalised).
 //
-// When a MaterialField3D is attached (set_material_field), the per-cell
-// K_uniaxial, easy_axis and Ms are used (mumax3 "Regions" style spatially-
-// varying anisotropy — e.g. randomly-oriented grains from voronoi_grains).
+// When a MaterialField3D is attached (set_material_field), per-cell
+// K_uniaxial, easy_axis, Ms are used; Ku2 is always from the uniform mat.
 class UniaxialAnisotropyField : public IEffectiveField {
 public:
     void accumulate(const VectorField3D& m,
@@ -20,6 +21,9 @@ public:
                     VectorField3D& H_out) const override;
 
     Real energy(const VectorField3D& m, const Material& mat) const override;
+
+    ScalarField3D energy_density(const VectorField3D& m,
+                                  const Material& mat) const override;
 
     const char* name() const override { return "UniaxialAnisotropy"; }
 

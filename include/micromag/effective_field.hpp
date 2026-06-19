@@ -26,6 +26,12 @@ public:
     virtual Real energy(const VectorField3D& m,
                         const Material& mat) const = 0;
 
+    // Per-cell energy density [J/m³].
+    // Default implementation: uniform = energy() / (N * cell_volume).
+    // Override in subclasses for spatially-resolved maps (mumax3 Edens_*).
+    virtual ScalarField3D energy_density(const VectorField3D& m,
+                                         const Material& mat) const;
+
     virtual const char* name() const = 0;
 };
 
@@ -39,6 +45,9 @@ public:
                  VectorField3D& H_out) const;
 
     Real total_energy(const VectorField3D& m, const Material& mat) const;
+
+    // Sum per-cell energy densities from all terms.
+    ScalarField3D energy_density(const VectorField3D& m, const Material& mat) const;
 
     std::size_t num_terms() const { return terms_.size(); }
     const std::vector<std::shared_ptr<IEffectiveField>>& terms() const { return terms_; }

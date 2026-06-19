@@ -79,6 +79,30 @@ GeomMask rect(const StructuredGrid& grid, Real lx, Real ly);
 // Finite-height cylinder along z: x^2 + y^2 <= r^2, |z| <= h/2.
 GeomMask cylinder(const StructuredGrid& grid, Real r, Real h);
 
+// Square in xy-plane: |x| <= side/2, |y| <= side/2. Extruded through all z.
+GeomMask square(const StructuredGrid& grid, Real side);
+
+// Axis-aligned box: |x| <= lx/2, |y| <= ly/2, |z| <= lz/2.
+GeomMask cuboid(const StructuredGrid& grid, Real lx, Real ly, Real lz);
+
+// Sphere: x^2 + y^2 + z^2 <= r^2.
+GeomMask sphere(const StructuredGrid& grid, Real r);
+
+// Single z-layer n (0-indexed, Neumann BC style). Cells with iz == n inside.
+GeomMask layer(const StructuredGrid& grid, Index n);
+
+// Z-layers n1..n2 inclusive (0-indexed).
+GeomMask layers(const StructuredGrid& grid, Index n1, Index n2);
+
+// Physical x range [x1, x2] in box-centred coordinates.
+GeomMask x_range(const StructuredGrid& grid, Real x1, Real x2);
+
+// Physical y range [y1, y2] in box-centred coordinates.
+GeomMask y_range(const StructuredGrid& grid, Real y1, Real y2);
+
+// Physical z range [z1, z2] in box-centred coordinates.
+GeomMask z_range(const StructuredGrid& grid, Real z1, Real z2);
+
 // ---------------------------------------------------------------------------
 // Geometric transformations (return new GeomMask; do not modify input)
 //

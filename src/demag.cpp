@@ -352,4 +352,20 @@ Real DemagField::energy(const VectorField3D& m, const Material& mat) const {
     return 0.5 * E;   // factor 1/2 avoids double-counting
 }
 
+ScalarField3D DemagField::energy_density(const VectorField3D& m,
+                                          const Material& mat) const {
+    const StructuredGrid& g = m.grid();
+    VectorField3D H(g);
+    for (Index i = 0; i < H.size(); ++i) H[i] = {0, 0, 0};
+    accumulate(m, mat, H);
+
+    ScalarField3D edens(g);
+    for (Index i = 0; i < m.size(); ++i) {
+        const Real Ms_cell = matf_ ? matf_->Ms(i) : mat.Ms;
+        // e_i = -μ₀/2 * Ms_i * (m_i · H_demag_i)  [J/m³]
+        edens[i] = -0.5 * constants::mu_0 * Ms_cell * m[i].dot(H[i]);
+    }
+    return edens;
+}
+
 }  // namespace micromag

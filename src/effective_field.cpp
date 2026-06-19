@@ -23,4 +23,27 @@ Real EffectiveFieldSum::total_energy(const VectorField3D& m,
     return total;
 }
 
+ScalarField3D EffectiveFieldSum::energy_density(const VectorField3D& m,
+                                                const Material& mat) const {
+    ScalarField3D edens(m.grid());
+    for (const auto& term : terms_) {
+        ScalarField3D ed = term->energy_density(m, mat);
+        for (Index i = 0; i < edens.size(); ++i)
+            edens[i] += ed[i];
+    }
+    return edens;
+}
+
+// Default implementation: uniform per-cell value = E_total / (N * dV)
+ScalarField3D IEffectiveField::energy_density(const VectorField3D& m,
+                                               const Material& mat) const {
+    ScalarField3D edens(m.grid());
+    const Real dV = m.grid().cell_volume();
+    if (dV > 0 && m.size() > 0) {
+        const Real e_avg = energy(m, mat) / (static_cast<Real>(m.size()) * dV);
+        edens.set_uniform(e_avg);
+    }
+    return edens;
+}
+
 }  // namespace micromag

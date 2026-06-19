@@ -16,4 +16,13 @@ Real ZeemanField::energy(const VectorField3D& m, const Material& mat) const {
     return -constants::mu_0 * mat.Ms * sum * m.grid().cell_volume();
 }
 
+ScalarField3D ZeemanField::energy_density(const VectorField3D& m,
+                                           const Material& mat) const {
+    ScalarField3D edens(m.grid());
+    const Real prefac = -constants::mu_0 * mat.Ms;
+    for (Index i = 0; i < m.size(); ++i)
+        edens[i] = prefac * m[i].dot(H_ext_);
+    return edens;
+}
+
 }  // namespace micromag

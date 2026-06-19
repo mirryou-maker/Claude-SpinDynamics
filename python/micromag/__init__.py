@@ -24,6 +24,15 @@ from _micromag import (
     cylinder,
     translate,
     rotate,
+    # Phase E: additional geometry shapes
+    square,
+    cuboid,
+    sphere,
+    layer,
+    layers,
+    x_range,
+    y_range,
+    z_range,
     # Phase B2: MFM Imaging
     TipMode,
     MFMImage,
@@ -39,6 +48,13 @@ from _micromag import (
     DemagFieldPeriodic,
     EffectiveFieldSum,
     RKKYField,
+    # Phase E: cubic anisotropy
+    CubicAnisotropyField,
+    # Phase C1: per-cell material
+    MaterialField3D,
+    voronoi_grains,
+    # Phase E: region map
+    RegionMap,
     # Phase 1c
     gamma_0,
     llg_torque,
@@ -68,6 +84,13 @@ from _micromag import (
     OVFFormat,
     save_ovf,
     load_ovf,
+    # Phase E: initial magnetization states
+    uniform_mag,
+    neel_skyrmion,
+    bloch_skyrmion,
+    two_domain,
+    vortex_state,
+    random_mag,
     # CUDA availability probe
     cuda_available,
 )
@@ -77,9 +100,11 @@ __all__ = [
     "Vec3", "StructuredGrid", "VectorField3D", "ScalarField3D",
     "to_numpy", "to_numpy_scalar", "from_numpy", "mean_magnetization",
     "write_vtk_legacy", "make_gaussian_field",
-    # Geometry / Shape API (Phase B1)
+    # Geometry / Shape API (Phase B1 + E)
     "GeomMask", "union_", "sub_", "intersect_",
     "ellipse", "circle", "rect", "cylinder",
+    "square", "cuboid", "sphere",
+    "layer", "layers", "x_range", "y_range", "z_range",
     "translate", "rotate",
     "TipMode", "MFMImage",
     # Material / effective fields
@@ -87,7 +112,9 @@ __all__ = [
     "ZeemanField", "ZeemanFieldSpatial",
     "UniaxialAnisotropyField", "ExchangeField",
     "DemagField", "DemagFieldPeriodic", "EffectiveFieldSum",
-    "RKKYField",
+    "RKKYField", "CubicAnisotropyField",
+    # Per-cell material / regions
+    "MaterialField3D", "voronoi_grains", "RegionMap",
     # DMI
     "BulkDMIField", "InterfacialDMIField",
     # Integrators
@@ -101,6 +128,9 @@ __all__ = [
     "RelaxOptions", "MinimizeOptions", "max_torque", "relax", "minimize",
     # OVF I/O
     "OVFFormat", "save_ovf", "load_ovf",
+    # Initial magnetization states (Phase E)
+    "uniform_mag", "neel_skyrmion", "bloch_skyrmion",
+    "two_domain", "vortex_state", "random_mag",
     # Run/Steps convenience
     "run", "steps",
     # Utilities
