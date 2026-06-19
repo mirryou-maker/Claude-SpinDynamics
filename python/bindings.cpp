@@ -27,6 +27,7 @@
 #include "micromag/ovf_io.hpp"
 #include "micromag/cubic_anisotropy.hpp"
 #include "micromag/surface_anisotropy.hpp"
+#include "micromag/magnetoelastic.hpp"
 #include "micromag/region_map.hpp"
 #include "micromag/init_mag.hpp"
 #include "micromag/topological_charge.hpp"
@@ -556,6 +557,40 @@ PYBIND11_MODULE(_micromag, m) {
         .def("accumulate", &SurfaceAnisotropyField::accumulate)
         .def("energy",     &SurfaceAnisotropyField::energy)
         .def_property_readonly("name", &SurfaceAnisotropyField::name);
+
+    // MagnetoelasticField — B1/B2 magnetostrictive coupling (mumax3 B1/B2/exx/...)
+    py::class_<MagnetoelasticField, IEffectiveField,
+               std::shared_ptr<MagnetoelasticField>>(m, "MagnetoelasticField",
+        "Magnetoelastic (magnetostrictive) effective field.\n\n"
+        "Cubic symmetry coupling B1, B2 [J/m3] with uniform strain tensor.\n\n"
+        "Energy density:\n"
+        "  e = B1*(mx2*exx + my2*eyy + mz2*ezz)\n"
+        "    + 2*B2*(mx*my*exy + my*mz*eyz + mx*mz*exz)\n\n"
+        "Effective field:\n"
+        "  H_x = -(2/mu0Ms)[B1*mx*exx + B2*(my*exy + mz*exz)]\n"
+        "  (and cyclic permutations for H_y, H_z)\n\n"
+        "Example (Ni, uniaxial strain along x):\n"
+        "  me = mm.MagnetoelasticField(B1=-62.4e6, B2=-27.1e6)\n"
+        "  me.exx = 0.001\n"
+        "  heff.add(me_ptr)")
+        .def(py::init<Real, Real>(),
+             py::arg("B1") = Real{0}, py::arg("B2") = Real{0},
+             "B1, B2 : magnetoelastic coupling constants [J/m3]")
+        .def("set_strain", &MagnetoelasticField::set_strain,
+             py::arg("exx"), py::arg("eyy") = Real{0}, py::arg("ezz") = Real{0},
+             py::arg("exy") = Real{0}, py::arg("exz") = Real{0}, py::arg("eyz") = Real{0},
+             "Set full strain tensor (uniform, all cells).")
+        .def_property("B1",  &MagnetoelasticField::B1,  &MagnetoelasticField::set_B1)
+        .def_property("B2",  &MagnetoelasticField::B2,  &MagnetoelasticField::set_B2)
+        .def_property("exx", &MagnetoelasticField::exx, &MagnetoelasticField::set_exx)
+        .def_property("eyy", &MagnetoelasticField::eyy, &MagnetoelasticField::set_eyy)
+        .def_property("ezz", &MagnetoelasticField::ezz, &MagnetoelasticField::set_ezz)
+        .def_property("exy", &MagnetoelasticField::exy, &MagnetoelasticField::set_exy)
+        .def_property("exz", &MagnetoelasticField::exz, &MagnetoelasticField::set_exz)
+        .def_property("eyz", &MagnetoelasticField::eyz, &MagnetoelasticField::set_eyz)
+        .def("accumulate", &MagnetoelasticField::accumulate)
+        .def("energy",     &MagnetoelasticField::energy)
+        .def_property_readonly("name", &MagnetoelasticField::name);
 
     // CubicAnisotropyField — Kc1/Kc2 (mumax3 parameters)
     py::class_<CubicAnisotropyField, IEffectiveField,

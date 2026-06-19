@@ -45,6 +45,7 @@ from _micromag import (
     ZeemanFieldSpatial,
     UniaxialAnisotropyField,
     SurfaceAnisotropyField,
+    MagnetoelasticField,
     ExchangeField,
     DemagField,
     DemagFieldPeriodic,
@@ -202,6 +203,10 @@ __all__ = [
     "PythonField", "stray_field",
     # Phase N: MFM, EdgeSmooth, poisson_disk_grains
     "MFMImage", "TipMode", "mfm_signal", "edge_smooth", "poisson_disk_grains",
+    # Phase Q: magnetoelastic / magnetostrictive coupling
+    "MagnetoelasticField",
+    # Phase R: convergence-based adaptive relaxation
+    "run_until_converged",
     # Phase O: convergence observables + energy table + Table extensions
     "max_angle", "B_eff", "energy_table",
     # Phase P: FrozenSpins, def_region, SurfaceAnisotropyField
@@ -1917,6 +1922,80 @@ class FrozenIntegrator:
     @property
     def integrator(self):
         return self._integ
+
+
+# ===========================================================================
+# Phase R — Convergence-based adaptive relaxation
+# ===========================================================================
+
+def run_until_converged(integ, m, mat, heff, tol_deg: float = 1.0,
+                         max_steps: int = 1_000_000,
+                         check_interval: int = 100,
+                         stt=None,
+                         verbose: bool = False):
+    """Run LLG until max_angle(m) drops below tol_deg, then stop.
+
+    Equivalent to mumax3's ``RunWhile(MaxAngle.Get() > tol*pi/180)``.
+    Checks convergence every ``check_interval`` steps to keep overhead low.
+
+    Parameters
+    ----------
+    integ          : integrator (RK4, RK45, Heun, or FrozenIntegrator)
+    m              : VectorField3D -- magnetization, modified in-place
+    mat            : Material
+    heff           : EffectiveFieldSum
+    tol_deg        : float -- convergence threshold [degrees] (default 1.0)
+    max_steps      : int   -- hard step limit (default 1 000 000)
+    check_interval : int   -- check every N steps (default 100)
+    stt            : optional spin-torque term
+    verbose        : bool  -- print progress every check_interval (default False)
+
+    Returns
+    -------
+    dict with keys:
+      "converged"    : bool  -- True if tol_deg was reached
+      "steps"        : int   -- total LLG steps taken
+      "max_angle"    : float -- final MaxAngle [degrees]
+      "t_sim"        : float -- total simulated time [s]
+
+    Example (mumax3 style):
+    >>> mm.run_until_converged(integ, m, mat, heff, tol_deg=0.5)
+    >>> # Equivalent to mumax3: RunWhile(MaxAngle.Get() > 0.5*pi/180)
+    """
+    import math as _mc
+
+    step_count = 0
+    t_sim = 0.0
+    angle = max_angle(m)
+    converged = angle < tol_deg
+
+    while not converged and step_count < max_steps:
+        # Take check_interval steps before checking convergence
+        n_batch = min(check_interval, max_steps - step_count)
+        for _ in range(n_batch):
+            if stt is not None:
+                integ.step(m, mat, heff, stt)
+            else:
+                integ.step(m, mat, heff)
+        step_count += n_batch
+        try:
+            t_sim = step_count * integ.dt
+        except AttributeError:
+            t_sim = float("nan")
+
+        angle = max_angle(m)
+        converged = angle < tol_deg
+
+        if verbose:
+            print(f"  step {step_count:7d}  max_angle = {angle:.4f} deg"
+                  f"  (tol = {tol_deg:.4f} deg)")
+
+    return {
+        "converged":  converged,
+        "steps":      step_count,
+        "max_angle":  angle,
+        "t_sim":      t_sim,
+    }
 
 
 # ---------------------------------------------------------------------------
