@@ -95,6 +95,10 @@ from _micromag import (
     topological_charge_Q,
     topological_charge_density,
     topological_charge,
+    # Phase G: skyrmion tracking
+    skyrmion_corepos,
+    bubble_pos,
+    skyrmion_count,
     # CUDA availability probe
     cuda_available,
 )
@@ -156,8 +160,15 @@ __all__ = [
     "run", "steps",
     # Topology (Phase F)
     "topological_charge_Q", "topological_charge_density", "topological_charge",
+    # Skyrmion tracking (Phase G)
+    "skyrmion_corepos", "bubble_pos", "skyrmion_count",
     # mumax3 Table / set_geom helpers (Phase F)
     "Table", "set_geom",
+    # FMR / signal processing (Phase G)
+    "sinc_pulse", "AutoSave",
+    # Visualisation / output (Phase G)
+    "snapshot", "cross_section_z", "cross_section_y", "cross_section_x",
+    "grain_id_map", "make_scalar_gradient",
     # Utilities
     "cuda_available",
     # SP#2 / grid-sizing utilities (pure Python)
@@ -396,3 +407,225 @@ def set_geom(mask, m, exch=None):
     m.apply_mask(mask)
     if exch is not None:
         exch.set_mask(mask)
+
+
+# ===========================================================================
+# Phase G — FMR / signal processing, visualisation, analysis utilities
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# AutoSave — mumax3-style periodic OVF snapshot saver
+# ---------------------------------------------------------------------------
+
+class AutoSave:
+    """Periodic OVF snapshot saver (mumax3 AutoSave analog).
+
+    Pass an instance as the ``callback`` argument to :func:`run`:
+
+    >>> saver = mm.AutoSave('output/m', dt_save=10e-12)
+    >>> mm.run(integ, m, mat, heff, t_total=1e-9, callback=saver)
+
+    Snapshots are written as ``<prefix>_000000.ovf``, ``<prefix>_000001.ovf``, …
+
+    Parameters
+    ----------
+    prefix   : str   — output filename prefix (directories must exist)
+    dt_save  : float — minimum time interval between saves [s]
+    fmt      : OVFFormat | None — file format (None → OVFFormat.Binary8)
+    field_name : str — OVF field label (default 'm')
+    """
+
+    def __init__(self, prefix: str, dt_save: float, fmt=None, field_name: str = "m"):
+        self._prefix = prefix
+        self._dt = dt_save
+        self._fmt = fmt
+        self._field_name = field_name
+        self._idx = 0
+        self._t_last = -1e100
+
+    def __call__(self, t: float, m):
+        if t - self._t_last < self._dt - 1e-20:
+            return
+        self._t_last = t
+        fmt = self._fmt if self._fmt is not None else OVFFormat.Binary8
+        fname = f"{self._prefix}_{self._idx:06d}.ovf"
+        save_ovf(fname, m, self._field_name, fmt)
+        self._idx += 1
+
+    @property
+    def count(self) -> int:
+        """Number of files saved so far."""
+        return self._idx
+
+
+# ---------------------------------------------------------------------------
+# sinc_pulse — broadband sinc excitation for FMR spectroscopy
+# ---------------------------------------------------------------------------
+
+def sinc_pulse(t: float, H0, f_max: float):
+    """Sinc field for broadband FMR excitation.
+
+    H(t) = H0 · sinc(2π f_max t)
+
+    Flat power spectrum [0, f_max]; use as the applied field in a ZeemanField
+    to excite all spin-wave modes simultaneously.
+
+    Parameters
+    ----------
+    t     : float — current time [s]
+    H0    : Vec3  — peak field amplitude [A/m]
+    f_max : float — maximum excited frequency [Hz]
+
+    Returns
+    -------
+    Vec3  — field at time t
+
+    Example
+    -------
+    >>> zeeman = mm.ZeemanField(mm.Vec3(0, 0, 0))
+    >>> def cb(t, m):
+    ...     zeeman.set_H_ext(mm.sinc_pulse(t, mm.Vec3(1e3, 0, 0), 50e9))
+    """
+    x = 2.0 * _math.pi * f_max * t
+    scale = (_math.sin(x) / x) if abs(x) > 1e-10 else 1.0
+    return Vec3(H0.x * scale, H0.y * scale, H0.z * scale)
+
+
+# ---------------------------------------------------------------------------
+# make_scalar_gradient — linear gradient ScalarField3D
+# ---------------------------------------------------------------------------
+
+import numpy as _np
+
+
+def make_scalar_gradient(grid, v0: float, v1: float, axis: str = "x"):
+    """Create a ScalarField3D with a linear gradient from v0 to v1 along axis.
+
+    Useful for spatially varying material parameters (e.g., Ms gradient, K gradient).
+
+    Parameters
+    ----------
+    grid : StructuredGrid
+    v0   : float — value at the low edge along ``axis``
+    v1   : float — value at the high edge along ``axis``
+    axis : str   — 'x', 'y', or 'z'
+
+    Returns
+    -------
+    ScalarField3D
+    """
+    nx, ny, nz = grid.nx, grid.ny, grid.nz
+    arr = _np.zeros((nz, ny, nx), dtype=_np.float64)
+    if axis == "x":
+        t = (_np.arange(nx) + 0.5) / nx          # shape (nx,)
+        arr[:, :, :] = v0 + t * (v1 - v0)        # broadcast
+    elif axis == "y":
+        t = (_np.arange(ny) + 0.5) / ny          # shape (ny,)
+        arr[:, :, :] = (v0 + t * (v1 - v0))[_np.newaxis, :, _np.newaxis]
+    else:
+        t = (_np.arange(nz) + 0.5) / nz          # shape (nz,)
+        arr[:, :, :] = (v0 + t * (v1 - v0))[:, _np.newaxis, _np.newaxis]
+    return from_numpy(grid, arr.reshape(nz * ny * nx))
+
+
+# ---------------------------------------------------------------------------
+# Cross-section extractors
+# ---------------------------------------------------------------------------
+
+def cross_section_z(m, iz: int = 0):
+    """Extract xy-plane at layer iz.
+
+    Returns
+    -------
+    numpy array, shape (ny, nx, 3)
+    """
+    import numpy as np
+    arr = to_numpy(m)          # shape: (nz, ny, nx, 3) in C-order from to_numpy
+    return arr[iz, :, :, :]
+
+
+def cross_section_y(m, iy: int = 0):
+    """Extract xz-plane at row iy.
+
+    Returns
+    -------
+    numpy array, shape (nz, nx, 3)
+    """
+    arr = to_numpy(m)
+    return arr[:, iy, :, :]
+
+
+def cross_section_x(m, ix: int = 0):
+    """Extract yz-plane at column ix.
+
+    Returns
+    -------
+    numpy array, shape (nz, ny, 3)
+    """
+    arr = to_numpy(m)
+    return arr[:, :, ix, :]
+
+
+# ---------------------------------------------------------------------------
+# snapshot — quick matplotlib visualisation
+# ---------------------------------------------------------------------------
+
+def snapshot(m, filename: str, component: str = "z",
+             colormap: str = "RdBu", vmin: float = -1.0, vmax: float = 1.0,
+             title: str = None, iz: int = 0, dpi: int = 150):
+    """Save a quick matplotlib image of m_component at layer iz.
+
+    Parameters
+    ----------
+    m         : VectorField3D
+    filename  : str  — output path (.png, .pdf, …)
+    component : str  — 'x', 'y', or 'z'
+    colormap  : str  — matplotlib colormap name
+    vmin, vmax: float — colour range
+    title     : str | None — axes title (auto-generated if None)
+    iz        : int  — z-layer to visualise
+    dpi       : int  — output resolution
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    arr = to_numpy(m)                              # (nz, ny, nx, 3)
+    comp_idx = {"x": 0, "y": 1, "z": 2}[component]
+    data = arr[iz, :, :, comp_idx]                # (ny, nx)
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    im = ax.imshow(data, origin="lower", cmap=colormap, vmin=vmin, vmax=vmax,
+                   aspect="equal")
+    plt.colorbar(im, ax=ax, label=f"m{component}")
+    ax.set_xlabel("x (cells)")
+    ax.set_ylabel("y (cells)")
+    ax.set_title(title or f"m{component}  (iz={iz})")
+    plt.tight_layout()
+    plt.savefig(filename, dpi=dpi)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# grain_id_map — visualise RegionMap as numpy uint8 array
+# ---------------------------------------------------------------------------
+
+def grain_id_map(region_map):
+    """Convert a RegionMap to a (nz, ny, nx) uint8 numpy array.
+
+    Each element contains the region ID (0–255) of that cell, suitable for
+    imshow or export.
+
+    Parameters
+    ----------
+    region_map : RegionMap
+
+    Returns
+    -------
+    numpy array, shape (nz, ny, nx), dtype uint8
+    """
+    import numpy as np
+    g = region_map.grid
+    N = g.size
+    ids = np.array([region_map[i] for i in range(N)], dtype=np.uint8)
+    return ids.reshape(g.nz, g.ny, g.nx)

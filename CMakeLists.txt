@@ -66,6 +66,7 @@ add_library(micromag_core
     src/region_map.cpp
     src/init_mag.cpp
     src/topological_charge.cpp
+    src/skyrmion_tools.cpp
 )
 target_include_directories(micromag_core
     PUBLIC

@@ -29,6 +29,7 @@
 #include "micromag/region_map.hpp"
 #include "micromag/init_mag.hpp"
 #include "micromag/topological_charge.hpp"
+#include "micromag/skyrmion_tools.hpp"
 
 #ifdef MICROMAG_CUDA
 #include "micromag/demag_gpu.hpp"
@@ -425,6 +426,32 @@ PYBIND11_MODULE(_micromag, m) {
           py::arg("m"),
           "Returns (Q, density_field) where Q is the total topological charge "
           "and density_field is per-cell q (ScalarField3D, no 1/4π factor).");
+
+    // Phase G: skyrmion tracking + counting
+    m.def("skyrmion_corepos",
+          [](const VectorField3D& m, bool find_max) {
+              auto [cx, cy] = skyrmion_corepos(m, find_max);
+              return py::make_tuple(cx, cy);
+          },
+          py::arg("m"), py::arg("find_max") = false,
+          "Skyrmion core position (box-centred x, y) [m].\n"
+          "find_max=False: locate min mz (pol=+1 skyrmion, mz_core=-1).\n"
+          "find_max=True:  locate max mz (pol=-1 skyrmion, mz_core=+1).\n"
+          "Returns (cx, cy) in metres.");
+
+    m.def("bubble_pos",
+          [](const VectorField3D& m) {
+              auto [cx, cy] = bubble_pos(m);
+              return py::make_tuple(cx, cy);
+          },
+          py::arg("m"),
+          "Topological-charge-density-weighted centroid (cx, cy) [m].\n"
+          "More robust than skyrmion_corepos for asymmetric states.");
+
+    m.def("skyrmion_count", &skyrmion_count,
+          py::arg("m"), py::arg("threshold") = Real{0.5},
+          "Count skyrmions via connected-component analysis of Q-density map.\n"
+          "Each connected region with |Q|>=threshold counts as one skyrmion.");
 
     py::enum_<BoundaryCondition>(m, "BoundaryCondition")
         .value("Neumann",  BoundaryCondition::Neumann)

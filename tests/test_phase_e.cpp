@@ -20,6 +20,7 @@ static constexpr double kPi = std::numbers::pi;
 #include "micromag/demag.hpp"
 #include "micromag/exchange.hpp"
 #include "micromag/topological_charge.hpp"
+#include "micromag/skyrmion_tools.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -514,4 +515,63 @@ TEST_CASE("TopoCharge: Bloch skyrmion Q same sign as Neel", "[topo]") {
     // Both should have the same sign and similar magnitude
     REQUIRE(Qn * Qb > 0);
     REQUIRE_THAT(Qb, WithinAbs(Qn, 0.05));
+}
+
+// ===========================================================================
+// Skyrmion tracking tools — [skyrmion]
+// ===========================================================================
+
+TEST_CASE("SkyrmionTools: corepos near box centre for centred skyrmion", "[skyrmion]") {
+    // 61×61×1 grid, 5 nm cells → 305 nm × 305 nm box
+    StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
+    // pol=+1: mz_core = -1 (find_max=false finds min mz)
+    VectorField3D m = neel_skyrmion(g, 20e-9, 1, 1);
+    auto [cx, cy] = skyrmion_corepos(m, false);
+    // Core should be within ±1 cell of box centre (origin)
+    REQUIRE_THAT(cx, WithinAbs(0.0, 5e-9));
+    REQUIRE_THAT(cy, WithinAbs(0.0, 5e-9));
+}
+
+TEST_CASE("SkyrmionTools: corepos finds pol=-1 core with find_max=true", "[skyrmion]") {
+    StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
+    // pol=-1: mz_core = +1
+    VectorField3D m = neel_skyrmion(g, 20e-9, 1, -1);
+    auto [cx, cy] = skyrmion_corepos(m, true);
+    REQUIRE_THAT(cx, WithinAbs(0.0, 5e-9));
+    REQUIRE_THAT(cy, WithinAbs(0.0, 5e-9));
+}
+
+TEST_CASE("SkyrmionTools: bubble_pos matches corepos for centred skyrmion", "[skyrmion]") {
+    StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
+    VectorField3D m = neel_skyrmion(g, 20e-9, 1, 1);
+    auto [cpx, cpy] = skyrmion_corepos(m, false);
+    auto [bpx, bpy] = bubble_pos(m);
+    // Q-centroid should be close to mz-extremum position (within 1 cell)
+    REQUIRE_THAT(bpx, WithinAbs(cpx, 5e-9));
+    REQUIRE_THAT(bpy, WithinAbs(cpy, 5e-9));
+    // Both near origin
+    REQUIRE_THAT(bpx, WithinAbs(0.0, 8e-9));
+    REQUIRE_THAT(bpy, WithinAbs(0.0, 8e-9));
+}
+
+TEST_CASE("SkyrmionTools: skyrmion_count = 1 for single skyrmion", "[skyrmion]") {
+    StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
+    VectorField3D m = neel_skyrmion(g, 20e-9, 1, 1);
+    REQUIRE(skyrmion_count(m) == 1);
+}
+
+TEST_CASE("SkyrmionTools: skyrmion_count = 0 for uniform state", "[skyrmion]") {
+    StructuredGrid g(21, 21, 1, 5e-9, 5e-9, 5e-9);
+    VectorField3D m(g);
+    for (Index i = 0; i < m.size(); ++i) m[i] = {0, 0, 1};
+    REQUIRE(skyrmion_count(m) == 0);
+}
+
+TEST_CASE("SkyrmionTools: bubble_pos returns (0,0) for uniform state", "[skyrmion]") {
+    StructuredGrid g(11, 11, 1, 5e-9, 5e-9, 5e-9);
+    VectorField3D m(g);
+    for (Index i = 0; i < m.size(); ++i) m[i] = {0, 0, 1};
+    auto [bpx, bpy] = bubble_pos(m);
+    REQUIRE_THAT(bpx, WithinAbs(0.0, 1e-20));
+    REQUIRE_THAT(bpy, WithinAbs(0.0, 1e-20));
 }
