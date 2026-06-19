@@ -131,6 +131,7 @@ if(MICROMAG_USE_CUDA)
     add_library(micromag_cuda
         src/demag_cuda.cu
         src/demag_periodic_gpu.cu   # J5: GPU periodic-BC demag (no zero-padding)
+        src/dmi_gpu.cu              # K2: GPU BulkDMI + InterfacialDMI
         src/exchange_gpu.cu      # G1: GPU exchange field (6-point Laplacian)
         src/field_kernels_gpu.cu # G2: GPU Zeeman + Uniaxial-Anisotropy
         src/gpu_state.cu         # G3: GPU-resident magnetization state

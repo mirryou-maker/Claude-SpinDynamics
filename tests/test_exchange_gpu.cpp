@@ -252,4 +252,49 @@ TEST_CASE("ExchangeFieldGPU energy matches CPU", "[exchange][gpu]") {
     REQUIRE_THAT(E_gpu, WithinRel(E_cpu, 1e-10));
 }
 
+// ---------------------------------------------------------------------------
+// T8: Periodic BC — GPU matches CPU ExchangeField (BoundaryCondition::Periodic)
+// ---------------------------------------------------------------------------
+TEST_CASE("ExchangeFieldGPU: periodic BC matches CPU", "[exchange][gpu]") {
+    StructuredGrid g(8, 8, 4, 5e-9, 5e-9, 5e-9);
+    Material mat = Material::permalloy();
+
+    // Sine-wave m pattern: non-trivial gradient at all cells including boundary
+    VectorField3D m(g);
+    const Index nx=g.nx(), ny=g.ny(), nz=g.nz();
+    for (Index iz=0; iz<nz; ++iz)
+    for (Index iy=0; iy<ny; ++iy)
+    for (Index ix=0; ix<nx; ++ix) {
+        double theta = 2*3.14159*ix/nx;
+        m[g.linear_index(ix,iy,iz)] = Vec3{std::cos(theta), std::sin(theta), 0};
+    }
+
+    VectorField3D Hc(g), Hg(g);
+    for (Index i=0; i<g.size(); ++i) Hc[i] = Hg[i] = {0,0,0};
+
+    ExchangeField cpu(BoundaryCondition::Periodic);
+    cpu.accumulate(m, mat, Hc);
+
+    ExchangeFieldGPU gpu(g, BoundaryCondition::Periodic);
+    gpu.accumulate(m, mat, Hg);
+
+    REQUIRE_THAT(max_rel_diff(Hc, Hg, 1.0), WithinAbs(0.0, 1e-6));
+}
+
+TEST_CASE("ExchangeFieldGPU: uniform m → zero exchange (periodic BC)", "[exchange][gpu]") {
+    StructuredGrid g(6, 6, 2, 5e-9, 5e-9, 5e-9);
+    Material mat = Material::permalloy();
+    VectorField3D m(g); m.set_uniform({0, 0, 1});
+    VectorField3D H(g);
+    for (Index i=0; i<H.size(); ++i) H[i] = {0,0,0};
+
+    ExchangeFieldGPU gpu(g, BoundaryCondition::Periodic);
+    gpu.accumulate(m, mat, H);
+
+    double hmax = 0;
+    for (Index i=0; i<H.size(); ++i)
+        hmax = std::max({hmax, std::abs(H[i].x), std::abs(H[i].y), std::abs(H[i].z)});
+    REQUIRE_THAT(hmax, WithinAbs(0.0, 1.0));
+}
+
 #endif // MICROMAG_CUDA

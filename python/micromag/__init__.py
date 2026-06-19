@@ -109,6 +109,8 @@ try:
         IDemagGPU,                  # K1: abstract demag interface
         DemagFieldGPU,
         DemagFieldPeriodicGPU,      # J5: periodic-BC GPU demag
+        BulkDMIFieldGPU,            # K2: GPU Bulk DMI (Bloch skyrmion)
+        InterfacialDMIFieldGPU,     # K2: GPU Interfacial DMI (Neel skyrmion)
         ExchangeFieldGPU,
         ZeemanFieldGPU,
         UniaxialAnisotropyFieldGPU,
@@ -188,6 +190,7 @@ __all__ = [
     "exchange_length", "optimal_dx", "sp2_grid",
     # GPU classes (conditionally available — only in CUDA build)
     "IDemagGPU", "DemagFieldGPU", "DemagFieldPeriodicGPU",
+    "BulkDMIFieldGPU", "InterfacialDMIFieldGPU",
     "ExchangeFieldGPU", "ZeemanFieldGPU",
     "UniaxialAnisotropyFieldGPU", "CubicAnisotropyFieldGPU",
     "RK4IntegratorGPU", "RK45IntegratorGPU", "RK45GPUOptions",

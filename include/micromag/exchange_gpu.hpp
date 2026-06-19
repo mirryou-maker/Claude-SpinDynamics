@@ -20,7 +20,10 @@ namespace micromag {
 
 class ExchangeFieldGPU : public IEffectiveField {
 public:
-    explicit ExchangeFieldGPU(const StructuredGrid& grid);
+    // bc = Neumann: zero-flux boundary (open systems).
+    // bc = Periodic: wrap-around boundary (periodic supercell, e.g. with DemagFieldPeriodicGPU).
+    explicit ExchangeFieldGPU(const StructuredGrid& grid,
+                               BoundaryCondition bc = BoundaryCondition::Neumann);
     ~ExchangeFieldGPU();
 
     // Non-copyable
@@ -55,6 +58,8 @@ private:
 
     // CUDA stream — all GPU work serialised here
     void* stream_ = nullptr;
+
+    BoundaryCondition bc_;
 };
 
 }  // namespace micromag

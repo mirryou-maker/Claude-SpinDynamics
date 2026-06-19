@@ -79,14 +79,54 @@ __global__ static void exchange_kernel(
 }
 
 // ===========================================================================
+// CUDA kernel: 6-point Laplacian — periodic BC (wrap-around indices)
+// ===========================================================================
+__global__ static void exchange_kernel_periodic(
+    double* __restrict__       H_out,
+    const double* __restrict__ m,
+    int nx, int ny, int nz,
+    double fx, double fy, double fz)
+{
+    const int N   = nx * ny * nz;
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+
+    const int ix = idx % nx;
+    const int iy = (idx / nx) % ny;
+    const int iz = idx / (nx * ny);
+
+    // Periodic wrap
+    const int idx_xm = ((ix - 1 + nx) % nx) + nx * (iy + ny * iz);
+    const int idx_xp = ((ix + 1)      % nx) + nx * (iy + ny * iz);
+    const int idx_ym = ix + nx * (((iy - 1 + ny) % ny) + ny * iz);
+    const int idx_yp = ix + nx * (((iy + 1)      % ny) + ny * iz);
+    const int idx_zm = ix + nx * (iy + ny * ((iz - 1 + nz) % nz));
+    const int idx_zp = ix + nx * (iy + ny * ((iz + 1)      % nz));
+
+    for (int c = 0; c < 3; ++c) {
+        const int base = c * N;
+        const double mc = m[base + idx];
+        const double lap =
+            (m[base + idx_xm] - mc) * fx +
+            (m[base + idx_xp] - mc) * fx +
+            (m[base + idx_ym] - mc) * fy +
+            (m[base + idx_yp] - mc) * fy +
+            (m[base + idx_zm] - mc) * fz +
+            (m[base + idx_zp] - mc) * fz;
+        H_out[base + idx] += lap;
+    }
+}
+
+// ===========================================================================
 // Constructor / Destructor
 // ===========================================================================
-ExchangeFieldGPU::ExchangeFieldGPU(const StructuredGrid& grid)
+ExchangeFieldGPU::ExchangeFieldGPU(const StructuredGrid& grid, BoundaryCondition bc)
     : nx_(grid.nx()), ny_(grid.ny()), nz_(grid.nz()),
       dx_(grid.dx()), dy_(grid.dy()), dz_(grid.dz()),
       N_(static_cast<size_t>(grid.nx()) *
          static_cast<size_t>(grid.ny()) *
-         static_cast<size_t>(grid.nz()))
+         static_cast<size_t>(grid.nz())),
+      bc_(bc)
 {
     CUDA_CHECK(cudaMalloc(&d_m_scratch_, 3 * N_ * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_H_scratch_, 3 * N_ * sizeof(double)));
@@ -137,12 +177,16 @@ void ExchangeFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(double)));
 
     // ------------------------------------------------------------------
-    // 3. Launch exchange kernel
+    // 3. Launch exchange kernel (Neumann or Periodic BC)
     // ------------------------------------------------------------------
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    exchange_kernel<<<grd, blk, 0, s>>>(
-        dH, dm, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
+    if (bc_ == BoundaryCondition::Periodic)
+        exchange_kernel_periodic<<<grd, blk, 0, s>>>(
+            dH, dm, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
+    else
+        exchange_kernel<<<grd, blk, 0, s>>>(
+            dH, dm, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
@@ -179,8 +223,12 @@ void ExchangeFieldGPU::accumulate_gpu_ptr(const double* d_m,
 
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    exchange_kernel<<<grd, blk, 0, s>>>(
-        d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
+    if (bc_ == BoundaryCondition::Periodic)
+        exchange_kernel_periodic<<<grd, blk, 0, s>>>(
+            d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
+    else
+        exchange_kernel<<<grd, blk, 0, s>>>(
+            d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
     CUDA_CHECK(cudaGetLastError());
     // No sync — caller owns the stream synchronisation
 }

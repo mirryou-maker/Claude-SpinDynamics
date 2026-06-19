@@ -35,6 +35,7 @@
 #include "micromag/demag_gpu_iface.hpp"
 #include "micromag/demag_gpu.hpp"
 #include "micromag/demag_periodic_gpu.hpp"
+#include "micromag/dmi_gpu.hpp"
 #include "micromag/exchange_gpu.hpp"
 #include "micromag/field_kernels_gpu.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
@@ -878,8 +879,12 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<ExchangeFieldGPU, IEffectiveField, std::shared_ptr<ExchangeFieldGPU>>(
             m, "ExchangeFieldGPU")
-        .def(py::init<const StructuredGrid&>(), py::arg("grid"),
-             "GPU 6-point Laplacian exchange field.")
+        .def(py::init<const StructuredGrid&, BoundaryCondition>(),
+             py::arg("grid"),
+             py::arg("bc") = BoundaryCondition::Neumann,
+             "GPU 6-point Laplacian exchange field. "
+             "bc=Neumann for open systems; bc=Periodic for periodic supercell "
+             "(pair with DemagFieldPeriodicGPU for fully periodic GPU LLG).")
         .def("accumulate",     &ExchangeFieldGPU::accumulate)
         .def("energy",         &ExchangeFieldGPU::energy)
         .def("energy_density", &ExchangeFieldGPU::energy_density,
@@ -932,6 +937,36 @@ PYBIND11_MODULE(_micromag, m) {
         .def("set_axes", &CubicAnisotropyFieldGPU::set_axes,
              py::arg("c1"), py::arg("c2"))
         .def_property_readonly("name", &CubicAnisotropyFieldGPU::name);
+
+    // ------------------------------------------------------------------
+    // K2: BulkDMIFieldGPU + InterfacialDMIFieldGPU
+    // ------------------------------------------------------------------
+    py::class_<BulkDMIFieldGPU, IEffectiveField, std::shared_ptr<BulkDMIFieldGPU>>(
+            m, "BulkDMIFieldGPU")
+        .def(py::init<const StructuredGrid&, Real>(),
+             py::arg("grid"), py::arg("D") = Real{0},
+             "GPU Bulk DMI (Bloch skyrmion, D>0). "
+             "H = (2D/mu0/Ms) curl(m). Drop-in for BulkDMIField.")
+        .def("accumulate",     &BulkDMIFieldGPU::accumulate)
+        .def("energy",         &BulkDMIFieldGPU::energy)
+        .def("energy_density", &BulkDMIFieldGPU::energy_density,
+             py::arg("m"), py::arg("mat"))
+        .def_property("D",     &BulkDMIFieldGPU::D,     &BulkDMIFieldGPU::set_D)
+        .def_property_readonly("name", &BulkDMIFieldGPU::name);
+
+    py::class_<InterfacialDMIFieldGPU, IEffectiveField,
+               std::shared_ptr<InterfacialDMIFieldGPU>>(
+            m, "InterfacialDMIFieldGPU")
+        .def(py::init<const StructuredGrid&, Real>(),
+             py::arg("grid"), py::arg("D") = Real{0},
+             "GPU Interfacial DMI (Neel skyrmion, HM/FM interface, D>0). "
+             "H = (2D/mu0/Ms)(∂mz/∂x, ∂mz/∂y, -∇xy·m). Drop-in for InterfacialDMIField.")
+        .def("accumulate",     &InterfacialDMIFieldGPU::accumulate)
+        .def("energy",         &InterfacialDMIFieldGPU::energy)
+        .def("energy_density", &InterfacialDMIFieldGPU::energy_density,
+             py::arg("m"), py::arg("mat"))
+        .def_property("D",     &InterfacialDMIFieldGPU::D,     &InterfacialDMIFieldGPU::set_D)
+        .def_property_readonly("name", &InterfacialDMIFieldGPU::name);
 
     // ------------------------------------------------------------------
     // RK4IntegratorGPU — full-GPU LLG integrator (zero PCIe per step)
