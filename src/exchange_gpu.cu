@@ -189,8 +189,14 @@ void ExchangeFieldGPU::accumulate_gpu_ptr(const double* d_m,
 // energy — delegates to CPU ExchangeField (G3+ will add GPU reduction)
 // ===========================================================================
 Real ExchangeFieldGPU::energy(const VectorField3D& m, const Material& mat) const {
-    ExchangeField cpu;   // Neumann BC by default — matches GPU kernel behaviour
+    ExchangeField cpu;
     return cpu.energy(m, mat);
+}
+
+ScalarField3D ExchangeFieldGPU::energy_density(const VectorField3D& m,
+                                                 const Material& mat) const {
+    ExchangeField cpu;
+    return cpu.energy_density(m, mat);
 }
 
 }  // namespace micromag

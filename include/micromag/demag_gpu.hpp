@@ -37,6 +37,8 @@ public:
     void accumulate(const VectorField3D& m, const Material& mat,
                     VectorField3D& H_out) const override;
     Real energy(const VectorField3D& m, const Material& mat) const override;
+    ScalarField3D energy_density(const VectorField3D& m,
+                                  const Material& mat) const override;
     const char* name() const override { return "DemagFieldGPU"; }
 
 private:

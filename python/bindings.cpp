@@ -28,6 +28,7 @@
 #include "micromag/cubic_anisotropy.hpp"
 #include "micromag/region_map.hpp"
 #include "micromag/init_mag.hpp"
+#include "micromag/topological_charge.hpp"
 
 #ifdef MICROMAG_CUDA
 #include "micromag/demag_gpu.hpp"
@@ -408,6 +409,23 @@ PYBIND11_MODULE(_micromag, m) {
           py::arg("grid"), py::arg("seed") = 42u,
           "Random unit-vector magnetization (uniform on sphere). seed: RNG seed.");
 
+    // Phase F: topological charge (skyrmion number)
+    m.def("topological_charge_Q", &topological_charge_Q,
+          py::arg("m"),
+          "Total topological charge Q = (1/4π) ∫ m·(∂m/∂x × ∂m/∂y) dA.\n"
+          "Perfect skyrmion → Q ≈ ±1. Neumann BC, central differences.");
+    m.def("topological_charge_density", &topological_charge_density,
+          py::arg("m"),
+          "Per-cell density q = m·(∂m/∂x × ∂m/∂y) (no 1/4π). Returns ScalarField3D.");
+    m.def("topological_charge",
+          [](const VectorField3D& m) {
+              auto [Q, dens] = topological_charge(m);
+              return py::make_tuple(Q, dens);
+          },
+          py::arg("m"),
+          "Returns (Q, density_field) where Q is the total topological charge "
+          "and density_field is per-cell q (ScalarField3D, no 1/4π factor).");
+
     py::enum_<BoundaryCondition>(m, "BoundaryCondition")
         .value("Neumann",  BoundaryCondition::Neumann)
         .value("Periodic", BoundaryCondition::Periodic);
@@ -764,24 +782,33 @@ PYBIND11_MODULE(_micromag, m) {
             m, "DemagFieldGPU")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"),
              "GPU cuFFT demag field — drop-in for DemagField, 5–20× faster.")
-        .def("accumulate", &DemagFieldGPU::accumulate)
-        .def("energy",     &DemagFieldGPU::energy)
+        .def("accumulate",     &DemagFieldGPU::accumulate)
+        .def("energy",         &DemagFieldGPU::energy)
+        .def("energy_density", &DemagFieldGPU::energy_density,
+             py::arg("m"), py::arg("mat"),
+             "Per-cell demag energy density [J/m³] (GPU accumulate + CPU reduce).")
         .def_property_readonly("name", &DemagFieldGPU::name);
 
     py::class_<ExchangeFieldGPU, IEffectiveField, std::shared_ptr<ExchangeFieldGPU>>(
             m, "ExchangeFieldGPU")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"),
              "GPU 6-point Laplacian exchange field.")
-        .def("accumulate", &ExchangeFieldGPU::accumulate)
-        .def("energy",     &ExchangeFieldGPU::energy)
+        .def("accumulate",     &ExchangeFieldGPU::accumulate)
+        .def("energy",         &ExchangeFieldGPU::energy)
+        .def("energy_density", &ExchangeFieldGPU::energy_density,
+             py::arg("m"), py::arg("mat"),
+             "Per-cell exchange energy density [J/m³] (delegates to CPU grad²).")
         .def_property_readonly("name", &ExchangeFieldGPU::name);
 
     py::class_<ZeemanFieldGPU, IEffectiveField, std::shared_ptr<ZeemanFieldGPU>>(
             m, "ZeemanFieldGPU")
         .def(py::init<const StructuredGrid&, Vec3>(),
              py::arg("grid"), py::arg("H_ext") = Vec3{0,0,0})
-        .def("accumulate",   &ZeemanFieldGPU::accumulate)
-        .def("energy",       &ZeemanFieldGPU::energy)
+        .def("accumulate",     &ZeemanFieldGPU::accumulate)
+        .def("energy",         &ZeemanFieldGPU::energy)
+        .def("energy_density", &ZeemanFieldGPU::energy_density,
+             py::arg("m"), py::arg("mat"),
+             "Per-cell Zeeman energy density [J/m³].")
         .def_property("H_ext", &ZeemanFieldGPU::H_ext, &ZeemanFieldGPU::set_H_ext)
         .def_property_readonly("name", &ZeemanFieldGPU::name);
 
@@ -789,10 +816,35 @@ PYBIND11_MODULE(_micromag, m) {
                std::shared_ptr<UniaxialAnisotropyFieldGPU>>(
             m, "UniaxialAnisotropyFieldGPU")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"),
-             "GPU uniaxial anisotropy field (K and easy_axis from Material).")
-        .def("accumulate", &UniaxialAnisotropyFieldGPU::accumulate)
-        .def("energy",     &UniaxialAnisotropyFieldGPU::energy)
+             "GPU uniaxial anisotropy field (K, Ku2, and easy_axis from Material).")
+        .def("accumulate",     &UniaxialAnisotropyFieldGPU::accumulate)
+        .def("energy",         &UniaxialAnisotropyFieldGPU::energy)
+        .def("energy_density", &UniaxialAnisotropyFieldGPU::energy_density,
+             py::arg("m"), py::arg("mat"),
+             "Per-cell uniaxial anisotropy energy density [J/m³].")
         .def_property_readonly("name", &UniaxialAnisotropyFieldGPU::name);
+
+    // Phase E: CubicAnisotropyFieldGPU
+    py::class_<CubicAnisotropyFieldGPU, IEffectiveField,
+               std::shared_ptr<CubicAnisotropyFieldGPU>>(
+            m, "CubicAnisotropyFieldGPU")
+        .def(py::init<const StructuredGrid&, Real, Real, Vec3, Vec3>(),
+             py::arg("grid"),
+             py::arg("Kc1") = Real{0}, py::arg("Kc2") = Real{0},
+             py::arg("c1") = Vec3{1,0,0}, py::arg("c2") = Vec3{0,1,0},
+             "GPU cubic magnetocrystalline anisotropy (Fe/Ni). c3=c1×c2 auto-computed.")
+        .def("accumulate",     &CubicAnisotropyFieldGPU::accumulate)
+        .def("energy",         &CubicAnisotropyFieldGPU::energy)
+        .def("energy_density", &CubicAnisotropyFieldGPU::energy_density,
+             py::arg("m"), py::arg("mat"))
+        .def_property("Kc1", &CubicAnisotropyFieldGPU::Kc1, &CubicAnisotropyFieldGPU::set_Kc1)
+        .def_property("Kc2", &CubicAnisotropyFieldGPU::Kc2, &CubicAnisotropyFieldGPU::set_Kc2)
+        .def_property_readonly("c1", &CubicAnisotropyFieldGPU::c1)
+        .def_property_readonly("c2", &CubicAnisotropyFieldGPU::c2)
+        .def_property_readonly("c3", &CubicAnisotropyFieldGPU::c3)
+        .def("set_axes", &CubicAnisotropyFieldGPU::set_axes,
+             py::arg("c1"), py::arg("c2"))
+        .def_property_readonly("name", &CubicAnisotropyFieldGPU::name);
 
     // ------------------------------------------------------------------
     // RK4IntegratorGPU — full-GPU LLG integrator (zero PCIe per step)

@@ -91,9 +91,30 @@ from _micromag import (
     two_domain,
     vortex_state,
     random_mag,
+    # Phase F: topological charge
+    topological_charge_Q,
+    topological_charge_density,
+    topological_charge,
     # CUDA availability probe
     cuda_available,
 )
+
+# GPU classes are only present in the CUDA build — import conditionally
+try:
+    from _micromag import (
+        DemagFieldGPU,
+        ExchangeFieldGPU,
+        ZeemanFieldGPU,
+        UniaxialAnisotropyFieldGPU,
+        CubicAnisotropyFieldGPU,   # Phase E
+        RK4IntegratorGPU,
+        RK45IntegratorGPU,
+        RK45GPUOptions,
+        HeunIntegratorGPU,
+    )
+    _GPU_AVAILABLE = True
+except ImportError:
+    _GPU_AVAILABLE = False
 
 __all__ = [
     # Grid / fields
@@ -133,10 +154,19 @@ __all__ = [
     "two_domain", "vortex_state", "random_mag",
     # Run/Steps convenience
     "run", "steps",
+    # Topology (Phase F)
+    "topological_charge_Q", "topological_charge_density", "topological_charge",
+    # mumax3 Table / set_geom helpers (Phase F)
+    "Table", "set_geom",
     # Utilities
     "cuda_available",
     # SP#2 / grid-sizing utilities (pure Python)
     "exchange_length", "optimal_dx", "sp2_grid",
+    # GPU classes (conditionally available — only in CUDA build)
+    "DemagFieldGPU", "ExchangeFieldGPU", "ZeemanFieldGPU",
+    "UniaxialAnisotropyFieldGPU", "CubicAnisotropyFieldGPU",
+    "RK4IntegratorGPU", "RK45IntegratorGPU", "RK45GPUOptions",
+    "HeunIntegratorGPU",
 ]
 
 __version__ = "0.1.0"
@@ -295,3 +325,74 @@ def sp2_grid(mat, Lx: float, Ly: float, Lz: float,
     nz = max(1, round(Lz / dx))
     return StructuredGrid(nx, ny, nz,
                           Lx / nx, Ly / ny, Lz / nz)
+
+
+# ---------------------------------------------------------------------------
+# Table — mumax3-style data table (analogous to TableAdd / TableSave)
+# ---------------------------------------------------------------------------
+
+class Table:
+    """Accumulate simulation data rows and save as CSV.
+
+    Mirrors mumax3's TableAdd / TableSave workflow.
+
+    Usage
+    -----
+    >>> tbl = mm.Table()
+    >>> tbl.add_row(t, m, mat=mat, heff=heff)      # per-step callback
+    >>> tbl.save("output/table.csv")
+
+    Custom quantities
+    -----------------
+    >>> tbl.add_row(t, m, extra={"Q": mm.topological_charge_Q(m)})
+    """
+
+    def __init__(self):
+        self._header = None
+        self._rows = []
+
+    def add_row(self, t: float, m, mat=None, heff=None, extra: dict = None):
+        mx, my, mz = mean_magnetization(m)
+        row = {"t": t, "mx": mx, "my": my, "mz": mz}
+        if mat is not None and heff is not None:
+            row["E_total"] = heff.total_energy(m, mat)
+        if extra:
+            row.update(extra)
+        if self._header is None:
+            self._header = list(row.keys())
+        self._rows.append([row.get(k, float("nan")) for k in self._header])
+
+    def save(self, filename: str):
+        with open(filename, "w") as f:
+            f.write(",".join(self._header) + "\n")
+            for row in self._rows:
+                f.write(",".join(f"{v:.12g}" for v in row) + "\n")
+
+    def __len__(self):
+        return len(self._rows)
+
+    @property
+    def columns(self):
+        return list(self._header) if self._header else []
+
+
+# ---------------------------------------------------------------------------
+# set_geom — mumax3-style geometry setter
+# ---------------------------------------------------------------------------
+
+def set_geom(mask, m, exch=None):
+    """Apply geometry mask to magnetization (and optionally Exchange field).
+
+    Mirrors mumax3's SetGeom(shape): zeros m outside the shape and, if exch
+    is supplied, sets the Neumann-BC mask on the ExchangeField so exchange
+    stiffness is correctly blocked at the boundary.
+
+    Parameters
+    ----------
+    mask : GeomMask   — 1 inside geometry, 0 outside
+    m    : VectorField3D  — modified in-place (m→0 where mask<0.5)
+    exch : ExchangeField | None — if given, calls exch.set_mask(mask)
+    """
+    m.apply_mask(mask)
+    if exch is not None:
+        exch.set_mask(mask)

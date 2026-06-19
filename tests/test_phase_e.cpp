@@ -19,6 +19,7 @@ static constexpr double kPi = std::numbers::pi;
 #include "micromag/dmi.hpp"
 #include "micromag/demag.hpp"
 #include "micromag/exchange.hpp"
+#include "micromag/topological_charge.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -466,4 +467,51 @@ TEST_CASE("Edens: DemagField energy_density sum matches energy", "[edens]") {
     for (Index i = 0; i < ed.size(); ++i)
         E_sum += ed[i] * g.cell_volume();
     REQUIRE_THAT(E_sum, WithinRel(E_total, 1e-8));
+}
+
+// ============================================================
+// Phase F: Topological charge
+// ============================================================
+
+TEST_CASE("TopoCharge: uniform m → Q=0", "[topo]") {
+    // Uniform magnetization has no winding → Q = 0
+    StructuredGrid g(21, 21, 1, 5e-9, 5e-9, 5e-9);
+    VectorField3D mv(g);
+    mv.set_uniform({0, 0, 1});
+    const Real Q = topological_charge_Q(mv);
+    REQUIRE_THAT(Q, WithinAbs(0.0, 1e-10));
+}
+
+TEST_CASE("TopoCharge: Neel skyrmion Q ≈ -1 (charge=1, pol=1)", "[topo]") {
+    // 21×21 grid, r=25nm, dx=5nm → 105nm box
+    // skyrmion centre at origin, topological charge should be ≈ ±1
+    StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
+    VectorField3D mv = neel_skyrmion(g, 20e-9, 1, 1);
+    const Real Q = topological_charge_Q(mv);
+    // Discrete grid discretisation error: expect Q within 0.1 of -1
+    REQUIRE(Q < -0.8);
+    REQUIRE(Q > -1.2);
+}
+
+TEST_CASE("TopoCharge: density field sums to Q (within dA factor)", "[topo]") {
+    StructuredGrid g(31, 31, 1, 5e-9, 5e-9, 5e-9);
+    VectorField3D mv = neel_skyrmion(g, 20e-9, 1, 1);
+    auto [Q, dens] = topological_charge(mv);
+    const Real dA = g.dx() * g.dy();
+    constexpr double inv4pi = 1.0 / (4.0 * std::numbers::pi);
+    Real Q_from_dens = 0;
+    for (Index i = 0; i < dens.size(); ++i)
+        Q_from_dens += dens[i] * dA * inv4pi;
+    REQUIRE_THAT(Q_from_dens, WithinAbs(Q, 1e-12));
+}
+
+TEST_CASE("TopoCharge: Bloch skyrmion Q same sign as Neel", "[topo]") {
+    StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
+    VectorField3D mn = neel_skyrmion(g, 20e-9, 1, 1);
+    VectorField3D mb = bloch_skyrmion(g, 20e-9, 1, 1);
+    const Real Qn = topological_charge_Q(mn);
+    const Real Qb = topological_charge_Q(mb);
+    // Both should have the same sign and similar magnitude
+    REQUIRE(Qn * Qb > 0);
+    REQUIRE_THAT(Qb, WithinAbs(Qn, 0.05));
 }

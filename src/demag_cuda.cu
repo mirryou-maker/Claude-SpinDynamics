@@ -722,13 +722,26 @@ void DemagFieldGPU::accumulate_gpu_ptr(const double* d_m,
 Real DemagFieldGPU::energy(const VectorField3D& m, const Material& mat) const {
     const StructuredGrid& g = m.grid();
     VectorField3D H(g);
-    for (Index i=0;i<H.size();++i) H[i]={0,0,0};
-    accumulate(m,mat,H);
-    Real E=0.0;
+    for (Index i = 0; i < H.size(); ++i) H[i] = {0,0,0};
+    accumulate(m, mat, H);
+    Real E = 0.0;
     const Real dV=g.cell_volume();
-    for (Index i=0;i<m.size();++i)
+    for (Index i = 0; i < m.size(); ++i)
         E -= constants::mu_0 * mat.Ms * m[i].dot(H[i]) * dV;
-    return 0.5*E;
+    return 0.5 * E;
+}
+
+ScalarField3D DemagFieldGPU::energy_density(const VectorField3D& m,
+                                              const Material& mat) const {
+    const StructuredGrid& g = m.grid();
+    VectorField3D H(g);
+    for (Index i = 0; i < H.size(); ++i) H[i] = {0,0,0};
+    accumulate(m, mat, H);  // GPU compute → downloads to CPU H
+    ScalarField3D edens(g);
+    const Real prefac = -0.5 * constants::mu_0 * mat.Ms;
+    for (Index i = 0; i < m.size(); ++i)
+        edens[i] = prefac * m[i].dot(H[i]);
+    return edens;
 }
 
 }  // namespace micromag

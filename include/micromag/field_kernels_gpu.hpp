@@ -1,8 +1,9 @@
 #pragma once
 
-// field_kernels_gpu.hpp — G2: GPU Zeeman and Uniaxial-Anisotropy fields.
+// field_kernels_gpu.hpp — G2 + Phase E: GPU Zeeman, Uniaxial-Anisotropy,
+// and Cubic-Anisotropy fields.
 //
-// Both classes implement IEffectiveField (drop-in for CPU equivalents) and
+// All classes implement IEffectiveField (drop-in for CPU equivalents) and
 // expose an accumulate_gpu_ptr() path for the G6 full-GPU LLG pipeline.
 //
 // Memory layout (GPU buffers): [3×N] component-major
@@ -12,6 +13,7 @@
 #ifdef MICROMAG_CUDA
 
 #include "anisotropy.hpp"
+#include "cubic_anisotropy.hpp"
 #include "effective_field.hpp"
 #include "field.hpp"
 #include "grid.hpp"
@@ -23,11 +25,6 @@ namespace micromag {
 
 // ---------------------------------------------------------------------------
 // ZeemanFieldGPU
-//
-// accumulate(): same result as ZeemanField (CPU) — adds H_ext to every cell.
-// The standalone path does this on the CPU (no upload/download needed since
-// H_ext is uniform).  accumulate_gpu_ptr() launches a GPU kernel for the
-// full-GPU LLG pipeline (G6).
 // ---------------------------------------------------------------------------
 class ZeemanFieldGPU : public IEffectiveField {
 public:
@@ -37,13 +34,13 @@ public:
     ZeemanFieldGPU(const ZeemanFieldGPU&)            = delete;
     ZeemanFieldGPU& operator=(const ZeemanFieldGPU&) = delete;
 
-    // IEffectiveField — standalone path (CPU, no PCIe overhead)
     void accumulate(const VectorField3D& m, const Material& mat,
                     VectorField3D& H_out) const override;
     Real energy(const VectorField3D& m, const Material& mat) const override;
+    ScalarField3D energy_density(const VectorField3D& m,
+                                  const Material& mat) const override;
     const char* name() const override { return "ZeemanFieldGPU"; }
 
-    // Direct GPU-pointer path for G6 pipeline; d_m is unused (Zeeman ≠ f(m))
     void accumulate_gpu_ptr(const double* d_m, const Material& mat,
                              double* d_H_out) const;
 
@@ -59,10 +56,6 @@ private:
 
 // ---------------------------------------------------------------------------
 // UniaxialAnisotropyFieldGPU
-//
-// H_ani = (2K / μ₀Ms)(m·û)û   where û = normalised easy_axis from Material.
-// accumulate(): uploads m, runs kernel, downloads H, adds to H_out.
-// accumulate_gpu_ptr(): kernel only, no PCIe (for G6 pipeline).
 // ---------------------------------------------------------------------------
 class UniaxialAnisotropyFieldGPU : public IEffectiveField {
 public:
@@ -75,17 +68,67 @@ public:
     void accumulate(const VectorField3D& m, const Material& mat,
                     VectorField3D& H_out) const override;
     Real energy(const VectorField3D& m, const Material& mat) const override;
+    ScalarField3D energy_density(const VectorField3D& m,
+                                  const Material& mat) const override;
     const char* name() const override { return "UniaxialAnisotropyFieldGPU"; }
 
-    // Direct GPU-pointer path for G6 pipeline
     void accumulate_gpu_ptr(const double* d_m, const Material& mat,
                              double* d_H_out) const;
     void set_stream(void* s) { stream_ = s; }
 
 private:
     size_t N_;
-    void*  d_m_scratch_ = nullptr;   // double[3×N]
-    void*  d_H_scratch_ = nullptr;   // double[3×N]
+    void*  d_m_scratch_ = nullptr;
+    void*  d_H_scratch_ = nullptr;
+    void*  stream_ = nullptr;
+};
+
+// ---------------------------------------------------------------------------
+// CubicAnisotropyFieldGPU
+//
+// GPU drop-in for CubicAnisotropyField.
+// e = Kc1*(a1²a2² + a2²a3² + a3²a1²) + Kc2*(a1²a2²a3²), ai = m·ci
+// c3 = c1×c2 computed at construction.
+// ---------------------------------------------------------------------------
+class CubicAnisotropyFieldGPU : public IEffectiveField {
+public:
+    CubicAnisotropyFieldGPU(const StructuredGrid& grid,
+                             Real Kc1 = 0, Real Kc2 = 0,
+                             Vec3 c1 = {1,0,0}, Vec3 c2 = {0,1,0});
+    ~CubicAnisotropyFieldGPU();
+
+    CubicAnisotropyFieldGPU(const CubicAnisotropyFieldGPU&)            = delete;
+    CubicAnisotropyFieldGPU& operator=(const CubicAnisotropyFieldGPU&) = delete;
+
+    void accumulate(const VectorField3D& m, const Material& mat,
+                    VectorField3D& H_out) const override;
+    Real energy(const VectorField3D& m, const Material& mat) const override;
+    ScalarField3D energy_density(const VectorField3D& m,
+                                  const Material& mat) const override;
+    const char* name() const override { return "CubicAnisotropyFieldGPU"; }
+
+    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
+                             double* d_H_out) const;
+    void set_stream(void* s) { stream_ = s; }
+
+    Real Kc1() const { return Kc1_; }
+    Real Kc2() const { return Kc2_; }
+    Vec3 c1()  const { return c1_; }
+    Vec3 c2()  const { return c2_; }
+    Vec3 c3()  const { return c3_; }
+    void set_Kc1(Real k) { Kc1_ = k; }
+    void set_Kc2(Real k) { Kc2_ = k; }
+    void set_axes(Vec3 c1, Vec3 c2) {
+        c1_ = c1; c2_ = c2;
+        c3_ = c1_.cross(c2_);
+    }
+
+private:
+    size_t N_;
+    Real   Kc1_, Kc2_;
+    Vec3   c1_, c2_, c3_;
+    void*  d_m_scratch_ = nullptr;
+    void*  d_H_scratch_ = nullptr;
     void*  stream_ = nullptr;
 };
 

@@ -65,6 +65,7 @@ add_library(micromag_core
     src/cubic_anisotropy.cpp
     src/region_map.cpp
     src/init_mag.cpp
+    src/topological_charge.cpp
 )
 target_include_directories(micromag_core
     PUBLIC
