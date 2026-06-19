@@ -135,6 +135,9 @@ try:
         SlonczewskiSTTGPU,
         SpinOrbitTorqueGPU,
         ZhangLiSTTGPU,
+        # Phase S: GPU magnetoelastic + surface anisotropy fields
+        MagnetoelasticFieldGPU,
+        SurfaceAnisotropyFieldGPU,
     )
     _GPU_AVAILABLE = True
 except ImportError:
@@ -203,8 +206,12 @@ __all__ = [
     "PythonField", "stray_field",
     # Phase N: MFM, EdgeSmooth, poisson_disk_grains
     "MFMImage", "TipMode", "mfm_signal", "edge_smooth", "poisson_disk_grains",
-    # Phase Q: magnetoelastic / magnetostrictive coupling
-    "MagnetoelasticField",
+    # Phase Q+S: magnetoelastic / magnetostrictive coupling (CPU + GPU)
+    "MagnetoelasticField", "MagnetoelasticFieldGPU",
+    # Phase P2+S: surface anisotropy GPU
+    "SurfaceAnisotropyFieldGPU",
+    # Phase U: hysteresis loop automation
+    "hysteresis_loop",
     # Phase R: convergence-based adaptive relaxation
     "run_until_converged",
     # Phase O: convergence observables + energy table + Table extensions
@@ -1922,6 +1929,121 @@ class FrozenIntegrator:
     @property
     def integrator(self):
         return self._integ
+
+
+# ===========================================================================
+# Phase U — Hysteresis loop automation
+# ===========================================================================
+
+def hysteresis_loop(m, mat, heff, integ, H_list, zee,
+                    axis: str = 'x',
+                    tol_deg: float = 1.0,
+                    max_steps: int = 500_000,
+                    check_interval: int = 200,
+                    reset_m=None,
+                    verbose: bool = False):
+    """Sweep a ZeemanField through H_list and relax at each point.
+
+    Equivalent to mumax3's ``for H in H_list { SetB_ext(...); RunWhile(...) }``
+    pattern.  At each field value the ZeemanField ``zee`` is updated and the
+    system is relaxed via ``run_until_converged``.
+
+    Parameters
+    ----------
+    m              : VectorField3D -- modified in place
+    mat            : Material
+    heff           : EffectiveFieldSum -- must already contain ``zee``
+    integ          : integrator (RK4, RK45, Heun, or FrozenIntegrator)
+    H_list         : 1-D iterable of floats [A/m] OR shape-(N,3) array of Vec3
+                     If 1-D, ``axis`` controls which component is set.
+    zee            : ZeemanField -- its H_ext is modified at each step
+    axis           : 'x', 'y', or 'z' — applied axis for scalar H_list
+    tol_deg        : convergence threshold [degrees] passed to run_until_converged
+    max_steps      : max LLG steps per field point
+    check_interval : convergence check interval
+    reset_m        : VectorField3D (optional) — if given, m is reset to this
+                     state before relaxing at each field value (useful for
+                     major loop starting from saturation)
+    verbose        : print progress (field value + mean magnetization)
+
+    Returns
+    -------
+    dict with numpy arrays, all shape (N,) where N = len(H_list):
+      "H"       : applied field magnitude [A/m]  (signed, along ``axis``)
+      "Hvec"    : applied field Vec3 [A/m], shape (N, 3)
+      "mx", "my", "mz" : mean magnetization components
+      "E_total" : total energy [J]
+
+    Example — SP#3-style hysteresis loop
+    -------------------------------------
+    >>> zee = mm.ZeemanField()
+    >>> heff.add(zee)
+    >>> mu0 = 4e-7 * math.pi
+    >>> H_list = np.linspace(0.1/mu0, -0.1/mu0, 201)  # ±100 mT
+    >>> res = mm.hysteresis_loop(m, mat, heff, integ, H_list, zee,
+    ...                          axis='x', tol_deg=1.0)
+    >>> plt.plot(res["H"] * mu0 * 1e3, res["mx"])  # mT vs mx
+    """
+    ax_idx = {'x': 0, 'y': 1, 'z': 2}.get(axis.lower(), 0)
+
+    H_arr  = _np.asarray(H_list, dtype=float)
+    is_vec = (H_arr.ndim == 2 and H_arr.shape[1] == 3)
+    N      = len(H_arr) if not is_vec else H_arr.shape[0]
+
+    H_mag_out = _np.zeros(N)
+    Hvec_out  = _np.zeros((N, 3))
+    mx_out    = _np.zeros(N)
+    my_out    = _np.zeros(N)
+    mz_out    = _np.zeros(N)
+    E_out     = _np.zeros(N)
+
+    # Snapshot reset state once (before any modifications)
+    if reset_m is not None:
+        reset_np = _np.asarray(to_numpy(reset_m)).copy()
+
+    for i in range(N):
+        if is_vec:
+            hx, hy, hz = float(H_arr[i, 0]), float(H_arr[i, 1]), float(H_arr[i, 2])
+        else:
+            hx = hy = hz = 0.0
+            if ax_idx == 0:   hx = float(H_arr[i])
+            elif ax_idx == 1: hy = float(H_arr[i])
+            else:             hz = float(H_arr[i])
+
+        zee.H_ext = Vec3(hx, hy, hz)
+
+        if reset_m is not None:
+            from_numpy(m, reset_np)
+
+        # Always take at least check_interval steps so a uniform-m state can
+        # react to the new H before the convergence criterion is evaluated.
+        for _ in range(check_interval):
+            integ.step(m, mat, heff)
+
+        run_until_converged(integ, m, mat, heff,
+                            tol_deg=tol_deg,
+                            max_steps=max(0, max_steps - check_interval),
+                            check_interval=check_interval)
+
+        mx_out[i], my_out[i], mz_out[i] = mean_magnetization(m)
+        E_out[i]     = heff.total_energy(m, mat)
+        H_mag_out[i] = float(H_arr[i]) if not is_vec else float(
+            _np.sqrt(hx*hx + hy*hy + hz*hz))
+        Hvec_out[i]  = [hx, hy, hz]
+
+        if verbose:
+            print(f"  [{i+1:3d}/{N}] H={H_mag_out[i]:+.3e} A/m"
+                  f"  mx={mx_out[i]:+.4f}  my={my_out[i]:+.4f}"
+                  f"  mz={mz_out[i]:+.4f}")
+
+    return {
+        "H":       H_mag_out,
+        "Hvec":    Hvec_out,
+        "mx":      mx_out,
+        "my":      my_out,
+        "mz":      mz_out,
+        "E_total": E_out,
+    }
 
 
 # ===========================================================================

@@ -24,7 +24,6 @@ void MagnetoelasticField::accumulate(const VectorField3D& m,
 {
     const Real Ms = mat.Ms;
     if (Ms == Real{0}) return;
-    // prefac = -2/(µ₀ Ms)
     const Real prefac = Real{-2} / (mu0 * Ms);
     const Real p1 = prefac * B1_;
     const Real p2 = prefac * B2_;
@@ -36,10 +35,18 @@ void MagnetoelasticField::accumulate(const VectorField3D& m,
         const Vec3& mi = m[i];
         const Real mx = mi.x, my = mi.y, mz = mi.z;
 
+        // Read per-cell strain if field is set; fall back to scalar
+        const Real exx_v = f_exx_ ? (*f_exx_)[i] : exx_;
+        const Real eyy_v = f_eyy_ ? (*f_eyy_)[i] : eyy_;
+        const Real ezz_v = f_ezz_ ? (*f_ezz_)[i] : ezz_;
+        const Real exy_v = f_exy_ ? (*f_exy_)[i] : exy_;
+        const Real exz_v = f_exz_ ? (*f_exz_)[i] : exz_;
+        const Real eyz_v = f_eyz_ ? (*f_eyz_)[i] : eyz_;
+
         H_out[i] += Vec3{
-            p1 * mx * exx_ + p2 * (my * exy_ + mz * exz_),
-            p1 * my * eyy_ + p2 * (mx * exy_ + mz * eyz_),
-            p1 * mz * ezz_ + p2 * (mx * exz_ + my * eyz_)
+            p1 * mx * exx_v + p2 * (my * exy_v + mz * exz_v),
+            p1 * my * eyy_v + p2 * (mx * exy_v + mz * eyz_v),
+            p1 * mz * ezz_v + p2 * (mx * exz_v + my * eyz_v)
         };
     }
 }
@@ -56,10 +63,16 @@ Real MagnetoelasticField::energy(const VectorField3D& m,
     for (Index i = 0; i < N; ++i) {
         const Vec3& mi = m[i];
         const Real mx = mi.x, my = mi.y, mz = mi.z;
-        // e_me = B1*(mx²*exx + my²*eyy + mz²*ezz)
-        //      + 2*B2*(mx*my*exy + my*mz*eyz + mx*mz*exz)
-        E += B1_ * (mx*mx*exx_ + my*my*eyy_ + mz*mz*ezz_)
-           + Real{2} * B2_ * (mx*my*exy_ + my*mz*eyz_ + mx*mz*exz_);
+
+        const Real exx_v = f_exx_ ? (*f_exx_)[i] : exx_;
+        const Real eyy_v = f_eyy_ ? (*f_eyy_)[i] : eyy_;
+        const Real ezz_v = f_ezz_ ? (*f_ezz_)[i] : ezz_;
+        const Real exy_v = f_exy_ ? (*f_exy_)[i] : exy_;
+        const Real exz_v = f_exz_ ? (*f_exz_)[i] : exz_;
+        const Real eyz_v = f_eyz_ ? (*f_eyz_)[i] : eyz_;
+
+        E += B1_ * (mx*mx*exx_v + my*my*eyy_v + mz*mz*ezz_v)
+           + Real{2} * B2_ * (mx*my*exy_v + my*mz*eyz_v + mx*mz*exz_v);
     }
     return E * dV;
 }

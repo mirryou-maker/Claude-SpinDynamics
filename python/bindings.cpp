@@ -45,6 +45,8 @@
 #include "micromag/rk4_integrator_gpu.hpp"
 #include "micromag/rk45_integrator_gpu.hpp"
 #include "micromag/heun_integrator_gpu.hpp"
+#include "micromag/magnetoelastic_gpu.hpp"
+#include "micromag/surface_anisotropy_gpu.hpp"
 #include "micromag/spin_torque_gpu.hpp"
 #endif
 
@@ -588,6 +590,31 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property("exy", &MagnetoelasticField::exy, &MagnetoelasticField::set_exy)
         .def_property("exz", &MagnetoelasticField::exz, &MagnetoelasticField::set_exz)
         .def_property("eyz", &MagnetoelasticField::eyz, &MagnetoelasticField::set_eyz)
+        // Per-cell strain fields (Phase V: spatially varying strain)
+        .def("set_exx_field",
+             [](MagnetoelasticField& f, const ScalarField3D& sf) { f.set_exx_field(&sf); },
+             py::arg("field"), py::keep_alive<1, 2>(),
+             "Set spatially varying exx field (ScalarField3D). Overrides scalar exx per cell.")
+        .def("set_eyy_field",
+             [](MagnetoelasticField& f, const ScalarField3D& sf) { f.set_eyy_field(&sf); },
+             py::arg("field"), py::keep_alive<1, 2>())
+        .def("set_ezz_field",
+             [](MagnetoelasticField& f, const ScalarField3D& sf) { f.set_ezz_field(&sf); },
+             py::arg("field"), py::keep_alive<1, 2>())
+        .def("set_exy_field",
+             [](MagnetoelasticField& f, const ScalarField3D& sf) { f.set_exy_field(&sf); },
+             py::arg("field"), py::keep_alive<1, 2>())
+        .def("set_exz_field",
+             [](MagnetoelasticField& f, const ScalarField3D& sf) { f.set_exz_field(&sf); },
+             py::arg("field"), py::keep_alive<1, 2>())
+        .def("set_eyz_field",
+             [](MagnetoelasticField& f, const ScalarField3D& sf) { f.set_eyz_field(&sf); },
+             py::arg("field"), py::keep_alive<1, 2>())
+        .def("clear_strain_fields", &MagnetoelasticField::clear_strain_fields,
+             "Remove all per-cell strain fields (revert to uniform scalars).")
+        .def_property_readonly("has_spatial_strain",
+             &MagnetoelasticField::has_spatial_strain,
+             "True if any per-cell strain field is attached.")
         .def("accumulate", &MagnetoelasticField::accumulate)
         .def("energy",     &MagnetoelasticField::energy)
         .def_property_readonly("name", &MagnetoelasticField::name);
@@ -1419,6 +1446,48 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property("J",  &ZhangLiSTTGPU::J,  &ZhangLiSTTGPU::set_J)
         .def_property("P",  &ZhangLiSTTGPU::P,  &ZhangLiSTTGPU::set_P)
         .def_property("xi", &ZhangLiSTTGPU::xi, &ZhangLiSTTGPU::set_xi);
+
+    // Phase S: MagnetoelasticFieldGPU
+    py::class_<MagnetoelasticFieldGPU, IEffectiveField,
+               std::shared_ptr<MagnetoelasticFieldGPU>>(m, "MagnetoelasticFieldGPU",
+        "GPU magnetoelastic field (B1/B2, uniform strain, CUDA kernel).\n"
+        "Drop-in GPU replacement for MagnetoelasticField.\n"
+        "Per-cell strain not supported — use CPU MagnetoelasticField for that.")
+        .def(py::init<Real, Real, const StructuredGrid&>(),
+             py::arg("B1"), py::arg("B2"), py::arg("grid"))
+        .def("set_strain", &MagnetoelasticFieldGPU::set_strain,
+             py::arg("exx"), py::arg("eyy") = Real{0}, py::arg("ezz") = Real{0},
+             py::arg("exy") = Real{0}, py::arg("exz") = Real{0}, py::arg("eyz") = Real{0})
+        .def_property("B1",  &MagnetoelasticFieldGPU::B1,  &MagnetoelasticFieldGPU::set_B1)
+        .def_property("B2",  &MagnetoelasticFieldGPU::B2,  &MagnetoelasticFieldGPU::set_B2)
+        .def_property("exx", &MagnetoelasticFieldGPU::exx, &MagnetoelasticFieldGPU::set_exx)
+        .def_property("eyy", &MagnetoelasticFieldGPU::eyy, &MagnetoelasticFieldGPU::set_eyy)
+        .def_property("ezz", &MagnetoelasticFieldGPU::ezz, &MagnetoelasticFieldGPU::set_ezz)
+        .def_property("exy", &MagnetoelasticFieldGPU::exy, &MagnetoelasticFieldGPU::set_exy)
+        .def_property("exz", &MagnetoelasticFieldGPU::exz, &MagnetoelasticFieldGPU::set_exz)
+        .def_property("eyz", &MagnetoelasticFieldGPU::eyz, &MagnetoelasticFieldGPU::set_eyz)
+        .def("accumulate", &MagnetoelasticFieldGPU::accumulate)
+        .def("energy",     &MagnetoelasticFieldGPU::energy)
+        .def_property_readonly("name", &MagnetoelasticFieldGPU::name);
+
+    // Phase S: SurfaceAnisotropyFieldGPU
+    py::class_<SurfaceAnisotropyFieldGPU, IEffectiveField,
+               std::shared_ptr<SurfaceAnisotropyFieldGPU>>(m, "SurfaceAnisotropyFieldGPU",
+        "GPU surface/interface anisotropy field (mumax3 Ks).\n"
+        "Precomputes surface-cell mask at construction; CUDA kernel runs only\n"
+        "on boundary cells. n_hat-change triggers mask rebuild (cheap).")
+        .def(py::init<Real, const StructuredGrid&, Vec3>(),
+             py::arg("Ks"), py::arg("grid"),
+             py::arg("n_hat") = Vec3{0, 0, 1})
+        .def("set_mask",
+             [](SurfaceAnisotropyFieldGPU& f, const GeomMask& mask) { f.set_mask(mask); },
+             py::arg("mask"), py::keep_alive<1, 2>())
+        .def("clear_mask", &SurfaceAnisotropyFieldGPU::clear_mask)
+        .def_property("Ks",    &SurfaceAnisotropyFieldGPU::Ks,    &SurfaceAnisotropyFieldGPU::set_Ks)
+        .def_property("n_hat", &SurfaceAnisotropyFieldGPU::n_hat, &SurfaceAnisotropyFieldGPU::set_n_hat)
+        .def("accumulate", &SurfaceAnisotropyFieldGPU::accumulate)
+        .def("energy",     &SurfaceAnisotropyFieldGPU::energy)
+        .def_property_readonly("name", &SurfaceAnisotropyFieldGPU::name);
 
 #endif  // MICROMAG_CUDA
 
