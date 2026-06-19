@@ -849,7 +849,7 @@ PYBIND11_MODULE(_micromag, m) {
 
     // IDemagGPU: abstract interface shared by DemagFieldGPU and DemagFieldPeriodicGPU.
     // Allows GPU integrators to accept either via polymorphism.
-    py::class_<IDemagGPU>(m, "IDemagGPU");
+    py::class_<IDemagGPU, std::shared_ptr<IDemagGPU>>(m, "IDemagGPU");
 
     py::class_<DemagFieldGPU, IEffectiveField, IDemagGPU,
                std::shared_ptr<DemagFieldGPU>>(

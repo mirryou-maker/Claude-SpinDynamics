@@ -106,7 +106,9 @@ from _micromag import (
 # GPU classes are only present in the CUDA build — import conditionally
 try:
     from _micromag import (
+        IDemagGPU,                  # K1: abstract demag interface
         DemagFieldGPU,
+        DemagFieldPeriodicGPU,      # J5: periodic-BC GPU demag
         ExchangeFieldGPU,
         ZeemanFieldGPU,
         UniaxialAnisotropyFieldGPU,
@@ -181,7 +183,8 @@ __all__ = [
     # SP#2 / grid-sizing utilities (pure Python)
     "exchange_length", "optimal_dx", "sp2_grid",
     # GPU classes (conditionally available — only in CUDA build)
-    "DemagFieldGPU", "ExchangeFieldGPU", "ZeemanFieldGPU",
+    "IDemagGPU", "DemagFieldGPU", "DemagFieldPeriodicGPU",
+    "ExchangeFieldGPU", "ZeemanFieldGPU",
     "UniaxialAnisotropyFieldGPU", "CubicAnisotropyFieldGPU",
     "RK4IntegratorGPU", "RK45IntegratorGPU", "RK45GPUOptions",
     "HeunIntegratorGPU",

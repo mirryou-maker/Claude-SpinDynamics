@@ -190,7 +190,7 @@ print(f"\nSaved → {out}")
 # ===========================================================================
 f_kit_sim = f_peak[0]   # k ≈ 0 peak
 f_kit_ana = gamma0 / (2 * np.pi) * B_bias / 1e9
-print(f"\nKittel check (k≈0): sim = {f_kit_sim:.3f} GHz, ana = {f_kit_ana:.3f} GHz"
+print(f"\nKittel check (k~0): sim = {f_kit_sim:.3f} GHz, ana = {f_kit_ana:.3f} GHz"
       f"  (error {abs(f_kit_sim-f_kit_ana)/f_kit_ana*100:.1f}%)")
 
 # Check a mid-k point
