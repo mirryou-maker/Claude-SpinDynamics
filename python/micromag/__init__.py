@@ -111,6 +111,8 @@ try:
         DemagFieldPeriodicGPU,      # J5: periodic-BC GPU demag
         BulkDMIFieldGPU,            # K2: GPU Bulk DMI (Bloch skyrmion)
         InterfacialDMIFieldGPU,     # K2: GPU Interfacial DMI (Neel skyrmion)
+        RelaxGPU, RelaxGPUOptions,  # P4: GPU damping-only relax (mumax3 Relax equivalent)
+        MinimizeGPU, MinimizeGPUOptions,  # P4: GPU steepest-descent minimize
         ExchangeFieldGPU,
         ZeemanFieldGPU,
         UniaxialAnisotropyFieldGPU,
@@ -191,6 +193,7 @@ __all__ = [
     # GPU classes (conditionally available — only in CUDA build)
     "IDemagGPU", "DemagFieldGPU", "DemagFieldPeriodicGPU",
     "BulkDMIFieldGPU", "InterfacialDMIFieldGPU",
+    "RelaxGPU", "RelaxGPUOptions", "MinimizeGPU", "MinimizeGPUOptions",
     "ExchangeFieldGPU", "ZeemanFieldGPU",
     "UniaxialAnisotropyFieldGPU", "CubicAnisotropyFieldGPU",
     "RK4IntegratorGPU", "RK45IntegratorGPU", "RK45GPUOptions",

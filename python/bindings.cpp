@@ -36,6 +36,7 @@
 #include "micromag/demag_gpu.hpp"
 #include "micromag/demag_periodic_gpu.hpp"
 #include "micromag/dmi_gpu.hpp"
+#include "micromag/relax_gpu.hpp"
 #include "micromag/exchange_gpu.hpp"
 #include "micromag/field_kernels_gpu.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
@@ -967,6 +968,87 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("m"), py::arg("mat"))
         .def_property("D",     &InterfacialDMIFieldGPU::D,     &InterfacialDMIFieldGPU::set_D)
         .def_property_readonly("name", &InterfacialDMIFieldGPU::name);
+
+    // ------------------------------------------------------------------
+    // P4: RelaxGPU + MinimizeGPU
+    // ------------------------------------------------------------------
+    {
+        using Opts = RelaxGPU::Options;
+        py::class_<Opts>(m, "RelaxGPUOptions")
+            .def(py::init<>())
+            .def_readwrite("alpha_relax",   &Opts::alpha_relax)
+            .def_readwrite("threshold",     &Opts::threshold)
+            .def_readwrite("dt",            &Opts::dt)
+            .def_readwrite("max_steps",     &Opts::max_steps)
+            .def_readwrite("check_every",   &Opts::check_every)
+            .def_readwrite("throw_on_max",  &Opts::throw_on_max);
+    }
+
+    py::class_<RelaxGPU>(m, "RelaxGPU")
+        .def(py::init<const StructuredGrid&>(), py::arg("grid"),
+             "GPU energy minimisation via damping-only LLG (no precession). "
+             "Equivalent to mumax3 Relax(). "
+             "Usage: upload(m); run(mat, demag, exch, zeeman); download(m_out).")
+        .def("upload",   &RelaxGPU::upload,   py::arg("m"),
+             "Upload initial magnetisation to GPU.")
+        .def("download", &RelaxGPU::download, py::arg("m_out"),
+             "Download current GPU magnetisation to CPU VectorField3D.")
+        .def("run",
+             [](RelaxGPU& self, const Material& mat,
+                IDemagGPU& demag, ExchangeFieldGPU& exch,
+                ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
+                RelaxGPU::Options opts) {
+                 return self.run(mat, demag, exch, zeeman, aniso, opts);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("exch"),
+             py::arg("zeeman"), py::arg("aniso") = nullptr,
+             py::arg("opts") = RelaxGPU::Options{},
+             "Run GPU relax until convergence. Returns steps taken.")
+        .def("max_torque_now",
+             [](RelaxGPU& self, const Material& mat,
+                IDemagGPU& demag, ExchangeFieldGPU& exch,
+                ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso) {
+                 return self.max_torque_now(mat, demag, exch, zeeman, aniso);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("exch"),
+             py::arg("zeeman"), py::arg("aniso") = nullptr,
+             "Compute max |m x H_eff| on current GPU state.")
+        .def_property_readonly("grid", &RelaxGPU::grid,
+             py::return_value_policy::reference_internal);
+
+    {
+        using Opts = MinimizeGPU::Options;
+        py::class_<Opts>(m, "MinimizeGPUOptions")
+            .def(py::init<>())
+            .def_readwrite("threshold",   &Opts::threshold)
+            .def_readwrite("dt_init",     &Opts::dt_init)
+            .def_readwrite("dt_max",      &Opts::dt_max)
+            .def_readwrite("dt_min",      &Opts::dt_min)
+            .def_readwrite("max_steps",   &Opts::max_steps)
+            .def_readwrite("check_every", &Opts::check_every)
+            .def_readwrite("throw_on_max",&Opts::throw_on_max);
+    }
+
+    py::class_<MinimizeGPU>(m, "MinimizeGPU")
+        .def(py::init<const StructuredGrid&>(), py::arg("grid"),
+             "GPU steepest-descent minimisation with adaptive step size. "
+             "Equivalent to mumax3 Minimize(). "
+             "Requires one D2H energy scalar per step.")
+        .def("upload",   &MinimizeGPU::upload,   py::arg("m"))
+        .def("download", &MinimizeGPU::download, py::arg("m_out"))
+        .def("run",
+             [](MinimizeGPU& self, const Material& mat,
+                IDemagGPU& demag, ExchangeFieldGPU& exch,
+                ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
+                MinimizeGPU::Options opts) {
+                 return self.run(mat, demag, exch, zeeman, aniso, opts);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("exch"),
+             py::arg("zeeman"), py::arg("aniso") = nullptr,
+             py::arg("opts") = MinimizeGPU::Options{},
+             "Run GPU minimize until convergence. Returns steps taken.")
+        .def_property_readonly("grid", &MinimizeGPU::grid,
+             py::return_value_policy::reference_internal);
 
     // ------------------------------------------------------------------
     // RK4IntegratorGPU — full-GPU LLG integrator (zero PCIe per step)
