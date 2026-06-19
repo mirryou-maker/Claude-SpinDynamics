@@ -193,6 +193,9 @@ __all__ = [
     "save_profile", "rotate_mag", "checkerboard_regions", "zhang_li_from_current",
     # Phase L: grain boundary + OVF format + image geometry
     "adjacent_region_pairs", "set_grain_boundaries", "image_geom",
+    # Phase M: torque field observable + custom field + stray field
+    "get_torque_field", "max_torque_field",
+    "PythonField", "stray_field",
     # Phase K: spin-wave dispersion wrapper
     "spin_wave_dispersion",
     # Phase D: dynamic write-head utility
@@ -946,6 +949,86 @@ def compute_heff(m, mat, heff):
     return H
 
 
+def get_torque_field(m, mat, heff, stt=None):
+    """Compute per-cell LLG torque dm/dt [rad/s] as a VectorField3D.
+
+    Evaluates H_eff, computes the Landau-Lifshitz torque per cell, and
+    optionally adds spin-torque contributions.  Equivalent to mumax3's
+    ``Torque`` quantity.
+
+    The LLG torque (Landau-Lifshitz form):
+      dm/dt = -γ'μ₀(m×H) - γ'αμ₀ m×(m×H)   (H in A/m, γ' = γ₀/(1+α²))
+
+    Parameters
+    ----------
+    m    : VectorField3D
+    mat  : Material
+    heff : EffectiveFieldSum
+    stt  : SpinTorqueSum | None — spin-torque contributions (STT, SOT, etc.)
+
+    Returns
+    -------
+    VectorField3D — torque dm/dt [rad/s] at each cell
+
+    Example
+    -------
+    >>> tau = mm.get_torque_field(m, mat, heff)
+    >>> tau_np = mm.to_numpy(tau)          # shape (nz, ny, nx, 3)
+    >>> # Max torque magnitude:
+    >>> print(_np.sqrt((tau_np**2).sum(-1)).max())
+    >>> # Compare with max_torque():
+    >>> print(mm.max_torque(m, mat, heff))
+    """
+    g = m.grid
+    # Compute H_eff (EffectiveFieldSum.compute zeros then accumulates all terms)
+    H = VectorField3D(g)
+    heff.compute(m, mat, H)
+
+    # LLG torque per cell
+    m_arr = _np.asarray(to_numpy(m))   # (nz, ny, nx, 3)
+    H_arr = _np.asarray(to_numpy(H))   # (nz, ny, nx, 3)
+
+    mu0   = 4e-7 * _math.pi
+    alpha = mat.alpha
+    gp    = gamma_0 * mu0 / (1.0 + alpha * alpha)
+
+    mxH   = _np.cross(m_arr, H_arr)        # (nz, ny, nx, 3)
+    mxmxH = _np.cross(m_arr, mxH)
+    tau_arr = -(mxH + alpha * mxmxH) * gp  # (nz, ny, nx, 3)
+
+    # Add spin torques if present
+    if stt is not None:
+        tau_stt = VectorField3D(g)
+        stt.accumulate(m, mat, tau_stt)
+        tau_arr = tau_arr + _np.asarray(to_numpy(tau_stt))
+
+    result = VectorField3D(g)
+    from_numpy(result, tau_arr)
+    return result
+
+
+def max_torque_field(m, mat, heff, stt=None):
+    """Return the maximum |dm/dt| over all cells [rad/s].
+
+    Equivalent to mm.max_torque() but computed via get_torque_field,
+    allowing spin-torque contributions to be included.
+
+    Parameters
+    ----------
+    m    : VectorField3D
+    mat  : Material
+    heff : EffectiveFieldSum
+    stt  : SpinTorqueSum | None
+
+    Returns
+    -------
+    float — maximum torque magnitude [rad/s]
+    """
+    tau = get_torque_field(m, mat, heff, stt)
+    tau_arr = _np.asarray(to_numpy(tau))
+    return float(_np.sqrt((tau_arr ** 2).sum(-1)).max())
+
+
 # ===========================================================================
 # Phase J — mumax3 analysis + material utilities
 # ===========================================================================
@@ -1391,3 +1474,148 @@ def moving_gaussian_field(grid, H_amp, sigma: float, polarity: float = 1.0,
         return field
 
     return head_field
+
+
+# ===========================================================================
+# Phase M — Custom field + TorqueField + StrayField
+# ===========================================================================
+
+class PythonField(IEffectiveField):
+    """User-defined effective field term — mumax3 CustomField analog.
+
+    Subclass IEffectiveField with a Python callable.  The callable receives
+    the current magnetization (as numpy array) and returns the field
+    contribution H (numpy array, same shape), which is *added* to H_eff.
+
+    Parameters
+    ----------
+    fn       : callable(m_arr: ndarray) -> ndarray
+                Both arrays have shape (nz, ny, nx, 3) in [A/m].
+                The function should return a new array (not modify in-place).
+    name_str : str — label for this field (default "PythonField")
+    energy_fn: callable(m_arr) -> float | None
+                Optional energy [J] callback.  If None, returns 0.0.
+
+    Example: spatially-varying Zeeman field
+    ----------------------------------------
+    >>> import numpy as np
+    >>> def my_H(m_arr):
+    ...     H = np.zeros_like(m_arr)
+    ...     H[..., 2] = 1e4  # H_z = 10 kA/m everywhere
+    ...     return H
+    >>> pf = mm.PythonField(my_H, name_str="MyZeeman")
+    >>> heff.add(pf)
+
+    Example: H proportional to mz (effective anisotropy)
+    -----------------------------------------------------
+    >>> def my_K(m_arr):
+    ...     H = np.zeros_like(m_arr)
+    ...     H[..., 2] = 2e3 * m_arr[..., 2]   # like UniaxialAnisotropy K/Ms
+    ...     return H
+    >>> heff.add(mm.PythonField(my_K))
+    """
+
+    def __init__(self, fn, name_str: str = "PythonField", energy_fn=None):
+        super().__init__()
+        self._fn       = fn
+        self._name_str = name_str
+        self._energy_fn = energy_fn
+
+    def accumulate(self, m, mat, H_out):
+        m_arr  = _np.asarray(to_numpy(m))          # (nz, ny, nx, 3)
+        H_add  = _np.asarray(self._fn(m_arr))      # (nz, ny, nx, 3)
+        # Read current H_out, add our contribution, write back
+        H_arr  = _np.asarray(to_numpy(H_out))
+        from_numpy(H_out, H_arr + H_add)
+
+    def energy(self, m, mat):
+        if self._energy_fn is not None:
+            m_arr = _np.asarray(to_numpy(m))
+            return float(self._energy_fn(m_arr))
+        return 0.0
+
+    def name(self):
+        return self._name_str
+
+
+# ---------------------------------------------------------------------------
+# StrayField — static dipole stray field from an external source magnet
+# ---------------------------------------------------------------------------
+
+def stray_field(grid, Ms_ext: float, volume_ext: float,
+                position, moment_dir=(0.0, 0.0, 1.0)):
+    """Compute the stray field from a single magnetic dipole [A/m].
+
+    Models an external magnet (or MFM tip) as a point magnetic dipole
+    with moment m_ext = Ms_ext * volume_ext * moment_dir.
+
+    Returns a VectorField3D [A/m] containing the stray field at each
+    cell of ``grid``.  Use as the spatial field in a ZeemanFieldSpatial:
+
+    >>> H_stray = mm.stray_field(grid, Ms=860e3, volume=1e-24, position=(0,0,50e-9))
+    >>> zee = mm.ZeemanFieldSpatial(grid)
+    >>> zee.H_field = H_stray
+    >>> heff.add(zee)
+
+    Parameters
+    ----------
+    grid        : StructuredGrid
+    Ms_ext      : float — saturation magnetization of the dipole source [A/m]
+    volume_ext  : float — volume of the source magnet [m³]
+    position    : (x, y, z) — dipole centre position in absolute (non-centred)
+                  coordinates [m] (default origin = box corner)
+    moment_dir  : (mx, my, mz) — unit vector of dipole moment (auto-normalised)
+
+    Returns
+    -------
+    VectorField3D — stray field [A/m] at each grid cell
+
+    Physics
+    -------
+    H_dip(r) = (1/4π) * [3(m·r̂)r̂ − m] / |r|³   (SI, SI units: A/m)
+    m_ext = Ms_ext * volume_ext * m̂
+    """
+    mu0_over_4pi = 1e-7   # μ₀/(4π) in SI
+
+    g = grid
+    nx, ny, nz = g.nx, g.ny, g.nz
+
+    # Cell-centre positions (absolute, not box-centred)
+    xs = (_np.arange(nx) + 0.5) * g.dx
+    ys = (_np.arange(ny) + 0.5) * g.dy
+    zs = (_np.arange(nz) + 0.5) * g.dz
+    ZZ, YY, XX = _np.meshgrid(zs, ys, xs, indexing='ij')  # (nz, ny, nx)
+
+    # Moment direction (unit vector)
+    md = _np.asarray(moment_dir, dtype=float)
+    md = md / _np.linalg.norm(md)
+    m_ext = Ms_ext * volume_ext * md      # [A m²]
+
+    # Displacement vectors from dipole to each cell
+    pos = _np.asarray(position, dtype=float)
+    Rx = XX - pos[0]   # (nz, ny, nx)
+    Ry = YY - pos[1]
+    Rz = ZZ - pos[2]
+    R2 = Rx**2 + Ry**2 + Rz**2           # |r|²
+    R  = _np.sqrt(R2)                    # |r|
+
+    # Avoid singularity at r=0
+    R  = _np.where(R < 1e-30, 1e-30, R)
+    R3 = R**3
+    R5 = R**5
+
+    # m·r per cell
+    m_dot_r = m_ext[0]*Rx + m_ext[1]*Ry + m_ext[2]*Rz   # (nz, ny, nx)
+
+    # Dipole field: H = (1/4π) * [3(m·r̂)r/|r|³ − m/|r|³]
+    #             = (1/4π) * [3(m·r)r/|r|⁵ − m/|r|³]
+    prefac = mu0_over_4pi / mu0_over_4pi  # = 1 (H field, not B)
+    # Actually H_dip = (1/(4π)) * [3(m·r)r/|r|^5 - m/|r|^3]
+    H_arr = _np.zeros((nz, ny, nx, 3), dtype=float)
+    H_arr[..., 0] = (3.0 * m_dot_r * Rx / R5 - m_ext[0] / R3) / (4 * _math.pi)
+    H_arr[..., 1] = (3.0 * m_dot_r * Ry / R5 - m_ext[1] / R3) / (4 * _math.pi)
+    H_arr[..., 2] = (3.0 * m_dot_r * Rz / R5 - m_ext[2] / R3) / (4 * _math.pi)
+
+    result = VectorField3D(g)
+    from_numpy(result, H_arr)
+    return result

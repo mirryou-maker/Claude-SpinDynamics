@@ -49,6 +49,29 @@
 namespace py = pybind11;
 using namespace micromag;
 
+// ---------------------------------------------------------------------------
+// Trampoline: allows Python to subclass IEffectiveField.
+// Required for PythonField (custom user-defined effective-field terms).
+// ---------------------------------------------------------------------------
+struct PyIEffectiveField : IEffectiveField {
+    using IEffectiveField::IEffectiveField;
+
+    void accumulate(const VectorField3D& m, const Material& mat,
+                    VectorField3D& H_out) const override {
+        PYBIND11_OVERRIDE_PURE(void, IEffectiveField, accumulate, m, mat, H_out);
+    }
+    Real energy(const VectorField3D& m, const Material& mat) const override {
+        PYBIND11_OVERRIDE_PURE(Real, IEffectiveField, energy, m, mat);
+    }
+    ScalarField3D energy_density(const VectorField3D& m,
+                                  const Material& mat) const override {
+        PYBIND11_OVERRIDE(ScalarField3D, IEffectiveField, energy_density, m, mat);
+    }
+    const char* name() const override {
+        PYBIND11_OVERRIDE_PURE(const char*, IEffectiveField, name, /* no args */);
+    }
+};
+
 PYBIND11_MODULE(_micromag, m) {
     m.doc() = "Micromag C++ core bindings";
 
@@ -479,7 +502,8 @@ PYBIND11_MODULE(_micromag, m) {
         .value("Neumann",  BoundaryCondition::Neumann)
         .value("Periodic", BoundaryCondition::Periodic);
 
-    py::class_<IEffectiveField, std::shared_ptr<IEffectiveField>>(m, "IEffectiveField")
+    py::class_<IEffectiveField, PyIEffectiveField, std::shared_ptr<IEffectiveField>>(m, "IEffectiveField")
+        .def(py::init<>())
         .def("accumulate",      &IEffectiveField::accumulate)
         .def("energy",          &IEffectiveField::energy)
         .def("energy_density",  &IEffectiveField::energy_density,
