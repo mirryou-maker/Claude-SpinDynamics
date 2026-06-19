@@ -145,6 +145,7 @@ if(MICROMAG_USE_CUDA)
         src/spin_torque_gpu.cu      # P3: GPU STT/SOT/Zhang-Li spin torque kernels
         src/magnetoelastic_gpu.cu       # Phase S: GPU magnetoelastic field
         src/surface_anisotropy_gpu.cu   # Phase S: GPU surface anisotropy field
+        src/zeeman_spatial_gpu.cu       # ZeemanFieldSpatialGPU — per-cell spatial Zeeman
     )
     target_include_directories(micromag_cuda
         PUBLIC

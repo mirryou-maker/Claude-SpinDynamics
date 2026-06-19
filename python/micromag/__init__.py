@@ -86,7 +86,9 @@ from _micromag import (
     # OVF I/O
     OVFFormat,
     save_ovf,
-    load_ovf,
+    load_ovf_grid,
+    load_ovf_into,
+    _load_ovf_raw,
     # Phase E: initial magnetization states
     uniform_mag,
     neel_skyrmion,
@@ -138,6 +140,8 @@ try:
         # Phase S: GPU magnetoelastic + surface anisotropy fields
         MagnetoelasticFieldGPU,
         SurfaceAnisotropyFieldGPU,
+        # ZeemanFieldSpatialGPU — per-cell spatial external field GPU drop-in
+        ZeemanFieldSpatialGPU,
     )
     _GPU_AVAILABLE = True
 except ImportError:
@@ -198,7 +202,9 @@ __all__ = [
     "thermalize", "sinusoidal_field", "domain_wall_pos",
     "field_fft2d", "compute_heff",
     # Phase J: analysis + material utilities
-    "save_profile", "rotate_mag", "checkerboard_regions", "zhang_li_from_current",
+    "save_profile", "load_profile", "normalize_field",
+    "OVFReader", "OVFWriter",
+    "rotate_mag", "checkerboard_regions", "zhang_li_from_current",
     # Phase L: grain boundary + OVF format + image geometry
     "adjacent_region_pairs", "set_grain_boundaries", "image_geom",
     # Phase M: torque field observable + custom field + stray field
@@ -237,7 +243,7 @@ __all__ = [
     "DemagFieldGPU", "DemagFieldPeriodicGPU",
     "BulkDMIFieldGPU", "InterfacialDMIFieldGPU",
     "RelaxGPU", "RelaxGPUOptions", "MinimizeGPU", "MinimizeGPUOptions",
-    "ExchangeFieldGPU", "ZeemanFieldGPU",
+    "ExchangeFieldGPU", "ZeemanFieldGPU", "ZeemanFieldSpatialGPU",
     "UniaxialAnisotropyFieldGPU", "CubicAnisotropyFieldGPU",
     "RK4IntegratorGPU", "RK45IntegratorGPU", "RK45GPUOptions",
     "HeunIntegratorGPU",
@@ -1166,6 +1172,126 @@ def rotate_mag(m, theta: float, axis=(0.0, 0.0, 1.0)):
     kdotm = _np.einsum("...i,i->...", arr, k)[..., _np.newaxis]
     rot   = arr * ct + kxm * st + k * kdotm * (1 - ct)
     from_numpy(m, rot)
+
+
+def load_ovf(filename: str) -> "VectorField3D":
+    """Load an OVF 1.0/2.0 file into a new VectorField3D.
+
+    Parameters
+    ----------
+    filename : str — OVF file path
+
+    Returns
+    -------
+    VectorField3D with grid reconstructed from the OVF header.
+    """
+    g = load_ovf_grid(filename)   # Python-owned StructuredGrid
+    m = VectorField3D(g)          # keep_alive<1,2> in binding keeps g alive
+    load_ovf_into(filename, m)    # fill data (no new grid allocation)
+    return m
+
+
+def normalize_field(m):
+    """Normalize all vectors in a VectorField3D to unit length (in-place).
+
+    Equivalent to ``m.normalize()`` but available as a standalone function for
+    consistency with other field-level helpers.
+
+    Parameters
+    ----------
+    m : VectorField3D — modified in-place
+    """
+    m.normalize()
+
+
+def load_profile(fname: str):
+    """Load a 1D magnetization profile CSV written by save_profile().
+
+    Parameters
+    ----------
+    fname : str — CSV file path (two columns: position [m], value)
+
+    Returns
+    -------
+    tuple (positions, values) — both numpy float64 arrays of length N
+    """
+    import csv
+    positions, values = [], []
+    with open(fname, "r", newline="") as f:
+        reader = csv.reader(f)
+        next(reader)  # skip header
+        for row in reader:
+            positions.append(float(row[0]))
+            values.append(float(row[1]))
+    return _np.array(positions), _np.array(values)
+
+
+class OVFWriter:
+    """Context-manager / callable OVF writer (class-based interface for save_ovf).
+
+    Usage::
+
+        writer = mm.OVFWriter("snapshot.ovf", field_name="m",
+                              fmt=mm.OVFFormat.Binary8)
+        writer.write(m)          # write once
+
+        with mm.OVFWriter("state.ovf") as w:
+            w.write(m)           # also writes on __exit__
+
+    Parameters
+    ----------
+    path       : str — output filename
+    field_name : str — OVF field label (default 'm')
+    fmt        : OVFFormat | None — None -> OVFFormat.Binary8
+    """
+    def __init__(self, path: str, field_name: str = "m", fmt=None):
+        self._path = path
+        self._field_name = field_name
+        self._fmt = fmt
+
+    def write(self, m):
+        """Write VectorField3D ``m`` to the configured file."""
+        fmt_ = self._fmt if self._fmt is not None else OVFFormat.Binary8
+        save_ovf(self._path, m, self._field_name, fmt_)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
+
+
+class OVFReader:
+    """Context-manager / callable OVF reader (class-based interface for load_ovf).
+
+    Usage::
+
+        reader = mm.OVFReader("snapshot.ovf")
+        m = reader.read(grid)   # allocates and fills VectorField3D
+
+        with mm.OVFReader("state.ovf") as r:
+            m = r.read(grid)
+
+    Parameters
+    ----------
+    path : str — OVF file to read
+    """
+    def __init__(self, path: str):
+        self._path = path
+
+    def read(self, grid=None):
+        """Load OVF file into a new VectorField3D.
+
+        ``grid`` is accepted for API symmetry but ignored — the grid is
+        reconstructed from the OVF header by load_ovf().
+        """
+        return load_ovf(self._path)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
 
 
 def checkerboard_regions(grid) -> "RegionMap":

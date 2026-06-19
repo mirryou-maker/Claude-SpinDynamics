@@ -289,4 +289,41 @@ VectorField3D load_ovf(const std::string& filename) {
     return m;
 }
 
+StructuredGrid load_ovf_grid(const std::string& filename) {
+    std::ifstream f(filename, std::ios::binary);
+    if (!f) throw std::runtime_error("load_ovf_grid: cannot open '" + filename + "'");
+    Index  nx = 0, ny = 0, nz = 0;
+    double dx = 0, dy = 0, dz = 0;
+    std::string line, val;
+    while (std::getline(f, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty() || line[0] != '#') continue;
+        if (parse_header_line(line, "xnodes", val)) { nx = std::stoi(val); continue; }
+        if (parse_header_line(line, "ynodes", val)) { ny = std::stoi(val); continue; }
+        if (parse_header_line(line, "znodes", val)) { nz = std::stoi(val); continue; }
+        if (parse_header_line(line, "xstepsize", val)) { dx = std::stod(val); continue; }
+        if (parse_header_line(line, "ystepsize", val)) { dy = std::stod(val); continue; }
+        if (parse_header_line(line, "zstepsize", val)) { dz = std::stod(val); continue; }
+        if (nx && ny && nz && dx && dy && dz) break;
+    }
+    if (nx == 0 || ny == 0 || nz == 0 || dx == 0 || dy == 0 || dz == 0)
+        throw std::runtime_error(
+            "load_ovf_grid: '" + filename + "': missing grid dimensions");
+    return StructuredGrid(nx, ny, nz,
+                          static_cast<Real>(dx),
+                          static_cast<Real>(dy),
+                          static_cast<Real>(dz));
+}
+
+void load_ovf_into(const std::string& filename, VectorField3D& m) {
+    VectorField3D tmp = load_ovf(filename);
+    const auto& tg = tmp.grid();
+    const auto& mg = m.grid();
+    if (tg.nx() != mg.nx() || tg.ny() != mg.ny() || tg.nz() != mg.nz())
+        throw std::runtime_error(
+            "load_ovf_into: grid mismatch");
+    for (Index i = 0; i < m.size(); ++i)
+        m[i] = tmp[i];
+}
+
 }  // namespace micromag

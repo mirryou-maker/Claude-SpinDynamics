@@ -34,4 +34,11 @@ void save_ovf(const std::string& filename,
 // dimensions against their own grid afterwards.
 VectorField3D load_ovf(const std::string& filename);
 
+// Read only the grid dimensions from an OVF header (no data loaded).
+StructuredGrid load_ovf_grid(const std::string& filename);
+
+// Fill an existing VectorField3D from an OVF file.
+// Throws if the file grid dimensions don't match m.grid().
+void load_ovf_into(const std::string& filename, VectorField3D& m);
+
 }  // namespace micromag

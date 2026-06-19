@@ -47,6 +47,7 @@
 #include "micromag/heun_integrator_gpu.hpp"
 #include "micromag/magnetoelastic_gpu.hpp"
 #include "micromag/surface_anisotropy_gpu.hpp"
+#include "micromag/zeeman_spatial_gpu.hpp"
 #include "micromag/spin_torque_gpu.hpp"
 #endif
 
@@ -131,6 +132,10 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("c"), py::arg("iy"), py::arg("iz"),
              "Find x-index of first sign change of component c in row (iy,iz). "
              "Returns -1 if none found.")
+        .def("__getitem__", [](const VectorField3D& f, Index idx) { return f[idx]; })
+        .def("__setitem__", [](VectorField3D& f, Index idx, const Vec3& v) { f[idx] = v; },
+             py::arg("idx"), py::arg("v"),
+             "Set one cell by linear index: field[idx] = Vec3(x, y, z).")
         .def("apply_mask", &VectorField3D::apply_mask, py::arg("mask"),
              "Multiply m by mask value per cell (m=0 where mask=0). In-place.")
         .def("crop",
@@ -368,6 +373,16 @@ PYBIND11_MODULE(_micromag, m) {
         .def("at", &MaterialField3D::at, py::arg("i"), py::arg("j"), py::arg("k"),
              "Assemble the Material for one cell.")
         .def("__getitem__", [](const MaterialField3D& f, Index idx) { return f[idx]; })
+        .def("__setitem__",
+             [](MaterialField3D& f, Index idx, const Material& mat) {
+                 f.Ms_field()[idx]    = mat.Ms;
+                 f.A_field()[idx]     = mat.A_exchange;
+                 f.K_field()[idx]     = mat.K_uniaxial;
+                 f.alpha_field()[idx] = mat.alpha;
+                 f.easy_axis_field()[idx] = mat.easy_axis;
+             },
+             py::arg("idx"), py::arg("mat"),
+             "Set one cell by linear index: matf[idx] = Material(...).")
         .def_property_readonly("Ms_field", [](MaterialField3D& f) -> ScalarField3D& {
             return f.Ms_field();
         }, py::return_value_policy::reference_internal)
@@ -1489,6 +1504,22 @@ PYBIND11_MODULE(_micromag, m) {
         .def("energy",     &SurfaceAnisotropyFieldGPU::energy)
         .def_property_readonly("name", &SurfaceAnisotropyFieldGPU::name);
 
+    // ZeemanFieldSpatialGPU — per-cell spatial Zeeman field (GPU drop-in)
+    py::class_<ZeemanFieldSpatialGPU, IEffectiveField, IEffectiveFieldGPU,
+               std::shared_ptr<ZeemanFieldSpatialGPU>>(m, "ZeemanFieldSpatialGPU",
+        "Per-cell spatially-varying external field on GPU. "
+        "Upload from VectorField3D via set_field(); updates propagate host->device. "
+        "Drop-in for ZeemanFieldSpatial in GPU integrator pipelines.")
+        .def(py::init<const StructuredGrid&>(), py::arg("grid"), py::keep_alive<1, 2>())
+        .def("set_field",
+             [](ZeemanFieldSpatialGPU& f, const VectorField3D& H) { f.set_field(H); },
+             py::arg("H_field"),
+             "Upload per-cell H field [A/m] from CPU VectorField3D to device. "
+             "Call again to update (e.g. time-varying write-head field).")
+        .def("accumulate",   &ZeemanFieldSpatialGPU::accumulate)
+        .def("energy",       &ZeemanFieldSpatialGPU::energy)
+        .def_property_readonly("name", &ZeemanFieldSpatialGPU::name);
+
 #endif  // MICROMAG_CUDA
 
     // ------------------------------------------------------------------
@@ -1640,8 +1671,23 @@ PYBIND11_MODULE(_micromag, m) {
           "Save VectorField3D to OVF 2.0 file (mumax3/OOMMF compatible). "
           "fmt: OVFFormat.Binary8 (default, lossless) or OVFFormat.Text.");
 
-    m.def("load_ovf",
+    m.def("load_ovf_grid",
+          &load_ovf_grid,
+          py::arg("filename"),
+          "Read only grid dimensions from an OVF header. Returns StructuredGrid.");
+
+    m.def("load_ovf_into",
+          &load_ovf_into,
+          py::arg("filename"), py::arg("m"),
+          "Fill an existing VectorField3D from an OVF file (no grid allocation).");
+
+    // load_ovf: the C++ version has a dangling StructuredGrid* bug (VectorField3D
+    // stores a raw pointer to a local StructuredGrid that is destroyed on return).
+    // The Python wrapper in __init__.py uses load_ovf_grid + VectorField3D() +
+    // load_ovf_into to safely manage grid lifetime via keep_alive<1,2>.
+    // This raw binding is kept for backward compatibility with direct _micromag usage.
+    m.def("_load_ovf_raw",
           &load_ovf,
           py::arg("filename"),
-          "Load an OVF 1.0/2.0 file (text or binary). Returns VectorField3D.");
+          "Internal: load_ovf with dangling grid ref — use micromag.load_ovf() instead.");
 }
