@@ -11,12 +11,13 @@
 #ifdef MICROMAG_CUDA
 
 #include "effective_field.hpp"
+#include "effective_field_gpu_iface.hpp"
 #include "field.hpp"
 #include "types.hpp"
 
 namespace micromag {
 
-class MagnetoelasticFieldGPU : public IEffectiveField {
+class MagnetoelasticFieldGPU : public IEffectiveField, public IEffectiveFieldGPU {
 public:
     explicit MagnetoelasticFieldGPU(Real B1, Real B2,
                                      const StructuredGrid& grid);
@@ -58,7 +59,7 @@ public:
     const char* name() const override { return "MagnetoelasticFieldGPU"; }
 
     void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const;
+                             double* d_H_out) const override;
 
     void set_stream(void* s) { stream_ = s; }
 

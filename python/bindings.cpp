@@ -1447,8 +1447,8 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property("P",  &ZhangLiSTTGPU::P,  &ZhangLiSTTGPU::set_P)
         .def_property("xi", &ZhangLiSTTGPU::xi, &ZhangLiSTTGPU::set_xi);
 
-    // Phase S: MagnetoelasticFieldGPU
-    py::class_<MagnetoelasticFieldGPU, IEffectiveField,
+    // Phase S+W: MagnetoelasticFieldGPU (also IEffectiveFieldGPU for FieldSumGPU)
+    py::class_<MagnetoelasticFieldGPU, IEffectiveField, IEffectiveFieldGPU,
                std::shared_ptr<MagnetoelasticFieldGPU>>(m, "MagnetoelasticFieldGPU",
         "GPU magnetoelastic field (B1/B2, uniform strain, CUDA kernel).\n"
         "Drop-in GPU replacement for MagnetoelasticField.\n"
@@ -1470,8 +1470,8 @@ PYBIND11_MODULE(_micromag, m) {
         .def("energy",     &MagnetoelasticFieldGPU::energy)
         .def_property_readonly("name", &MagnetoelasticFieldGPU::name);
 
-    // Phase S: SurfaceAnisotropyFieldGPU
-    py::class_<SurfaceAnisotropyFieldGPU, IEffectiveField,
+    // Phase S+W: SurfaceAnisotropyFieldGPU (also IEffectiveFieldGPU for FieldSumGPU)
+    py::class_<SurfaceAnisotropyFieldGPU, IEffectiveField, IEffectiveFieldGPU,
                std::shared_ptr<SurfaceAnisotropyFieldGPU>>(m, "SurfaceAnisotropyFieldGPU",
         "GPU surface/interface anisotropy field (mumax3 Ks).\n"
         "Precomputes surface-cell mask at construction; CUDA kernel runs only\n"

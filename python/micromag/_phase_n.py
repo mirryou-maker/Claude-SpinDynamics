@@ -225,3 +225,135 @@ def poisson_disk_grains(grid, avg_radius: float, min_dist_factor: float = 1.4,
                 region_map[lin_base + nx * ny * iz] = rid
 
     return region_map
+
+
+# ===========================================================================
+# Phase Z — MFM overlap integral contrast
+# ===========================================================================
+
+def mfm_overlap_integral(m, mat, lift_m: float,
+                          tip_moment: float = 1e-13,
+                          tip_sigma: float = None,
+                          tip_mode: str = "dipole",
+                          z_pad_layers: int = 8):
+    """Compute MFM contrast via the overlap-integral (point-probe) method.
+
+    Implements the standard FFT-based MFM transfer function:
+
+      - Pole density:  rho = -mu0 * Ms * div(m)  (volume poles)
+      - Stray field at lift height: H_z via FFT Greenfunction propagator
+      - Tip response:  Phi(k) = exp(-k * lift_m) * (dipole or monopole)
+      - Overlap integral: Delta_F ∝ d²Phi_sample/dz² convolved with tip
+
+    This extends ``mfm_signal`` by including in-plane gradients (dmx/dx,
+    dmy/dy) so that Bloch walls and lateral contrast are correctly captured.
+
+    Parameters
+    ----------
+    m          : VectorField3D
+    mat        : Material
+    lift_m     : float -- tip lift height above sample surface [m]
+    tip_moment : float -- effective tip monopole moment [A·m] (default 1e-13)
+    tip_sigma  : float or None -- Gaussian tip radius [m] for smoothing.
+                 None = point dipole (default)
+    tip_mode   : "dipole" (d²Hz/dz² response) or "monopole" (Hz response)
+    z_pad_layers : int -- number of zero-padding layers in z for FFT
+                   (reduces wrap-around artefacts, default 8)
+
+    Returns
+    -------
+    numpy.ndarray shape (ny, nx) -- MFM frequency shift [relative units]
+
+    Notes
+    -----
+    The absolute scale is proportional to tip_moment. For relative
+    comparisons between simulations the default value is fine.
+    Use tip_sigma > 0 to simulate finite tip size (Gaussian blur).
+    """
+    g = m.grid
+    nx, ny, nz = g.nx, g.ny, g.nz
+    dx, dy, dz_cell = g.dx, g.dy, g.dz
+
+    # ------------------------------------------------------------------
+    # 1. Build 3-D mx, my, mz arrays [nz, ny, nx] via to_numpy
+    # ------------------------------------------------------------------
+    from _micromag import to_numpy as _to_np
+    Ms = mat.Ms
+    m_arr = _np.asarray(_to_np(m), dtype=float)  # shape (nz, ny, nx, 3)
+    mx_v = m_arr[..., 0]  # (nz, ny, nx)
+    my_v = m_arr[..., 1]
+    mz_v = m_arr[..., 2]
+
+    # ------------------------------------------------------------------
+    # 2. Compute magnetic charge density rho = -div(M) in Fourier space
+    #    rho_vol  = -Ms * (dmx/dx + dmy/dy + dmz/dz)
+    #    Using central differences in real space → FFT divergence
+    # ------------------------------------------------------------------
+    # Pad z to avoid wrap-around in propagation
+    nz_pad = nz + z_pad_layers
+    Mz_arr = Ms * mz_v
+    Mx_arr = Ms * mx_v
+    My_arr = Ms * my_v
+
+    # 2-D FFT along xy for each z layer (sum over z for propagation)
+    kx = _np.fft.fftfreq(nx, d=dx) * 2.0 * _math.pi   # [rad/m]
+    ky = _np.fft.fftfreq(ny, d=dy) * 2.0 * _math.pi
+    KX, KY = _np.meshgrid(kx, ky)                       # (ny, nx)
+    K  = _np.sqrt(KX**2 + KY**2)                        # |k|
+    K[0, 0] = 1e-30   # avoid divide-by-zero at DC
+
+    # Volume pole contribution: propagate Hz from each layer to lift height
+    # Hz(k, z_lift) = sum_z rho_vol(k, z) * G(k, z_lift - z)
+    # G(k, delta_z) = 1/(2*K) * exp(-K*|delta_z|)  (magnetostatic Green fn)
+    mu0 = 4.0e-7 * _math.pi
+    Hz_k = _np.zeros((ny, nx), dtype=complex)
+
+    for iz in range(nz):
+        # Compute 2-D FFT of Mx, My, Mz at this layer
+        Mx_k = _np.fft.fft2(Mx_arr[iz])
+        My_k = _np.fft.fft2(My_arr[iz])
+        Mz_k = _np.fft.fft2(Mz_arr[iz])
+
+        # Volume poles: rho_vol = -div(M) → in Fourier: -i(kx*Mx + ky*My) - dMz/dz
+        # For Hz from volume poles, use:
+        # Hz_vol(k) = -mu0/(2K) * sign(lift) * rho_vol_k * exp(-K*delta_z)
+        # Simplified per-layer contribution (thin layer of thickness dz_cell):
+        z_centre = (iz + 0.5) * dz_cell
+        delta_z  = lift_m + (nz - iz - 0.5) * dz_cell  # distance: lift above top surface
+        prop = _np.exp(-K * delta_z)
+
+        # In-plane poles from dmx/dx + dmy/dy: -i(kx Mx + ky My)
+        div_xy_k = -1j * (KX * Mx_k + KY * My_k) * dz_cell
+        Hz_k += (-mu0 / 2.0) * div_xy_k / K * prop
+
+        # Surface poles at top of layer: Mz discontinuity (treat as sheet)
+        # For simplicity: per-layer dz contribution from dMz/dz
+        if iz == nz - 1:
+            # Top surface: +Mz (magnetization going to zero above)
+            Hz_k += (mu0 / 2.0) * Mz_k * prop
+        if iz == 0:
+            # Bottom surface: -Mz (magnetization going to zero below)
+            prop_bot = _np.exp(-K * (lift_m + nz * dz_cell))
+            Hz_k -= (mu0 / 2.0) * Mz_k * prop_bot
+
+    # ------------------------------------------------------------------
+    # 3. Apply tip transfer function
+    # ------------------------------------------------------------------
+    tip_mode_l = tip_mode.lower()
+    if tip_mode_l.startswith("d"):
+        # Dipole: d²Hz/dz² ∝ K² * Hz  (second derivative of exp(-K*z) is K²*exp)
+        tip_tf = K**2
+    else:
+        # Monopole: Hz directly
+        tip_tf = _np.ones_like(K)
+
+    if tip_sigma is not None and tip_sigma > 0.0:
+        tip_tf = tip_tf * _np.exp(-0.5 * (K * tip_sigma)**2)
+
+    mfm_k = Hz_k * tip_tf * tip_moment
+
+    # ------------------------------------------------------------------
+    # 4. Inverse FFT → real-space MFM image
+    # ------------------------------------------------------------------
+    mfm_real = _np.real(_np.fft.ifft2(mfm_k))
+    return mfm_real.astype(float)

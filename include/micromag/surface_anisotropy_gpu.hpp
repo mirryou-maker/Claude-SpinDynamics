@@ -8,6 +8,7 @@
 #ifdef MICROMAG_CUDA
 
 #include "effective_field.hpp"
+#include "effective_field_gpu_iface.hpp"
 #include "field.hpp"
 #include "geom_mask.hpp"
 #include "grid.hpp"
@@ -15,7 +16,7 @@
 
 namespace micromag {
 
-class SurfaceAnisotropyFieldGPU : public IEffectiveField {
+class SurfaceAnisotropyFieldGPU : public IEffectiveField, public IEffectiveFieldGPU {
 public:
     explicit SurfaceAnisotropyFieldGPU(Real Ks, const StructuredGrid& grid,
                                         Vec3 n_hat = {0.0, 0.0, 1.0});
@@ -42,7 +43,7 @@ public:
     const char* name() const override { return "SurfaceAnisotropyFieldGPU"; }
 
     void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const;
+                             double* d_H_out) const override;
 
     void set_stream(void* s) { stream_ = s; }
 

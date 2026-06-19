@@ -24,7 +24,8 @@ namespace micromag {
 // ---------------------------------------------------------------------------
 // IEffectiveFieldGPU — pure virtual interface for all GPU effective fields.
 // Implemented by: ExchangeFieldGPU, ZeemanFieldGPU, UniaxialAnisotropyFieldGPU,
-//   CubicAnisotropyFieldGPU, BulkDMIFieldGPU, InterfacialDMIFieldGPU.
+//   CubicAnisotropyFieldGPU, BulkDMIFieldGPU, InterfacialDMIFieldGPU,
+//   MagnetoelasticFieldGPU, SurfaceAnisotropyFieldGPU.
 // ---------------------------------------------------------------------------
 class IEffectiveFieldGPU {
 public:
