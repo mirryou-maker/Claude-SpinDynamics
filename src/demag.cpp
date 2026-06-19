@@ -134,11 +134,20 @@ DemagField::DemagField(const StructuredGrid& grid)
     r_buf_.resize(real_size, 0.0);
     c_buf_.resize(complex_size);
 
-    // FFTW_UNALIGNED prevents FFTW from selecting SIMD (AVX/SSE) algorithms
-    // that require stricter alignment than std::vector guarantees.
-    // We use fftw_execute (not new-array execute) so this flag is compatible.
-    const unsigned fftw_flags = FFTW_ESTIMATE | FFTW_UNALIGNED;
+    // Batch buffers for 3-component accumulate (all 3 M/H components at once).
+    r_buf_3_.resize(3 * real_size, 0.0);
+    c_buf_3_.resize(3 * complex_size);
 
+    // Import FFTW wisdom from a previous run (eliminates re-measurement overhead
+    // on repeat runs; FFTW silently ignores invalid/missing files).
+    fftw_import_wisdom_from_filename("fftw_wisdom.dat");
+
+    // FFTW_MEASURE probes multiple algorithms at plan creation and picks the
+    // fastest. std::vector<double> on MSVC x64 is ≥16-byte aligned so SIMD
+    // paths are safe. Plan overhead: ~O(0.1s) per grid; paid once per run.
+    const unsigned fftw_flags = FFTW_MEASURE;
+
+    // Single-component plans — used only by precompute_kernel().
     plan_fwd_ = fftw_plan_dft_r2c_3d(
         static_cast<int>(pad_nz_),
         static_cast<int>(pad_ny_),
@@ -158,12 +167,42 @@ DemagField::DemagField(const StructuredGrid& grid)
     if (!plan_fwd_ || !plan_inv_)
         throw std::runtime_error("DemagField: FFTW plan creation failed");
 
+    // 3-component batch plans — used by accumulate() to process Mx/My/Mz
+    // in two calls instead of six (3 forward + 3 inverse → 1+1).
+    const int n[3] = { static_cast<int>(pad_nz_),
+                       static_cast<int>(pad_ny_),
+                       static_cast<int>(pad_nx_) };
+
+    plan_fwd_3_ = reinterpret_cast<fftw_plan_s*>(
+        fftw_plan_many_dft_r2c(
+            3, n, 3,
+            r_buf_3_.data(),              nullptr, 1, static_cast<int>(real_size),
+            reinterpret_cast<fftw_complex*>(c_buf_3_.data()),
+                                          nullptr, 1, static_cast<int>(complex_size),
+            fftw_flags));
+
+    plan_inv_3_ = reinterpret_cast<fftw_plan_s*>(
+        fftw_plan_many_dft_c2r(
+            3, n, 3,
+            reinterpret_cast<fftw_complex*>(c_buf_3_.data()),
+                                          nullptr, 1, static_cast<int>(complex_size),
+            r_buf_3_.data(),              nullptr, 1, static_cast<int>(real_size),
+            fftw_flags));
+
+    if (!plan_fwd_3_ || !plan_inv_3_)
+        throw std::runtime_error("DemagField: FFTW batch plan creation failed");
+
+    // Export updated wisdom so subsequent runs skip the measurement phase.
+    fftw_export_wisdom_to_filename("fftw_wisdom.dat");
+
     precompute_kernel();
 }
 
 DemagField::~DemagField() {
-    if (plan_fwd_) fftw_destroy_plan(plan_fwd_);
-    if (plan_inv_) fftw_destroy_plan(plan_inv_);
+    if (plan_fwd_)   fftw_destroy_plan(plan_fwd_);
+    if (plan_inv_)   fftw_destroy_plan(plan_inv_);
+    if (plan_fwd_3_) fftw_destroy_plan(reinterpret_cast<fftw_plan>(plan_fwd_3_));
+    if (plan_inv_3_) fftw_destroy_plan(reinterpret_cast<fftw_plan>(plan_inv_3_));
 }
 
 // ---------------------------------------------------------------------------
@@ -267,68 +306,54 @@ void DemagField::accumulate(const VectorField3D& m,
                              const Material& mat,
                              VectorField3D& H_out) const {
     const double Ms = mat.Ms;
-    const std::size_t pad_total = static_cast<std::size_t>(pad_nx_ * pad_ny_ * pad_nz_);
-    const std::size_t c_total   = static_cast<std::size_t>(fft_nx_ * pad_ny_ * pad_nz_);
-    const double norm_factor    = 1.0 / static_cast<double>(pad_total);
+    const std::size_t real_size  = static_cast<std::size_t>(pad_nx_ * pad_ny_ * pad_nz_);
+    const std::size_t c_total    = static_cast<std::size_t>(fft_nx_ * pad_ny_ * pad_nz_);
+    const double norm_factor     = 1.0 / static_cast<double>(real_size);
 
-    // We need per-component FFTs of Mx, My, Mz.
-    // Store them in temporary arrays.
-    std::vector<std::complex<double>> Mx_f(c_total), My_f(c_total), Mz_f(c_total);
+    // Step 1: pack Mx/My/Mz into the 3-component real buffer (zero-padded).
+    // r_buf_3_ layout: [Mx_padded | My_padded | Mz_padded]
+    std::fill(r_buf_3_.begin(), r_buf_3_.end(), 0.0);
+    for (Index kz = 0; kz < nz_; ++kz)
+    for (Index ky = 0; ky < ny_; ++ky)
+    for (Index kx = 0; kx < nx_; ++kx) {
+        const std::size_t src = static_cast<std::size_t>(kx + nx_ * (ky + ny_ * kz));
+        const std::size_t dst = static_cast<std::size_t>(kx + pad_nx_ * (ky + pad_ny_ * kz));
+        const Vec3&  v       = m[static_cast<Index>(src)];
+        const double Ms_cell = matf_ ? matf_->Ms(static_cast<Index>(src)) : Ms;
+        r_buf_3_[dst]                 = Ms_cell * v.x;
+        r_buf_3_[real_size  + dst]    = Ms_cell * v.y;
+        r_buf_3_[2*real_size + dst]   = Ms_cell * v.z;
+    }
 
-    // Helper: forward FFT of one magnetisation component.
-    auto fft_component = [&](int comp, std::vector<std::complex<double>>& out) {
-        // Zero-fill real buffer, copy component into unpadded region.
-        std::fill(r_buf_.begin(), r_buf_.end(), 0.0);
-        for (Index kz = 0; kz < nz_; ++kz)
-        for (Index ky = 0; ky < ny_; ++ky)
-        for (Index kx = 0; kx < nx_; ++kx) {
-            std::size_t src = static_cast<std::size_t>(kx + nx_ * (ky + ny_ * kz));
-            std::size_t dst = static_cast<std::size_t>(kx + pad_nx_ * (ky + pad_ny_ * kz));
-            const Vec3& v = m[static_cast<Index>(src)];
-            const double Ms_cell = matf_ ? matf_->Ms(static_cast<Index>(src)) : Ms;
-            r_buf_[dst] = Ms_cell * (comp == 0 ? v.x : comp == 1 ? v.y : v.z);
-        }
-        fftw_execute(plan_fwd_);
-        out = c_buf_;
-    };
+    // Step 2: batch forward FFT — 3 transforms in one call.
+    // c_buf_3_ layout after: [Mx_f | My_f | Mz_f]
+    fftw_execute(reinterpret_cast<fftw_plan>(plan_fwd_3_));
 
-    fft_component(0, Mx_f);
-    fft_component(1, My_f);
-    fft_component(2, Mz_f);
+    // Step 3: pointwise tensor multiply  H_f = -N * M_f  (all 3 rows at once).
+    // Read Mx/My/Mz before overwriting (in-place within c_buf_3_).
+    for (std::size_t i = 0; i < c_total; ++i) {
+        const std::complex<double> Mx = c_buf_3_[i];
+        const std::complex<double> My = c_buf_3_[c_total     + i];
+        const std::complex<double> Mz = c_buf_3_[2*c_total   + i];
+        c_buf_3_[i]               = -(K_xx_[i]*Mx + K_xy_[i]*My + K_xz_[i]*Mz);
+        c_buf_3_[c_total   + i]   = -(K_xy_[i]*Mx + K_yy_[i]*My + K_yz_[i]*Mz);
+        c_buf_3_[2*c_total + i]   = -(K_xz_[i]*Mx + K_yz_[i]*My + K_zz_[i]*Mz);
+    }
 
-    // For each output component Hx,Hy,Hz: sum over tensor row.
-    // H_x = -(N_xx*Mx + N_xy*My + N_xz*Mz)   (H_demag = -N*M)
-    auto ifft_and_add = [&](const std::vector<std::complex<double>>& Ka,
-                             const std::vector<std::complex<double>>& Kb,
-                             const std::vector<std::complex<double>>& Kc,
-                             const std::vector<std::complex<double>>& Ma,
-                             const std::vector<std::complex<double>>& Mb,
-                             const std::vector<std::complex<double>>& Mc,
-                             int out_comp) {
-        // Pointwise multiply and sum.
-        for (std::size_t i = 0; i < c_total; ++i)
-            c_buf_[i] = Ka[i] * Ma[i] + Kb[i] * Mb[i] + Kc[i] * Mc[i];
+    // Step 4: batch inverse FFT — 3 transforms in one call.
+    // r_buf_3_ layout after: [Hx_padded | Hy_padded | Hz_padded]
+    fftw_execute(reinterpret_cast<fftw_plan>(plan_inv_3_));
 
-        // Inverse FFT.
-        fftw_execute(plan_inv_);
-
-        // Copy unpadded region to H_out, applying sign (-N*M) and normalisation.
-        for (Index kz = 0; kz < nz_; ++kz)
-        for (Index ky = 0; ky < ny_; ++ky)
-        for (Index kx = 0; kx < nx_; ++kx) {
-            std::size_t src = static_cast<std::size_t>(kx + pad_nx_ * (ky + pad_ny_ * kz));
-            Index       dst = kx + nx_ * (ky + ny_ * kz);
-            double h_val = -r_buf_[src] * norm_factor;
-            Vec3& hv = H_out[dst];
-            if (out_comp == 0) hv.x += h_val;
-            else if (out_comp == 1) hv.y += h_val;
-            else                   hv.z += h_val;
-        }
-    };
-
-    ifft_and_add(K_xx_, K_xy_, K_xz_, Mx_f, My_f, Mz_f, 0);  // Hx
-    ifft_and_add(K_xy_, K_yy_, K_yz_, Mx_f, My_f, Mz_f, 1);  // Hy
-    ifft_and_add(K_xz_, K_yz_, K_zz_, Mx_f, My_f, Mz_f, 2);  // Hz
+    // Step 5: unpack and accumulate into H_out (all 3 components, one loop).
+    for (Index kz = 0; kz < nz_; ++kz)
+    for (Index ky = 0; ky < ny_; ++ky)
+    for (Index kx = 0; kx < nx_; ++kx) {
+        const std::size_t src = static_cast<std::size_t>(kx + pad_nx_ * (ky + pad_ny_ * kz));
+        const Index       dst = kx + nx_ * (ky + ny_ * kz);
+        H_out[dst].x += r_buf_3_[src]                  * norm_factor;
+        H_out[dst].y += r_buf_3_[real_size   + src]    * norm_factor;
+        H_out[dst].z += r_buf_3_[2*real_size + src]    * norm_factor;
+    }
 }
 
 // ---------------------------------------------------------------------------

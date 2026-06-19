@@ -72,6 +72,10 @@ public:
     Real dt() const        { return dt_; }
     void set_dt(Real dt)   { dt_ = dt;  }
 
+    // Maximum misalignment angle between adjacent spins (degrees).
+    // Computed entirely on GPU — only 1 double transferred D2H per call.
+    double max_angle_gpu() const { return state_.max_angle_gpu(); }
+
 private:
     GPUMagState state_;
     Real        dt_;

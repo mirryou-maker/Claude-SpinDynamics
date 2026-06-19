@@ -72,6 +72,10 @@ public:
     int  n_accepted() const { return n_accepted_; }
     int  n_rejected() const { return n_rejected_; }
 
+    // Maximum misalignment angle between adjacent spins (degrees).
+    // Computed entirely on GPU — only 1 double transferred D2H per call.
+    double max_angle_gpu() const { return state_.max_angle_gpu(); }
+
 private:
     GPUMagState state_;
     Options     opts_;

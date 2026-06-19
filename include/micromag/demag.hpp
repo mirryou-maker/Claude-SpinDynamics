@@ -72,12 +72,22 @@ private:
     std::vector<std::complex<double>> K_xy_, K_xz_, K_yz_;
 
     // Scratch arrays for forward/inverse transforms (mutable for const accumulate).
-    mutable std::vector<double>              r_buf_;    // real input  (padded)
-    mutable std::vector<std::complex<double>> c_buf_;   // complex FFT (padded r2c)
+    mutable std::vector<double>              r_buf_;    // real input  (padded, single component)
+    mutable std::vector<std::complex<double>> c_buf_;   // complex FFT (single component — precompute only)
 
-    // FFTW plans (forward r2c and inverse c2r, reused each call).
-    fftw_plan_s* plan_fwd_ = nullptr;
-    fftw_plan_s* plan_inv_ = nullptr;
+    // Batch buffers for runtime accumulate(): all 3 components packed contiguously.
+    // r_buf_3_: layout [Mx_padded | My_padded | Mz_padded] (or [Hx|Hy|Hz] on IFFT output)
+    // c_buf_3_: layout [Mx_f | My_f | Mz_f]               (frequency domain)
+    mutable std::vector<double>              r_buf_3_;
+    mutable std::vector<std::complex<double>> c_buf_3_;
+
+    // FFTW plans (forward r2c and inverse c2r).
+    // plan_fwd_ / plan_inv_: single-component, used by precompute_kernel().
+    // plan_fwd_3_ / plan_inv_3_: 3-component batch, used by accumulate() (faster).
+    fftw_plan_s* plan_fwd_   = nullptr;
+    fftw_plan_s* plan_inv_   = nullptr;
+    fftw_plan_s* plan_fwd_3_ = nullptr;  // fftw_plan_many: 3 r2c in one call
+    fftw_plan_s* plan_inv_3_ = nullptr;  // fftw_plan_many: 3 c2r in one call
 
     // Helpers -----------------------------------------------------------------
     void precompute_kernel();

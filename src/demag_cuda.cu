@@ -362,7 +362,8 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
     CUFFT_CHECK(cufftSetStream(plan_inv_batch_, s));
 
     precompute_kernel();
-    CUDA_CHECK(cudaStreamSynchronize(s));   // ensure precompute is done
+    // No CPU sync needed: precompute and all subsequent accumulate_gpu_ptr()
+    // calls run on the same stream_, so ordering is guaranteed by CUDA.
 }
 
 // ===========================================================================

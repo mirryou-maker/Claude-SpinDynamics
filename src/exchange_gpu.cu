@@ -80,6 +80,95 @@ __global__ static void exchange_kernel(
 }
 
 // ===========================================================================
+// CUDA kernel: 6-point Laplacian — Neumann BC, 2D shared-memory tile.
+//
+// Block: EXCH_BX×EXCH_BY = 32×8 = 256 threads.
+// Shared tile: (BX+2)×(BY+2) per component = 34×10 = 340 doubles per comp.
+// Total shared mem: 3 × 340 × 8 = 8160 bytes (well within 48KB limit).
+//
+// x,y neighbors are served from the tile; z-neighbors from global memory.
+// Neumann BC: boundary clamping happens via block-level halo indices
+// (halo_ixL/R, halo_iyB/T) that clamp to [0, n-1].  OOB threads load the
+// clamped Neumann extension into their tile slot; in-bounds threads read
+// adjacent slots → zero contribution at the boundary.  ✓
+// ===========================================================================
+#define EXCH_BX 32
+#define EXCH_BY 8
+
+__global__ static void exchange_kernel_smem(
+    double* __restrict__       H_out,
+    const double* __restrict__ m,
+    int nx, int ny, int nz,
+    double fx, double fy, double fz)
+{
+    const int tx = (int)threadIdx.x;
+    const int ty = (int)threadIdx.y;
+    const int ix = (int)blockIdx.x * EXCH_BX + tx;
+    const int iy = (int)blockIdx.y * EXCH_BY + ty;
+    const int iz = (int)blockIdx.z;
+    const int N  = nx * ny * nz;
+
+    // Neumann-clamped cell index for OOB threads (Neumann extension)
+    const int cix = min(max(ix, 0), nx - 1);
+    const int ciy = min(max(iy, 0), ny - 1);
+
+    // Block-level halo positions, clamped to [0, n-1] (Neumann BC)
+    const int halo_ixL = max((int)blockIdx.x * EXCH_BX - 1, 0);
+    const int halo_ixR = min((int)blockIdx.x * EXCH_BX + EXCH_BX, nx - 1);
+    const int halo_iyB = max((int)blockIdx.y * EXCH_BY - 1, 0);
+    const int halo_iyT = min((int)blockIdx.y * EXCH_BY + EXCH_BY, ny - 1);
+
+    __shared__ double tile[3][EXCH_BY + 2][EXCH_BX + 2];
+
+    const int iz_off = ny * iz;
+
+    for (int c = 0; c < 3; ++c) {
+        const int base = c * N;
+
+        // Center: clamped index → OOB threads load Neumann extension
+        tile[c][ty + 1][tx + 1] = m[base + cix + nx * (ciy + iz_off)];
+
+        // Left halo (tx == 0 loads for entire column)
+        if (tx == 0)
+            tile[c][ty + 1][0] = m[base + halo_ixL + nx * (ciy + iz_off)];
+
+        // Right halo (tx == EXCH_BX-1 loads for entire column)
+        if (tx == EXCH_BX - 1)
+            tile[c][ty + 1][EXCH_BX + 1] = m[base + halo_ixR + nx * (ciy + iz_off)];
+
+        // Bottom halo (ty == 0 loads for entire row)
+        if (ty == 0)
+            tile[c][0][tx + 1] = m[base + cix + nx * (halo_iyB + iz_off)];
+
+        // Top halo (ty == EXCH_BY-1 loads for entire row)
+        if (ty == EXCH_BY - 1)
+            tile[c][EXCH_BY + 1][tx + 1] = m[base + cix + nx * (halo_iyT + iz_off)];
+    }
+    __syncthreads();
+
+    if (ix >= nx || iy >= ny) return;
+
+    const int idx    = ix + nx * (iy + ny * iz);
+    const int idx_zm = (iz > 0)     ? idx - nx * ny : idx;
+    const int idx_zp = (iz < nz - 1)? idx + nx * ny : idx;
+
+    for (int c = 0; c < 3; ++c) {
+        const int    base = c * N;
+        const double mc   = tile[c][ty + 1][tx + 1];
+        const double lap  =
+            (tile[c][ty + 1][tx    ] - mc) * fx +
+            (tile[c][ty + 1][tx + 2] - mc) * fx +
+            (tile[c][ty    ][tx + 1] - mc) * fy +
+            (tile[c][ty + 2][tx + 1] - mc) * fy +
+            (m[base + idx_zm]         - mc) * fz +
+            (m[base + idx_zp]         - mc) * fz;
+        H_out[base + idx] += lap;
+    }
+}
+#undef EXCH_BX
+#undef EXCH_BY
+
+// ===========================================================================
 // CUDA kernel: 6-point Laplacian — periodic BC (wrap-around indices)
 // ===========================================================================
 __global__ static void exchange_kernel_periodic(
@@ -296,14 +385,18 @@ void ExchangeFieldGPU::accumulate(const VectorField3D& m,
     // ------------------------------------------------------------------
     // 3. Launch exchange kernel (Neumann or Periodic BC)
     // ------------------------------------------------------------------
-    const int blk = 256;
-    const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    if (bc_ == BoundaryCondition::Periodic)
+    if (bc_ == BoundaryCondition::Periodic) {
+        const int blk = 256;
+        const int grd = static_cast<int>((N_ + blk - 1) / blk);
         exchange_kernel_periodic<<<grd, blk, 0, s>>>(
             dH, dm, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
-    else
-        exchange_kernel<<<grd, blk, 0, s>>>(
+    } else {
+        // 2D shared-memory kernel: better cache locality for x/y neighbors
+        const dim3 blk2(32, 8, 1);
+        const dim3 grd2(((int)nx_ + 31) / 32, ((int)ny_ + 7) / 8, (int)nz_);
+        exchange_kernel_smem<<<grd2, blk2, 0, s>>>(
             dH, dm, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
+    }
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
@@ -356,10 +449,13 @@ void ExchangeFieldGPU::accumulate_gpu_ptr(const double* d_m,
             exchange_kernel_periodic<<<grd, blk, 0, s>>>(
                 d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_,
                 pre * idx2, pre * idy2, pre * idz2);
-        else
-            exchange_kernel<<<grd, blk, 0, s>>>(
+        else {
+            const dim3 blk2(32, 8, 1);
+            const dim3 grd2(((int)nx_ + 31) / 32, ((int)ny_ + 7) / 8, (int)nz_);
+            exchange_kernel_smem<<<grd2, blk2, 0, s>>>(
                 d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_,
                 pre * idx2, pre * idy2, pre * idz2);
+        }
     }
     CUDA_CHECK(cudaGetLastError());
 }

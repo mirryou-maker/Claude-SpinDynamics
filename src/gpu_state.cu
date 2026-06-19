@@ -8,6 +8,8 @@
 #include <cuda_runtime.h>
 #include <stdexcept>
 #include <string>
+#include <algorithm>
+#include <cmath>
 
 #include "micromag/gpu_state.hpp"
 
@@ -22,12 +24,90 @@
 namespace micromag {
 
 // ===========================================================================
+// max_angle_gpu kernels — two-stage reduction without external libraries.
+//
+// Stage 1 (min_dot_neighbors_kernel): per-cell min dot product with 6 neighbors.
+// Stage 2 (block_min_kernel):         reduce stage-1 output to one value/block.
+// Stage 3 (CPU):                      find global min across block results.
+//
+// Only n_blocks doubles (≈N/256) are transferred D2H instead of 3N doubles.
+// ===========================================================================
+namespace {
+
+#define ANGLE_BLK 256
+
+__global__ static void min_dot_neighbors_kernel(
+    const double* __restrict__ m,
+    double* __restrict__ out,
+    int nx, int ny, int nz)
+{
+    const int N   = nx * ny * nz;
+    const int idx = static_cast<int>(blockIdx.x) * ANGLE_BLK
+                  + static_cast<int>(threadIdx.x);
+    if (idx >= N) return;
+
+    const int ix  = idx % nx;
+    const int iy  = (idx / nx) % ny;
+    const int iz  = idx / (nx * ny);
+
+    const double mx = m[idx],
+                 my = m[N   + idx],
+                 mz = m[2*N + idx];
+
+    double min_d = 1.0;
+
+#define CHK_DOT(j) do { \
+    const double _d = mx*m[j] + my*m[N+(j)] + mz*m[2*N+(j)]; \
+    if (_d < min_d) min_d = _d; \
+} while (0)
+
+    if (ix > 0)      CHK_DOT(idx - 1);
+    if (ix < nx - 1) CHK_DOT(idx + 1);
+    if (iy > 0)      CHK_DOT(idx - nx);
+    if (iy < ny - 1) CHK_DOT(idx + nx);
+    if (iz > 0)      CHK_DOT(idx - nx * ny);
+    if (iz < nz - 1) CHK_DOT(idx + nx * ny);
+
+#undef CHK_DOT
+
+    out[idx] = min_d;
+}
+
+// Block-level minimum reduction; one result per block written to block_out.
+__global__ static void block_min_kernel(
+    const double* __restrict__ in,
+    double* __restrict__ block_out,
+    int N)
+{
+    __shared__ double smem[ANGLE_BLK];
+    const int tid = static_cast<int>(threadIdx.x);
+    const int idx = static_cast<int>(blockIdx.x) * ANGLE_BLK + tid;
+
+    smem[tid] = (idx < N) ? in[idx] : 1.0;
+    __syncthreads();
+
+    for (int s = ANGLE_BLK / 2; s > 0; s >>= 1) {
+        if (tid < s)
+            smem[tid] = min(smem[tid], smem[tid + s]);
+        __syncthreads();
+    }
+
+    if (tid == 0)
+        block_out[blockIdx.x] = smem[0];
+}
+
+#undef ANGLE_BLK
+
+} // anonymous namespace
+
+// ===========================================================================
 // Constructor / Destructor
 // ===========================================================================
 GPUMagState::GPUMagState(const StructuredGrid& grid)
     : N_(static_cast<size_t>(grid.nx()) *
          static_cast<size_t>(grid.ny()) *
-         static_cast<size_t>(grid.nz()))
+         static_cast<size_t>(grid.nz())),
+      nx_(grid.nx()), ny_(grid.ny()), nz_(grid.nz())
 {
     const size_t bytes = 3 * N_ * sizeof(double);
 
@@ -53,6 +133,10 @@ GPUMagState::~GPUMagState() {
     cudaFree(d_k_acc_);
     cudaFreeHost(h_staging_);
     if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    // max_angle_gpu scratch (lazily allocated, may be nullptr)
+    if (d_angle_buf_) cudaFree(d_angle_buf_);
+    if (d_block_min_) cudaFree(d_block_min_);
+    if (h_block_min_) cudaFreeHost(h_block_min_);
 }
 
 // ===========================================================================
@@ -179,6 +263,54 @@ void GPUMagState::save_m0() {
 
 void GPUMagState::sync() const {
     CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream_)));
+}
+
+// ===========================================================================
+// max_angle_gpu — returns max misalignment angle between adjacent spins (°).
+//
+// Two-stage GPU reduction: per-cell → block minimums → CPU final reduce.
+// Transfers only n_blocks doubles D2H (≈N/256) instead of the full 3N field.
+// Lazily allocates scratch buffers on the first call.
+// ===========================================================================
+double GPUMagState::max_angle_gpu() const {
+    const cudaStream_t s  = static_cast<cudaStream_t>(stream_);
+    const int          Ni = static_cast<int>(N_);
+    constexpr int      BLK = 256;
+    const int n_blocks = (Ni + BLK - 1) / BLK;
+
+    // Lazy init: allocate scratch buffers sized for this grid.
+    if (!d_angle_buf_) {
+        n_angle_blocks_ = static_cast<size_t>(n_blocks);
+        CUDA_CHECK(cudaMalloc(&d_angle_buf_, N_ * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_block_min_, n_angle_blocks_ * sizeof(double)));
+        CUDA_CHECK(cudaMallocHost(&h_block_min_, n_angle_blocks_ * sizeof(double)));
+    }
+
+    // Stage 1: per-cell min dot product with all 6 neighbors → d_angle_buf_.
+    min_dot_neighbors_kernel<<<n_blocks, BLK, 0, s>>>(
+        reinterpret_cast<const double*>(d_m_),
+        static_cast<double*>(d_angle_buf_),
+        nx_, ny_, nz_);
+
+    // Stage 2: block-level reduction → d_block_min_ (one double per block).
+    block_min_kernel<<<n_blocks, BLK, 0, s>>>(
+        static_cast<const double*>(d_angle_buf_),
+        static_cast<double*>(d_block_min_),
+        Ni);
+
+    // Stage 3: D2H the n_blocks doubles and finish on CPU.
+    CUDA_CHECK(cudaMemcpyAsync(h_block_min_,
+                               d_block_min_, n_angle_blocks_ * sizeof(double),
+                               cudaMemcpyDeviceToHost, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+
+    double min_dot = 1.0;
+    for (size_t i = 0; i < n_angle_blocks_; ++i)
+        if (h_block_min_[i] < min_dot) min_dot = h_block_min_[i];
+
+    min_dot = std::max(-1.0, std::min(1.0, min_dot));
+    constexpr double kPi = 3.14159265358979323846;
+    return std::acos(min_dot) * (180.0 / kPi);
 }
 
 }  // namespace micromag

@@ -76,12 +76,20 @@ public:
     double*       d_ki()    { return reinterpret_cast<double*>(d_ki_);    }
     double*       d_k_acc() { return reinterpret_cast<double*>(d_k_acc_); }
 
+    // Compute maximum misalignment angle between adjacent spins (degrees).
+    // Runs entirely on GPU; only 1 double transferred D2H per call.
+    double max_angle_gpu() const;
+
     // CUDA stream (void* to avoid cufft/cuda_runtime headers here)
     void*  stream() const { return stream_; }
     size_t N()      const { return N_; }
+    int    nx()     const { return nx_; }
+    int    ny()     const { return ny_; }
+    int    nz()     const { return nz_; }
 
 private:
-    size_t N_;   // nx * ny * nz
+    size_t N_;
+    int    nx_, ny_, nz_;
 
     void* d_m_     = nullptr;   // double[3×N]
     void* d_H_     = nullptr;   // double[3×N]
@@ -91,6 +99,13 @@ private:
 
     // Pinned host staging buffer — avoids intermediate host copy on DMA
     double* h_staging_ = nullptr;   // double[3×N]
+
+    // Scratch for max_angle_gpu() — lazily allocated on first call.
+    // Two-stage reduction: per-cell kernel → block mins → CPU final reduce.
+    mutable void*   d_angle_buf_   = nullptr;   // double[N]: per-cell min dot
+    mutable void*   d_block_min_   = nullptr;   // double[n_blocks]: block minimums
+    mutable double* h_block_min_   = nullptr;   // pinned host: n_blocks doubles
+    mutable size_t  n_angle_blocks_ = 0;
 
     void* stream_ = nullptr;
 };

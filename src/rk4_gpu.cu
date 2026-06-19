@@ -167,7 +167,7 @@ void launch_rk4_finalize(double* m_new, const double* m0, const double* k_acc,
 
 void launch_normalize(double* m, int N, void* stream)
 {
-    const int blk = 256;
+    const int blk = 512;   // normalize is pure memory-bound; 512 → better SM occupancy
     const int grd = (N + blk - 1) / blk;
     normalize_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(m, N);
     CUDA_CHECK(cudaGetLastError());
@@ -203,7 +203,7 @@ __global__ static void heun_corrector_kernel(
 void launch_add_3N(double* dst, const double* src, int N, void* stream)
 {
     const int N3  = 3 * N;
-    const int blk = 256;
+    const int blk = 512;   // memory-bound add; 512 improves occupancy
     const int grd = (N3 + blk - 1) / blk;
     add_3N_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(dst, src, N3);
     CUDA_CHECK(cudaGetLastError());

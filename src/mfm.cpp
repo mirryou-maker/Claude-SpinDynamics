@@ -26,8 +26,10 @@ MFMImage::MFMImage(const StructuredGrid& grid, Real lift_m, TipMode tip)
     r_buf_.resize(real_size, 0.0);
     c_buf_.resize(complex_size);
 
+    fftw_import_wisdom_from_filename("fftw_wisdom.dat");
+
     // 2D R2C and C2R plans on (ny, nx) — x is fastest (last argument in FFTW).
-    const unsigned flags = FFTW_ESTIMATE | FFTW_UNALIGNED;
+    const unsigned flags = FFTW_MEASURE;
     plan_fwd_ = reinterpret_cast<fftw_plan_s*>(
         fftw_plan_dft_r2c_2d(
             static_cast<int>(ny_), static_cast<int>(nx_),
@@ -43,6 +45,8 @@ MFMImage::MFMImage(const StructuredGrid& grid, Real lift_m, TipMode tip)
 
     if (!plan_fwd_ || !plan_inv_)
         throw std::runtime_error("MFMImage: FFTW plan creation failed");
+
+    fftw_export_wisdom_to_filename("fftw_wisdom.dat");
 
     precompute_kernel();
 }

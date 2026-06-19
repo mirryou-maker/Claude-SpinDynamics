@@ -1331,7 +1331,10 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("torques"),
              "One full RK4 step with FieldSumGPU + SpinTorqueSumGPU (STT/SOT). "
              "Spin torques are applied after LLG torque at each RK4 stage.")
-        .def_property("dt", &RK4IntegratorGPU::dt, &RK4IntegratorGPU::set_dt);
+        .def_property("dt", &RK4IntegratorGPU::dt, &RK4IntegratorGPU::set_dt)
+        .def("max_angle_gpu", &RK4IntegratorGPU::max_angle_gpu,
+             "Maximum misalignment angle between adjacent spins (degrees). "
+             "Computed on GPU; only 1 double transferred D2H per call.");
 
     // ------------------------------------------------------------------
     // RK45IntegratorGPU — adaptive DOPRI5, one D2H scalar per trial step
@@ -1393,7 +1396,10 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property_readonly("dt",         &RK45IntegratorGPU::dt_current)
         .def_property_readonly("dt_current", &RK45IntegratorGPU::dt_current)
         .def_property_readonly("n_accepted", &RK45IntegratorGPU::n_accepted)
-        .def_property_readonly("n_rejected", &RK45IntegratorGPU::n_rejected);
+        .def_property_readonly("n_rejected", &RK45IntegratorGPU::n_rejected)
+        .def("max_angle_gpu", &RK45IntegratorGPU::max_angle_gpu,
+             "Maximum misalignment angle between adjacent spins (degrees). "
+             "Computed on GPU; only 1 double transferred D2H per call.");
 
     // ------------------------------------------------------------------
     // HeunIntegratorGPU — full-GPU Stratonovich Heun (SLLG, T > 0)

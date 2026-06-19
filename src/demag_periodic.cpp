@@ -99,7 +99,9 @@ DemagFieldPeriodic::DemagFieldPeriodic(const StructuredGrid& grid, int n_rep)
     r_buf_.resize(real_size, 0.0);
     c_buf_.resize(complex_size);
 
-    const unsigned flags = FFTW_ESTIMATE | FFTW_UNALIGNED;
+    fftw_import_wisdom_from_filename("fftw_wisdom.dat");
+
+    const unsigned flags = FFTW_MEASURE;
     plan_fwd_ = reinterpret_cast<fftw_plan_s*>(
         fftw_plan_dft_r2c_3d(
             static_cast<int>(nz_), static_cast<int>(ny_), static_cast<int>(nx_),
@@ -115,6 +117,8 @@ DemagFieldPeriodic::DemagFieldPeriodic(const StructuredGrid& grid, int n_rep)
 
     if (!plan_fwd_ || !plan_inv_)
         throw std::runtime_error("DemagFieldPeriodic: FFTW plan creation failed");
+
+    fftw_export_wisdom_to_filename("fftw_wisdom.dat");
 
     precompute_kernel();
 }
