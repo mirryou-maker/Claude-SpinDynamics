@@ -336,9 +336,59 @@ CubicAnisotropyFieldGPU::CubicAnisotropyFieldGPU(const StructuredGrid& grid,
     stream_ = static_cast<void*>(s);
 }
 
+// Per-cell cubic anisotropy kernel
+// d_Kc1, d_Kc2: [N] — per-cell coupling constants
+// d_c1, d_c2, d_c3: [3N] component-major — per-cell cubic axes
+// d_Ms: [N] — per-cell Ms
+__global__ static void cubic_anisotropy_kernel_percell(
+    double* __restrict__       H_out,
+    const double* __restrict__ m,
+    const double* __restrict__ d_Kc1,
+    const double* __restrict__ d_Kc2,
+    const double* __restrict__ d_c1,
+    const double* __restrict__ d_c2,
+    const double* __restrict__ d_c3,
+    const double* __restrict__ d_Ms,
+    double mu0,
+    int N)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+
+    const double Ms_i  = d_Ms[idx];
+    const double Kc1_i = d_Kc1[idx];
+    const double Kc2_i = d_Kc2[idx];
+    if (Ms_i <= 0.0 || (Kc1_i == 0.0 && Kc2_i == 0.0)) return;
+    const double mu0Ms = mu0 * Ms_i;
+    const double pre1  = -2.0 * Kc1_i / mu0Ms;
+    const double pre2  = -2.0 * Kc2_i / mu0Ms;
+
+    const double mx = m[0*N+idx], my = m[1*N+idx], mz = m[2*N+idx];
+    const double c1x = d_c1[0*N+idx], c1y = d_c1[1*N+idx], c1z = d_c1[2*N+idx];
+    const double c2x = d_c2[0*N+idx], c2y = d_c2[1*N+idx], c2z = d_c2[2*N+idx];
+    const double c3x = d_c3[0*N+idx], c3y = d_c3[1*N+idx], c3z = d_c3[2*N+idx];
+
+    const double a1 = mx*c1x + my*c1y + mz*c1z;
+    const double a2 = mx*c2x + my*c2y + mz*c2z;
+    const double a3 = mx*c3x + my*c3y + mz*c3z;
+    const double a11 = a1*a1, a22 = a2*a2, a33 = a3*a3;
+    const double f1 = pre1*a1*(a22+a33) + pre2*a1*a22*a33;
+    const double f2 = pre1*a2*(a11+a33) + pre2*a11*a2*a33;
+    const double f3 = pre1*a3*(a11+a22) + pre2*a11*a22*a3;
+    H_out[0*N+idx] += f1*c1x + f2*c2x + f3*c3x;
+    H_out[1*N+idx] += f1*c1y + f2*c2y + f3*c3y;
+    H_out[2*N+idx] += f1*c1z + f2*c2z + f3*c3z;
+}
+
 CubicAnisotropyFieldGPU::~CubicAnisotropyFieldGPU() {
     cudaFree(d_m_scratch_);
     cudaFree(d_H_scratch_);
+    if (d_Kc1_field_) cudaFree(d_Kc1_field_);
+    if (d_Kc2_field_) cudaFree(d_Kc2_field_);
+    if (d_c1_field_)  cudaFree(d_c1_field_);
+    if (d_c2_field_)  cudaFree(d_c2_field_);
+    if (d_c3_field_)  cudaFree(d_c3_field_);
+    if (d_Ms_field_)  cudaFree(d_Ms_field_);
     if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
@@ -394,20 +444,75 @@ ScalarField3D CubicAnisotropyFieldGPU::energy_density(const VectorField3D& m,
 void CubicAnisotropyFieldGPU::accumulate_gpu_ptr(const double* d_m,
                                                    const Material& mat,
                                                    double* d_H_out) const {
-    if (Kc1_ == 0.0 && Kc2_ == 0.0) return;
-    const double mu0Ms = constants::mu_0 * mat.Ms;
-    if (mu0Ms < 1e-30) return;
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    cubic_anisotropy_kernel<<<grd, blk, 0, s>>>(
-        d_H_out, d_m,
-        -2.0*Kc1_/mu0Ms, -2.0*Kc2_/mu0Ms,
-        c1_.x, c1_.y, c1_.z,
-        c2_.x, c2_.y, c2_.z,
-        c3_.x, c3_.y, c3_.z,
-        static_cast<int>(N_));
+
+    if (d_Kc1_field_) {
+        cubic_anisotropy_kernel_percell<<<grd, blk, 0, s>>>(
+            d_H_out, d_m,
+            d_Kc1_field_, d_Kc2_field_,
+            d_c1_field_, d_c2_field_, d_c3_field_,
+            d_Ms_field_,
+            constants::mu_0, static_cast<int>(N_));
+    } else {
+        if (Kc1_ == 0.0 && Kc2_ == 0.0) return;
+        const double mu0Ms = constants::mu_0 * mat.Ms;
+        if (mu0Ms < 1e-30) return;
+        cubic_anisotropy_kernel<<<grd, blk, 0, s>>>(
+            d_H_out, d_m,
+            -2.0*Kc1_/mu0Ms, -2.0*Kc2_/mu0Ms,
+            c1_.x, c1_.y, c1_.z,
+            c2_.x, c2_.y, c2_.z,
+            c3_.x, c3_.y, c3_.z,
+            static_cast<int>(N_));
+    }
     CUDA_CHECK(cudaGetLastError());
+}
+
+void CubicAnisotropyFieldGPU::set_Kc_field(
+    const ScalarField3D& Kc1_f, const ScalarField3D& Kc2_f,
+    const VectorField3D& c1_f,  const VectorField3D& c2_f,
+    const ScalarField3D& Ms_f)
+{
+    if (!d_Kc1_field_) {
+        CUDA_CHECK(cudaMalloc(&d_Kc1_field_, N_   * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_Kc2_field_, N_   * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_c1_field_,  3*N_ * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_c2_field_,  3*N_ * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_c3_field_,  3*N_ * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_Ms_field_,  N_   * sizeof(double)));
+    }
+    std::vector<double> h_k1(N_), h_k2(N_), h_Ms(N_);
+    std::vector<double> h_c1(3*N_), h_c2(3*N_), h_c3(3*N_);
+    for (size_t i = 0; i < N_; ++i) {
+        h_k1[i] = Kc1_f[static_cast<Index>(i)];
+        h_k2[i] = Kc2_f[static_cast<Index>(i)];
+        h_Ms[i] = Ms_f[static_cast<Index>(i)];
+        Vec3 e1 = c1_f[static_cast<Index>(i)];
+        Vec3 e2 = c2_f[static_cast<Index>(i)];
+        Vec3 e3 = e1.cross(e2);
+        h_c1[0*N_+i]=e1.x; h_c1[1*N_+i]=e1.y; h_c1[2*N_+i]=e1.z;
+        h_c2[0*N_+i]=e2.x; h_c2[1*N_+i]=e2.y; h_c2[2*N_+i]=e2.z;
+        h_c3[0*N_+i]=e3.x; h_c3[1*N_+i]=e3.y; h_c3[2*N_+i]=e3.z;
+    }
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemcpyAsync(d_Kc1_field_, h_k1.data(), N_  *sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_Kc2_field_, h_k2.data(), N_  *sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_c1_field_,  h_c1.data(), 3*N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_c2_field_,  h_c2.data(), 3*N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_c3_field_,  h_c3.data(), 3*N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_Ms_field_,  h_Ms.data(), N_  *sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+}
+
+void CubicAnisotropyFieldGPU::clear_Kc_field() {
+    if (d_Kc1_field_) { cudaFree(d_Kc1_field_); d_Kc1_field_ = nullptr; }
+    if (d_Kc2_field_) { cudaFree(d_Kc2_field_); d_Kc2_field_ = nullptr; }
+    if (d_c1_field_)  { cudaFree(d_c1_field_);  d_c1_field_  = nullptr; }
+    if (d_c2_field_)  { cudaFree(d_c2_field_);  d_c2_field_  = nullptr; }
+    if (d_c3_field_)  { cudaFree(d_c3_field_);  d_c3_field_  = nullptr; }
+    if (d_Ms_field_)  { cudaFree(d_Ms_field_);  d_Ms_field_  = nullptr; }
 }
 
 }  // namespace micromag

@@ -1097,6 +1097,21 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property_readonly("c3", &CubicAnisotropyFieldGPU::c3)
         .def("set_axes", &CubicAnisotropyFieldGPU::set_axes,
              py::arg("c1"), py::arg("c2"))
+        .def("set_Kc_field",
+             [](CubicAnisotropyFieldGPU& f,
+                const ScalarField3D& Kc1_f, const ScalarField3D& Kc2_f,
+                const VectorField3D& c1_f,  const VectorField3D& c2_f,
+                const ScalarField3D& Ms_f) {
+                 f.set_Kc_field(Kc1_f, Kc2_f, c1_f, c2_f, Ms_f); },
+             py::arg("Kc1_field"), py::arg("Kc2_field"),
+             py::arg("c1_field"),  py::arg("c2_field"),
+             py::arg("Ms_field"),
+             "Upload per-cell Kc1, Kc2 [J/m³], cubic axes c1/c2 (VectorField3D), "
+             "and Ms [A/m]. c3=c1×c2 computed on CPU before upload. "
+             "Activates per-cell mode; use with voronoi_grains for polycrystalline Fe/Ni.")
+        .def("clear_Kc_field", &CubicAnisotropyFieldGPU::clear_Kc_field,
+             "Revert to uniform Kc1/Kc2 mode (frees per-cell GPU buffers).")
+        .def_property_readonly("has_Kc_field", &CubicAnisotropyFieldGPU::has_Kc_field)
         .def_property_readonly("name", &CubicAnisotropyFieldGPU::name);
 
     // ------------------------------------------------------------------
@@ -1129,6 +1144,15 @@ PYBIND11_MODULE(_micromag, m) {
         .def("energy_density", &BulkDMIFieldGPU::energy_density,
              py::arg("m"), py::arg("mat"))
         .def_property("D",     &BulkDMIFieldGPU::D,     &BulkDMIFieldGPU::set_D)
+        .def("set_D_field",
+             [](BulkDMIFieldGPU& f, const ScalarField3D& D_f, const ScalarField3D& Ms_f) {
+                 f.set_D_field(D_f, Ms_f); },
+             py::arg("D_field"), py::arg("Ms_field"),
+             "Upload per-cell D [J/m²] and Ms [A/m] to GPU. Activates per-cell mode. "
+             "Build D_field from voronoi_grains or manual ScalarField3D.")
+        .def("clear_D_field", &BulkDMIFieldGPU::clear_D_field,
+             "Revert to uniform D mode (frees per-cell GPU buffers).")
+        .def_property_readonly("has_D_field", &BulkDMIFieldGPU::has_D_field)
         .def_property_readonly("name", &BulkDMIFieldGPU::name);
 
     py::class_<InterfacialDMIFieldGPU, IEffectiveField, IEffectiveFieldGPU,
@@ -1143,6 +1167,14 @@ PYBIND11_MODULE(_micromag, m) {
         .def("energy_density", &InterfacialDMIFieldGPU::energy_density,
              py::arg("m"), py::arg("mat"))
         .def_property("D",     &InterfacialDMIFieldGPU::D,     &InterfacialDMIFieldGPU::set_D)
+        .def("set_D_field",
+             [](InterfacialDMIFieldGPU& f, const ScalarField3D& D_f, const ScalarField3D& Ms_f) {
+                 f.set_D_field(D_f, Ms_f); },
+             py::arg("D_field"), py::arg("Ms_field"),
+             "Upload per-cell D [J/m²] and Ms [A/m] to GPU. Activates per-cell mode.")
+        .def("clear_D_field", &InterfacialDMIFieldGPU::clear_D_field,
+             "Revert to uniform D mode.")
+        .def_property_readonly("has_D_field", &InterfacialDMIFieldGPU::has_D_field)
         .def_property_readonly("name", &InterfacialDMIFieldGPU::name);
 
     // ------------------------------------------------------------------
@@ -1520,6 +1552,15 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property("n_hat", &SurfaceAnisotropyFieldGPU::n_hat, &SurfaceAnisotropyFieldGPU::set_n_hat)
         .def("accumulate", &SurfaceAnisotropyFieldGPU::accumulate)
         .def("energy",     &SurfaceAnisotropyFieldGPU::energy)
+        .def("set_Ks_field",
+             [](SurfaceAnisotropyFieldGPU& f, const ScalarField3D& Ks_f, const ScalarField3D& Ms_f) {
+                 f.set_Ks_field(Ks_f, Ms_f); },
+             py::arg("Ks_field"), py::arg("Ms_field"),
+             "Upload per-cell Ks [J/m²] and Ms [A/m] to GPU. "
+             "Only surface cells (from mask / boundary detection) receive H_s.")
+        .def("clear_Ks_field", &SurfaceAnisotropyFieldGPU::clear_Ks_field,
+             "Revert to uniform Ks mode.")
+        .def_property_readonly("has_Ks_field", &SurfaceAnisotropyFieldGPU::has_Ks_field)
         .def_property_readonly("name", &SurfaceAnisotropyFieldGPU::name);
 
     // RKKYFieldGPU — interlayer RKKY coupling GPU drop-in

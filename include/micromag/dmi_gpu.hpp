@@ -41,15 +41,26 @@ public:
     Real D() const       { return D_; }
     void set_D(Real D)   { D_ = D;   }
 
+    // Per-cell D: upload D_per_cell [J/m²] and Ms_per_cell [A/m] ScalarField3D
+    // arrays to activate per-cell mode where prefac_i = 2*D_i/(mu0*Ms_i).
+    // Call again to update; call clear_D_field() to revert to uniform mode.
+    void set_D_field(const ScalarField3D& D_field, const ScalarField3D& Ms_field);
+    void clear_D_field();
+    bool has_D_field() const { return d_D_field_ != nullptr; }
+
 private:
     Index  nx_, ny_, nz_;
     Real   dx_, dy_, dz_;
     size_t N_;
     Real   D_;
 
-    void*  d_m_scratch_ = nullptr;
-    void*  d_H_scratch_ = nullptr;
-    void*  stream_      = nullptr;
+    void*   d_m_scratch_ = nullptr;
+    void*   d_H_scratch_ = nullptr;
+    void*   stream_      = nullptr;
+
+    // Per-cell buffers (null = uniform mode)
+    double* d_D_field_  = nullptr;  // [N] — D_bulk per cell
+    double* d_Ms_field_ = nullptr;  // [N] — Ms per cell
 };
 
 // ---------------------------------------------------------------------------
@@ -76,15 +87,22 @@ public:
     Real D() const       { return D_; }
     void set_D(Real D)   { D_ = D;   }
 
+    void set_D_field(const ScalarField3D& D_field, const ScalarField3D& Ms_field);
+    void clear_D_field();
+    bool has_D_field() const { return d_D_field_ != nullptr; }
+
 private:
     Index  nx_, ny_, nz_;
     Real   dx_, dy_, dz_;
     size_t N_;
     Real   D_;
 
-    void*  d_m_scratch_ = nullptr;
-    void*  d_H_scratch_ = nullptr;
-    void*  stream_      = nullptr;
+    void*   d_m_scratch_ = nullptr;
+    void*   d_H_scratch_ = nullptr;
+    void*   stream_      = nullptr;
+
+    double* d_D_field_  = nullptr;
+    double* d_Ms_field_ = nullptr;
 };
 
 }  // namespace micromag

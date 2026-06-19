@@ -47,6 +47,12 @@ public:
 
     void set_stream(void* s) { stream_ = s; }
 
+    // Per-cell Ks: upload Ks [J/m²] and Ms [A/m] per cell to GPU.
+    // Only surface cells (as determined by the mask) receive the field.
+    void set_Ks_field(const ScalarField3D& Ks_field, const ScalarField3D& Ms_field);
+    void clear_Ks_field();
+    bool has_Ks_field() const { return d_Ks_field_ != nullptr; }
+
 private:
     Real   Ks_;
     Vec3   n_;
@@ -57,10 +63,14 @@ private:
 
     const GeomMask* geom_mask_{nullptr};
 
-    void*  d_is_surface_{nullptr};
-    void*  d_m_scratch_  = nullptr;
-    void*  d_H_scratch_  = nullptr;
-    void*  stream_        = nullptr;
+    void*   d_is_surface_{nullptr};
+    void*   d_m_scratch_  = nullptr;
+    void*   d_H_scratch_  = nullptr;
+    void*   stream_        = nullptr;
+
+    // Per-cell buffers (null = uniform mode)
+    double* d_Ks_field_  = nullptr;  // [N]
+    double* d_Ms_field_  = nullptr;  // [N]
 
     void rebuild_surface_mask();
     bool is_surface_cell(Index ix, Index iy, Index iz) const;

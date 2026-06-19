@@ -136,6 +136,14 @@ public:
         c3_ = c1_.cross(c2_);
     }
 
+    // Per-cell: upload per-cell Kc1, Kc2, c1, c2 (c3=c1×c2 computed on CPU), Ms.
+    // c1_field / c2_field are VectorField3D of cubic axis vectors per cell.
+    void set_Kc_field(const ScalarField3D& Kc1_f, const ScalarField3D& Kc2_f,
+                      const VectorField3D& c1_f,  const VectorField3D& c2_f,
+                      const ScalarField3D& Ms_f);
+    void clear_Kc_field();
+    bool has_Kc_field() const { return d_Kc1_field_ != nullptr; }
+
 private:
     size_t N_;
     Real   Kc1_, Kc2_;
@@ -143,6 +151,14 @@ private:
     void*  d_m_scratch_ = nullptr;
     void*  d_H_scratch_ = nullptr;
     void*  stream_ = nullptr;
+
+    // Per-cell buffers (null = uniform mode)
+    double* d_Kc1_field_ = nullptr;  // [N]
+    double* d_Kc2_field_ = nullptr;  // [N]
+    double* d_c1_field_  = nullptr;  // [3N] component-major
+    double* d_c2_field_  = nullptr;  // [3N]
+    double* d_c3_field_  = nullptr;  // [3N]
+    double* d_Ms_field_  = nullptr;  // [N]
 };
 
 }  // namespace micromag

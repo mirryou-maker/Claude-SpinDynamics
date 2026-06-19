@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "micromag/field.hpp"
 #include "micromag/surface_anisotropy.hpp"
 #include "micromag/surface_anisotropy_gpu.hpp"
 #include "micromag/types.hpp"
@@ -48,6 +49,31 @@ __global__ static void surface_anisotropy_kernel(
     H_out[0*N + idx] += h * nx;
     H_out[1*N + idx] += h * ny;
     H_out[2*N + idx] += h * nz;
+}
+
+// Per-cell Ks kernel (only fires for surface cells)
+__global__ static void surface_anisotropy_kernel_percell(
+    double* __restrict__       H_out,
+    const double* __restrict__ m,
+    const int*   __restrict__  is_surface,
+    const double* __restrict__ d_Ks,
+    const double* __restrict__ d_Ms,
+    double mu0_inv2,
+    double t_cell_inv,
+    double nx, double ny, double nz,
+    int N)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+    if (!is_surface[idx]) return;
+    const double Ms_i = d_Ms[idx];
+    if (Ms_i <= 0.0) return;
+    const double prefac = d_Ks[idx] * mu0_inv2 / (Ms_i * t_cell_inv);
+    const double mn = m[0*N+idx]*nx + m[1*N+idx]*ny + m[2*N+idx]*nz;
+    const double h  = prefac * mn;
+    H_out[0*N+idx] += h * nx;
+    H_out[1*N+idx] += h * ny;
+    H_out[2*N+idx] += h * nz;
 }
 
 // ===========================================================================
@@ -136,6 +162,8 @@ SurfaceAnisotropyFieldGPU::~SurfaceAnisotropyFieldGPU()
     cudaFree(d_is_surface_);
     cudaFree(d_m_scratch_);
     cudaFree(d_H_scratch_);
+    if (d_Ks_field_) cudaFree(d_Ks_field_);
+    if (d_Ms_field_) cudaFree(d_Ms_field_);
     if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
@@ -200,21 +228,55 @@ void SurfaceAnisotropyFieldGPU::accumulate_gpu_ptr(const double* d_m,
                                                      const Material& mat,
                                                      double* d_H_out) const
 {
-    const Real Ms = mat.Ms;
-    if (Ms == Real{0} || t_cell_ == Real{0}) return;
-
-    const double prefac = 2.0 * static_cast<double>(Ks_)
-                        / (constants::mu_0 * static_cast<double>(Ms)
-                         * static_cast<double>(t_cell_));
-
+    if (t_cell_ == Real{0}) return;
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    surface_anisotropy_kernel<<<grd, blk, 0, s>>>(
-        d_H_out, d_m, static_cast<int*>(d_is_surface_),
-        prefac,
-        static_cast<double>(n_.x), static_cast<double>(n_.y),
-        static_cast<double>(n_.z), static_cast<int>(N_));
+    auto* dIS = static_cast<int*>(d_is_surface_);
+
+    if (d_Ks_field_) {
+        // Per-cell mode: prefac_i = 2*Ks_i/(mu0*Ms_i*t_cell)
+        const double mu0_inv2   = 2.0 / constants::mu_0;
+        const double t_cell_inv = 1.0 / static_cast<double>(t_cell_);
+        surface_anisotropy_kernel_percell<<<grd, blk, 0, s>>>(
+            d_H_out, d_m, dIS, d_Ks_field_, d_Ms_field_,
+            mu0_inv2, t_cell_inv,
+            static_cast<double>(n_.x), static_cast<double>(n_.y),
+            static_cast<double>(n_.z), static_cast<int>(N_));
+    } else {
+        const Real Ms = mat.Ms;
+        if (Ms == Real{0}) return;
+        const double prefac = 2.0 * static_cast<double>(Ks_)
+                            / (constants::mu_0 * static_cast<double>(Ms)
+                             * static_cast<double>(t_cell_));
+        surface_anisotropy_kernel<<<grd, blk, 0, s>>>(
+            d_H_out, d_m, dIS, prefac,
+            static_cast<double>(n_.x), static_cast<double>(n_.y),
+            static_cast<double>(n_.z), static_cast<int>(N_));
+    }
+    CUDA_CHECK(cudaGetLastError());
+}
+
+void SurfaceAnisotropyFieldGPU::set_Ks_field(const ScalarField3D& Ks_f,
+                                               const ScalarField3D& Ms_f) {
+    if (!d_Ks_field_) {
+        CUDA_CHECK(cudaMalloc(&d_Ks_field_, N_ * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_Ms_field_, N_ * sizeof(double)));
+    }
+    std::vector<double> h_Ks(N_), h_Ms(N_);
+    for (size_t i = 0; i < N_; ++i) {
+        h_Ks[i] = Ks_f[static_cast<Index>(i)];
+        h_Ms[i] = Ms_f[static_cast<Index>(i)];
+    }
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemcpyAsync(d_Ks_field_, h_Ks.data(), N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_Ms_field_, h_Ms.data(), N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+}
+
+void SurfaceAnisotropyFieldGPU::clear_Ks_field() {
+    if (d_Ks_field_) { cudaFree(d_Ks_field_); d_Ks_field_ = nullptr; }
+    if (d_Ms_field_) { cudaFree(d_Ms_field_); d_Ms_field_ = nullptr; }
 }
 
 // ===========================================================================
