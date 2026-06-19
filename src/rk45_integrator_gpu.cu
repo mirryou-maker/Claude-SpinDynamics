@@ -184,6 +184,107 @@ Real RK45IntegratorGPU::step(
     }
 }
 
+// ---------------------------------------------------------------------------
+// eval_ki — FieldSumGPU overload
+// ---------------------------------------------------------------------------
+void RK45IntegratorGPU::eval_ki(
+    const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields,
+    const double* d_m_in, double* d_ki_out)
+{
+    void*  s  = state_.stream();
+    double* dH = state_.d_H();
+    const int N = static_cast<int>(state_.N());
+
+    state_.zero_H();
+    state_.sync();
+
+    extra_fields.accumulate_gpu_ptr(d_m_in, mat, dH);
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    demag.accumulate_gpu_ptr(d_m_in, mat, dH);
+
+    launch_llg_torque(d_ki_out, d_m_in, dH, mat.alpha, N, s);
+    state_.sync();
+}
+
+// ---------------------------------------------------------------------------
+// step — FieldSumGPU overload
+// ---------------------------------------------------------------------------
+Real RK45IntegratorGPU::step(
+    const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields)
+{
+    const double* dm = state_.d_m();
+    const int N = static_cast<int>(state_.N());
+    void*  s = state_.stream();
+
+    if (!k1_valid_)
+        eval_ki(mat, demag, extra_fields, dm, d_k1_);
+
+    for (;;) {
+        const double h = static_cast<double>(dt_);
+
+        launch_rk4_stage(d_m_stage_, dm, d_k1_, h/5.0, N, s);
+        state_.sync();
+        eval_ki(mat, demag, extra_fields, d_m_stage_, d_k2_);
+
+        launch_dopri5_stage3(d_m_stage_, dm, h, d_k1_, d_k2_, N, s);
+        state_.sync();
+        eval_ki(mat, demag, extra_fields, d_m_stage_, d_k3_);
+
+        launch_dopri5_stage4(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, N, s);
+        state_.sync();
+        eval_ki(mat, demag, extra_fields, d_m_stage_, d_k4_);
+
+        launch_dopri5_stage5(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, N, s);
+        state_.sync();
+        eval_ki(mat, demag, extra_fields, d_m_stage_, d_k5_);
+
+        launch_dopri5_stage6(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, d_k5_, N, s);
+        state_.sync();
+        eval_ki(mat, demag, extra_fields, d_m_stage_, d_k6_);
+
+        launch_dopri5_m5(d_m5_, dm, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, N, s);
+        state_.sync();
+
+        eval_ki(mat, demag, extra_fields, d_m5_, d_k7_);
+
+        launch_dopri5_err(d_err_, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, d_k7_, N, s);
+        const double err_norm = launch_dopri5_err_norm(
+            d_err_sum_, d_err_, dm, d_m5_,
+            static_cast<double>(opts_.rtol),
+            static_cast<double>(opts_.atol), N, s);
+
+        const double fac_raw = opts_.safety * std::pow(1.0 / std::max(err_norm, 1e-20), 0.2);
+
+        if (err_norm <= 1.0) {
+            CUDA_CHECK(cudaMemcpyAsync(
+                state_.d_m(), d_m5_, 3 * N * sizeof(double),
+                cudaMemcpyDeviceToDevice, static_cast<cudaStream_t>(s)));
+            launch_normalize(state_.d_m(), N, s);
+            state_.sync();
+
+            std::swap(d_k1_, d_k7_);
+            k1_valid_ = true;
+
+            dt_ = static_cast<Real>(std::min(
+                static_cast<double>(opts_.dt_max),
+                dt_ * std::min(static_cast<double>(opts_.fac_max), fac_raw)));
+            ++n_accepted_;
+            return static_cast<Real>(h);
+        }
+
+        dt_ = static_cast<Real>(std::max(
+            static_cast<double>(opts_.dt_min),
+            dt_ * std::max(static_cast<double>(opts_.fac_min), fac_raw)));
+        k1_valid_ = true;
+        ++n_rejected_;
+
+        if (dt_ <= opts_.dt_min)
+            throw std::runtime_error(
+                "RK45IntegratorGPU: step size reached minimum — solution may be stiff");
+    }
+}
+
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA

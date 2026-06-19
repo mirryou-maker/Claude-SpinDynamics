@@ -27,6 +27,7 @@
 
 #include "demag_gpu.hpp"
 #include "demag_gpu_iface.hpp"
+#include "effective_field_gpu_iface.hpp"
 #include "exchange_gpu.hpp"
 #include "field_kernels_gpu.hpp"
 #include "gpu_state.hpp"
@@ -57,6 +58,11 @@ public:
               ZeemanFieldGPU&               zeeman,
               UniaxialAnisotropyFieldGPU*   aniso = nullptr);
 
+    // Flexible overload: demag runs first (cuFFT pipeline), then extra_fields.
+    // extra_fields may contain ExchangeFieldGPU, ZeemanFieldGPU,
+    // UniaxialAnisotropyFieldGPU, BulkDMIFieldGPU, InterfacialDMIFieldGPU, etc.
+    void step(const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields);
+
     Real dt() const        { return dt_; }
     void set_dt(Real dt)   { dt_ = dt;  }
 
@@ -64,12 +70,16 @@ private:
     GPUMagState state_;
     Real        dt_;
 
-    // Run one RK4 stage: accumulate fields → ki → update k_acc → (optional) m_stage.
+    // Run one RK4 stage (fixed-field overload).
     void run_stage(const Material& mat,
                    IDemagGPU& demag, ExchangeFieldGPU& exch,
                    ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
-                   double stage_scale,
-                   double accum_weight);
+                   double stage_scale, double accum_weight);
+
+    // Run one RK4 stage (FieldSumGPU overload).
+    void run_stage(const Material& mat, IDemagGPU& demag,
+                   FieldSumGPU& extra_fields,
+                   double stage_scale, double accum_weight);
 };
 
 }  // namespace micromag

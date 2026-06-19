@@ -20,6 +20,7 @@
 
 #include "demag_gpu.hpp"
 #include "demag_gpu_iface.hpp"
+#include "effective_field_gpu_iface.hpp"
 #include "exchange_gpu.hpp"
 #include "field_kernels_gpu.hpp"
 #include "gpu_state.hpp"
@@ -58,6 +59,9 @@ public:
               ZeemanFieldGPU&               zeeman,
               UniaxialAnisotropyFieldGPU*   aniso = nullptr);
 
+    // Flexible overload: demag + arbitrary FieldSumGPU.
+    Real step(const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields);
+
     Real dt() const         { return dt_; }
     Real dt_current() const { return dt_; }
     int  n_accepted() const { return n_accepted_; }
@@ -88,11 +92,14 @@ private:
 
     void alloc_scratch(size_t N);
 
-    // Compute H_eff(d_m_in) + LLG torque → d_ki_out.
-    // Zeroes d_H, accumulates all fields, launches llg_torque kernel.
+    // Compute H_eff(d_m_in) + LLG torque → d_ki_out (fixed-field overload).
     void eval_ki(const Material& mat,
                  IDemagGPU& demag, ExchangeFieldGPU& exch,
                  ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
+                 const double* d_m_in, double* d_ki_out);
+
+    // Compute H_eff(d_m_in) + LLG torque → d_ki_out (FieldSumGPU overload).
+    void eval_ki(const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields,
                  const double* d_m_in, double* d_ki_out);
 };
 

@@ -107,6 +107,8 @@ from _micromag import (
 try:
     from _micromag import (
         IDemagGPU,                  # K1: abstract demag interface
+        IEffectiveFieldGPU,         # P2: abstract GPU field interface
+        FieldSumGPU,                # P2: GPU field compositor
         DemagFieldGPU,
         DemagFieldPeriodicGPU,      # J5: periodic-BC GPU demag
         BulkDMIFieldGPU,            # K2: GPU Bulk DMI (Bloch skyrmion)
@@ -191,7 +193,8 @@ __all__ = [
     # SP#2 / grid-sizing utilities (pure Python)
     "exchange_length", "optimal_dx", "sp2_grid",
     # GPU classes (conditionally available — only in CUDA build)
-    "IDemagGPU", "DemagFieldGPU", "DemagFieldPeriodicGPU",
+    "IDemagGPU", "IEffectiveFieldGPU", "FieldSumGPU",
+    "DemagFieldGPU", "DemagFieldPeriodicGPU",
     "BulkDMIFieldGPU", "InterfacialDMIFieldGPU",
     "RelaxGPU", "RelaxGPUOptions", "MinimizeGPU", "MinimizeGPUOptions",
     "ExchangeFieldGPU", "ZeemanFieldGPU",

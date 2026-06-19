@@ -36,6 +36,7 @@
 #include "micromag/demag_gpu.hpp"
 #include "micromag/demag_periodic_gpu.hpp"
 #include "micromag/dmi_gpu.hpp"
+#include "micromag/effective_field_gpu_iface.hpp"
 #include "micromag/relax_gpu.hpp"
 #include "micromag/exchange_gpu.hpp"
 #include "micromag/field_kernels_gpu.hpp"
@@ -850,8 +851,12 @@ PYBIND11_MODULE(_micromag, m) {
     // ------------------------------------------------------------------
 
     // IDemagGPU: abstract interface shared by DemagFieldGPU and DemagFieldPeriodicGPU.
-    // Allows GPU integrators to accept either via polymorphism.
     py::class_<IDemagGPU, std::shared_ptr<IDemagGPU>>(m, "IDemagGPU");
+
+    // IEffectiveFieldGPU: abstract interface for all GPU fields usable with FieldSumGPU.
+    // Must be registered before any class that inherits from it.
+    py::class_<IEffectiveFieldGPU, std::shared_ptr<IEffectiveFieldGPU>>(
+            m, "IEffectiveFieldGPU");
 
     py::class_<DemagFieldGPU, IEffectiveField, IDemagGPU,
                std::shared_ptr<DemagFieldGPU>>(
@@ -878,7 +883,8 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("m"), py::arg("mat"))
         .def_property_readonly("name", &DemagFieldPeriodicGPU::name);
 
-    py::class_<ExchangeFieldGPU, IEffectiveField, std::shared_ptr<ExchangeFieldGPU>>(
+    py::class_<ExchangeFieldGPU, IEffectiveField, IEffectiveFieldGPU,
+               std::shared_ptr<ExchangeFieldGPU>>(
             m, "ExchangeFieldGPU")
         .def(py::init<const StructuredGrid&, BoundaryCondition>(),
              py::arg("grid"),
@@ -893,7 +899,8 @@ PYBIND11_MODULE(_micromag, m) {
              "Per-cell exchange energy density [J/m³] (delegates to CPU grad²).")
         .def_property_readonly("name", &ExchangeFieldGPU::name);
 
-    py::class_<ZeemanFieldGPU, IEffectiveField, std::shared_ptr<ZeemanFieldGPU>>(
+    py::class_<ZeemanFieldGPU, IEffectiveField, IEffectiveFieldGPU,
+               std::shared_ptr<ZeemanFieldGPU>>(
             m, "ZeemanFieldGPU")
         .def(py::init<const StructuredGrid&, Vec3>(),
              py::arg("grid"), py::arg("H_ext") = Vec3{0,0,0})
@@ -905,7 +912,7 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property("H_ext", &ZeemanFieldGPU::H_ext, &ZeemanFieldGPU::set_H_ext)
         .def_property_readonly("name", &ZeemanFieldGPU::name);
 
-    py::class_<UniaxialAnisotropyFieldGPU, IEffectiveField,
+    py::class_<UniaxialAnisotropyFieldGPU, IEffectiveField, IEffectiveFieldGPU,
                std::shared_ptr<UniaxialAnisotropyFieldGPU>>(
             m, "UniaxialAnisotropyFieldGPU")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"),
@@ -918,7 +925,7 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property_readonly("name", &UniaxialAnisotropyFieldGPU::name);
 
     // Phase E: CubicAnisotropyFieldGPU
-    py::class_<CubicAnisotropyFieldGPU, IEffectiveField,
+    py::class_<CubicAnisotropyFieldGPU, IEffectiveField, IEffectiveFieldGPU,
                std::shared_ptr<CubicAnisotropyFieldGPU>>(
             m, "CubicAnisotropyFieldGPU")
         .def(py::init<const StructuredGrid&, Real, Real, Vec3, Vec3>(),
@@ -940,9 +947,25 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property_readonly("name", &CubicAnisotropyFieldGPU::name);
 
     // ------------------------------------------------------------------
+    // FieldSumGPU — GPU field compositor (arbitrary combination of GPU fields)
+    // ------------------------------------------------------------------
+    py::class_<FieldSumGPU>(m, "FieldSumGPU")
+        .def(py::init<>(),
+             "GPU field compositor. add() fields in evaluation order, then pass "
+             "to integ.step(mat, demag, fields).")
+        .def("add", [](FieldSumGPU& self, IEffectiveFieldGPU& f) { self.add(f); },
+             py::arg("field"),
+             "Append a GPU field (ExchangeFieldGPU, ZeemanFieldGPU, "
+             "UniaxialAnisotropyFieldGPU, BulkDMIFieldGPU, etc.).")
+        .def("clear", &FieldSumGPU::clear,
+             "Remove all fields from this compositor.")
+        .def("__len__", &FieldSumGPU::size);
+
+    // ------------------------------------------------------------------
     // K2: BulkDMIFieldGPU + InterfacialDMIFieldGPU
     // ------------------------------------------------------------------
-    py::class_<BulkDMIFieldGPU, IEffectiveField, std::shared_ptr<BulkDMIFieldGPU>>(
+    py::class_<BulkDMIFieldGPU, IEffectiveField, IEffectiveFieldGPU,
+               std::shared_ptr<BulkDMIFieldGPU>>(
             m, "BulkDMIFieldGPU")
         .def(py::init<const StructuredGrid&, Real>(),
              py::arg("grid"), py::arg("D") = Real{0},
@@ -955,7 +978,7 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property("D",     &BulkDMIFieldGPU::D,     &BulkDMIFieldGPU::set_D)
         .def_property_readonly("name", &BulkDMIFieldGPU::name);
 
-    py::class_<InterfacialDMIFieldGPU, IEffectiveField,
+    py::class_<InterfacialDMIFieldGPU, IEffectiveField, IEffectiveFieldGPU,
                std::shared_ptr<InterfacialDMIFieldGPU>>(
             m, "InterfacialDMIFieldGPU")
         .def(py::init<const StructuredGrid&, Real>(),
@@ -1003,7 +1026,16 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mat"), py::arg("demag"), py::arg("exch"),
              py::arg("zeeman"), py::arg("aniso") = nullptr,
              py::arg("opts") = RelaxGPU::Options{},
-             "Run GPU relax until convergence. Returns steps taken.")
+             "Run GPU relax (fixed-field overload). Returns steps taken.")
+        .def("run",
+             [](RelaxGPU& self, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& extra_fields,
+                RelaxGPU::Options opts) {
+                 return self.run(mat, demag, extra_fields, opts);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
+             py::arg("opts") = RelaxGPU::Options{},
+             "Run GPU relax with FieldSumGPU (supports DMI, cubic anisotropy, etc.).")
         .def("max_torque_now",
              [](RelaxGPU& self, const Material& mat,
                 IDemagGPU& demag, ExchangeFieldGPU& exch,
@@ -1013,6 +1045,13 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mat"), py::arg("demag"), py::arg("exch"),
              py::arg("zeeman"), py::arg("aniso") = nullptr,
              "Compute max |m x H_eff| on current GPU state.")
+        .def("max_torque_now",
+             [](RelaxGPU& self, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& extra_fields) {
+                 return self.max_torque_now(mat, demag, extra_fields);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
+             "Compute max |m x H_eff| using FieldSumGPU.")
         .def_property_readonly("grid", &RelaxGPU::grid,
              py::return_value_policy::reference_internal);
 
@@ -1046,7 +1085,16 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mat"), py::arg("demag"), py::arg("exch"),
              py::arg("zeeman"), py::arg("aniso") = nullptr,
              py::arg("opts") = MinimizeGPU::Options{},
-             "Run GPU minimize until convergence. Returns steps taken.")
+             "Run GPU minimize (fixed-field overload). Returns steps taken.")
+        .def("run",
+             [](MinimizeGPU& self, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& extra_fields,
+                MinimizeGPU::Options opts) {
+                 return self.run(mat, demag, extra_fields, opts);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
+             py::arg("opts") = MinimizeGPU::Options{},
+             "Run GPU minimize with FieldSumGPU. Returns steps taken.")
         .def_property_readonly("grid", &MinimizeGPU::grid,
              py::return_value_policy::reference_internal);
 
@@ -1079,7 +1127,15 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mat"), py::arg("demag"), py::arg("exch"),
              py::arg("zeeman"),
              py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
-             "One full RK4 step on GPU. demag may be DemagFieldGPU or DemagFieldPeriodicGPU.")
+             "One full RK4 step on GPU (fixed-field overload).")
+        .def("step",
+             [](RK4IntegratorGPU& integ, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& extra_fields) {
+                 integ.step(mat, demag, extra_fields);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
+             "One full RK4 step using FieldSumGPU. Demag runs first, then extra_fields "
+             "(exchange, zeeman, DMI, anisotropy, etc.) in add() order.")
         .def_property("dt", &RK4IntegratorGPU::dt, &RK4IntegratorGPU::set_dt);
 
     // ------------------------------------------------------------------
@@ -1122,8 +1178,14 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mat"), py::arg("demag"), py::arg("exch"),
              py::arg("zeeman"),
              py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
-             "One adaptive DOPRI5 step. Returns actual dt taken. "
-             "demag may be DemagFieldGPU or DemagFieldPeriodicGPU.")
+             "One adaptive DOPRI5 step (fixed-field overload). Returns dt taken.")
+        .def("step",
+             [](RK45IntegratorGPU& integ, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& extra_fields) {
+                 return integ.step(mat, demag, extra_fields);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
+             "One adaptive DOPRI5 step using FieldSumGPU. Returns dt taken.")
         .def_property_readonly("dt",         &RK45IntegratorGPU::dt_current)
         .def_property_readonly("dt_current", &RK45IntegratorGPU::dt_current)
         .def_property_readonly("n_accepted", &RK45IntegratorGPU::n_accepted)

@@ -8,6 +8,7 @@
 
 #include "dmi.hpp"
 #include "effective_field.hpp"
+#include "effective_field_gpu_iface.hpp"
 #include "field.hpp"
 #include "grid.hpp"
 #include "material.hpp"
@@ -18,7 +19,7 @@ namespace micromag {
 // ---------------------------------------------------------------------------
 // BulkDMIFieldGPU  H = (2D/μ₀Ms) ∇×m  (Bloch skyrmion, D > 0)
 // ---------------------------------------------------------------------------
-class BulkDMIFieldGPU : public IEffectiveField {
+class BulkDMIFieldGPU : public IEffectiveField, public IEffectiveFieldGPU {
 public:
     explicit BulkDMIFieldGPU(const StructuredGrid& grid, Real D = 0.0);
     ~BulkDMIFieldGPU();
@@ -54,7 +55,7 @@ private:
 // ---------------------------------------------------------------------------
 // InterfacialDMIFieldGPU  H = (2D/μ₀Ms)(∂mz/∂x, ∂mz/∂y, -∇_xy·m_xy)
 // ---------------------------------------------------------------------------
-class InterfacialDMIFieldGPU : public IEffectiveField {
+class InterfacialDMIFieldGPU : public IEffectiveField, public IEffectiveFieldGPU {
 public:
     explicit InterfacialDMIFieldGPU(const StructuredGrid& grid, Real D = 0.0);
     ~InterfacialDMIFieldGPU();

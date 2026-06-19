@@ -15,6 +15,7 @@
 #include "anisotropy.hpp"
 #include "cubic_anisotropy.hpp"
 #include "effective_field.hpp"
+#include "effective_field_gpu_iface.hpp"
 #include "field.hpp"
 #include "grid.hpp"
 #include "material.hpp"
@@ -26,7 +27,7 @@ namespace micromag {
 // ---------------------------------------------------------------------------
 // ZeemanFieldGPU
 // ---------------------------------------------------------------------------
-class ZeemanFieldGPU : public IEffectiveField {
+class ZeemanFieldGPU : public IEffectiveField, public IEffectiveFieldGPU {
 public:
     ZeemanFieldGPU(const StructuredGrid& grid, const Vec3& H_ext = {0, 0, 0});
     ~ZeemanFieldGPU();
@@ -57,7 +58,7 @@ private:
 // ---------------------------------------------------------------------------
 // UniaxialAnisotropyFieldGPU
 // ---------------------------------------------------------------------------
-class UniaxialAnisotropyFieldGPU : public IEffectiveField {
+class UniaxialAnisotropyFieldGPU : public IEffectiveField, public IEffectiveFieldGPU {
 public:
     explicit UniaxialAnisotropyFieldGPU(const StructuredGrid& grid);
     ~UniaxialAnisotropyFieldGPU();
@@ -90,7 +91,7 @@ private:
 // e = Kc1*(a1²a2² + a2²a3² + a3²a1²) + Kc2*(a1²a2²a3²), ai = m·ci
 // c3 = c1×c2 computed at construction.
 // ---------------------------------------------------------------------------
-class CubicAnisotropyFieldGPU : public IEffectiveField {
+class CubicAnisotropyFieldGPU : public IEffectiveField, public IEffectiveFieldGPU {
 public:
     CubicAnisotropyFieldGPU(const StructuredGrid& grid,
                              Real Kc1 = 0, Real Kc2 = 0,

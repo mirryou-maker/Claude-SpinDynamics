@@ -10,6 +10,7 @@
 #ifdef MICROMAG_CUDA
 
 #include "effective_field.hpp"
+#include "effective_field_gpu_iface.hpp"
 #include "exchange.hpp"
 #include "field.hpp"
 #include "grid.hpp"
@@ -18,7 +19,7 @@
 
 namespace micromag {
 
-class ExchangeFieldGPU : public IEffectiveField {
+class ExchangeFieldGPU : public IEffectiveField, public IEffectiveFieldGPU {
 public:
     // bc = Neumann: zero-flux boundary (open systems).
     // bc = Periodic: wrap-around boundary (periodic supercell, e.g. with DemagFieldPeriodicGPU).

@@ -449,6 +449,169 @@ int MinimizeGPU::run(const Material& mat,
     return opts.max_steps;
 }
 
+// ===========================================================================
+// RelaxGPU — FieldSumGPU overloads
+// ===========================================================================
+void RelaxGPU::compute_H_eff(const Material& mat, IDemagGPU& demag,
+                               FieldSumGPU& extra_fields) {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemsetAsync(d_H_, 0, 3*N_*sizeof(double), s));
+    extra_fields.accumulate_gpu_ptr(d_m_, mat, d_H_);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    demag.accumulate_gpu_ptr(d_m_, mat, d_H_);
+}
+
+double RelaxGPU::max_torque_now(const Material& mat, IDemagGPU& demag,
+                                 FieldSumGPU& extra_fields) {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    compute_H_eff(mat, demag, extra_fields);
+    const double zero = 0.0;
+    CUDA_CHECK(cudaMemcpyAsync(d_max_, &zero, sizeof(double), cudaMemcpyHostToDevice, s));
+    const int blk = 256, grd = static_cast<int>((N_+blk-1)/blk);
+    max_torque_kernel<<<grd, blk, 0, s>>>(d_max_, d_m_, d_H_, static_cast<int>(N_));
+    CUDA_CHECK(cudaGetLastError());
+    double h_max;
+    CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+    return std::sqrt(h_max);
+}
+
+int RelaxGPU::run(const Material& mat, IDemagGPU& demag,
+                   FieldSumGPU& extra_fields, Options opts) {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    const int N = static_cast<int>(N_);
+    const int blk = 256, grd = (N + blk - 1) / blk;
+
+    const double gp_alpha = constants::gamma_0 * constants::mu_0 * opts.alpha_relax
+                            / (1.0 + opts.alpha_relax * opts.alpha_relax);
+    const double dt = opts.dt;
+
+    for (int step = 0; step < opts.max_steps; ++step) {
+        compute_H_eff(mat, demag, extra_fields);
+
+        if (step % opts.check_every == 0) {
+            const double zero = 0.0;
+            CUDA_CHECK(cudaMemcpyAsync(d_max_, &zero, sizeof(double), cudaMemcpyHostToDevice, s));
+            max_torque_kernel<<<grd, blk, 0, s>>>(d_max_, d_m_, d_H_, N);
+            CUDA_CHECK(cudaGetLastError());
+            double h_max;
+            CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
+            CUDA_CHECK(cudaStreamSynchronize(s));
+            if (std::sqrt(h_max) < opts.threshold)
+                return step;
+        }
+
+        damping_euler_kernel<<<grd, blk, 0, s>>>(d_m_, d_H_, N, gp_alpha, dt);
+        CUDA_CHECK(cudaGetLastError());
+    }
+
+    CUDA_CHECK(cudaStreamSynchronize(s));
+
+    if (opts.throw_on_max)
+        throw std::runtime_error(
+            "RelaxGPU::run(): max_steps reached without convergence");
+    return opts.max_steps;
+}
+
+// ===========================================================================
+// MinimizeGPU — FieldSumGPU overloads
+// ===========================================================================
+void MinimizeGPU::compute_H_eff_for(double* d_m_src, const Material& mat,
+                                     IDemagGPU& demag, FieldSumGPU& extra_fields) {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemsetAsync(d_H_, 0, 3*N_*sizeof(double), s));
+    extra_fields.accumulate_gpu_ptr(d_m_src, mat, d_H_);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    demag.accumulate_gpu_ptr(d_m_src, mat, d_H_);
+}
+
+double MinimizeGPU::compute_energy(const Material& mat, IDemagGPU& demag,
+                                    FieldSumGPU& extra_fields) {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    const int N = static_cast<int>(N_);
+    const int blk = 256, grd = (N + blk - 1) / blk;
+
+    compute_H_eff_for(d_m_, mat, demag, extra_fields);
+    mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_, d_m_, d_H_, N);
+    CUDA_CHECK(cudaGetLastError());
+    block_sum_kernel<<<grd, blk, 0, s>>>(d_max_, d_energy_, N);
+    CUDA_CHECK(cudaGetLastError());
+    const int grd2 = (grd + blk - 1) / blk;
+    block_sum_kernel<<<grd2, blk, 0, s>>>(d_energy_, d_max_, grd);
+    CUDA_CHECK(cudaGetLastError());
+    double h_sum;
+    CUDA_CHECK(cudaMemcpyAsync(&h_sum, d_energy_, sizeof(double), cudaMemcpyDeviceToHost, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+    const double dV = grid_->cell_volume();
+    return -constants::mu_0 * 0.5 * mat.Ms * h_sum * dV;
+}
+
+int MinimizeGPU::run(const Material& mat, IDemagGPU& demag,
+                      FieldSumGPU& extra_fields, Options opts) {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    const int N = static_cast<int>(N_);
+    const int blk = 256, grd = (N + blk - 1) / blk;
+
+    const double alpha = 1.0;
+    const double gp_alpha = constants::gamma_0 * constants::mu_0 * alpha / 2.0;
+    double dt = opts.dt_init;
+
+    for (int step = 0; step < opts.max_steps; ++step) {
+        compute_H_eff_for(d_m_, mat, demag, extra_fields);
+
+        if (step % opts.check_every == 0) {
+            const double zero = 0.0;
+            CUDA_CHECK(cudaMemcpyAsync(d_max_, &zero, sizeof(double), cudaMemcpyHostToDevice, s));
+            max_torque_kernel<<<grd, blk, 0, s>>>(d_max_, d_m_, d_H_, N);
+            CUDA_CHECK(cudaGetLastError());
+            double h_max;
+            CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
+            CUDA_CHECK(cudaStreamSynchronize(s));
+            if (std::sqrt(h_max) < opts.threshold)
+                return step;
+        }
+
+        mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_, d_m_, d_H_, N);
+        block_sum_kernel<<<grd, blk, 0, s>>>(d_max_, d_energy_, N);
+        const int grd2 = (grd + blk - 1) / blk;
+        block_sum_kernel<<<grd2, blk, 0, s>>>(d_energy_, d_max_, grd);
+        double E0;
+        CUDA_CHECK(cudaMemcpyAsync(&E0, d_energy_, sizeof(double), cudaMemcpyDeviceToHost, s));
+        CUDA_CHECK(cudaStreamSynchronize(s));
+
+        copy3N_kernel<<<(3*N+blk-1)/blk, blk, 0, s>>>(d_m_trial_, d_m_, 3*N);
+        CUDA_CHECK(cudaGetLastError());
+        damping_euler_kernel<<<grd, blk, 0, s>>>(d_m_trial_, d_H_, N, gp_alpha, dt);
+        CUDA_CHECK(cudaGetLastError());
+
+        compute_H_eff_for(d_m_trial_, mat, demag, extra_fields);
+        mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_, d_m_trial_, d_H_, N);
+        block_sum_kernel<<<grd, blk, 0, s>>>(d_max_, d_energy_, N);
+        block_sum_kernel<<<grd2, blk, 0, s>>>(d_energy_, d_max_, grd);
+        double E1;
+        CUDA_CHECK(cudaMemcpyAsync(&E1, d_energy_, sizeof(double), cudaMemcpyDeviceToHost, s));
+        CUDA_CHECK(cudaStreamSynchronize(s));
+
+        if (E1 < E0) {
+            std::swap(d_m_, d_m_trial_);
+            dt = std::min(opts.dt_max, dt * 1.2);
+        } else {
+            dt *= 0.5;
+            if (dt < opts.dt_min) {
+                std::swap(d_m_, d_m_trial_);
+                dt = opts.dt_init;
+            }
+        }
+    }
+
+    CUDA_CHECK(cudaStreamSynchronize(s));
+
+    if (opts.throw_on_max)
+        throw std::runtime_error(
+            "MinimizeGPU::run(): max_steps reached without convergence");
+    return opts.max_steps;
+}
+
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA

@@ -6,6 +6,7 @@
 #ifdef MICROMAG_CUDA
 
 #include "demag_gpu_iface.hpp"
+#include "effective_field_gpu_iface.hpp"
 #include "exchange_gpu.hpp"
 #include "field.hpp"
 #include "field_kernels_gpu.hpp"
@@ -48,8 +49,7 @@ public:
     void upload(const VectorField3D& m);
     void download(VectorField3D& m) const;
 
-    // Run relaxation until convergence or max_steps.
-    // Returns number of steps taken.
+    // Fixed-field overload.
     int run(const Material& mat,
             IDemagGPU& demag,
             ExchangeFieldGPU& exch,
@@ -57,12 +57,18 @@ public:
             UniaxialAnisotropyFieldGPU* aniso = nullptr,
             Options opts = {});
 
-    // Query max torque on current GPU state (useful for monitoring).
+    // FieldSumGPU overload — supports DMI, cubic anisotropy, etc.
+    int run(const Material& mat, IDemagGPU& demag,
+            FieldSumGPU& extra_fields, Options opts = {});
+
     double max_torque_now(const Material& mat,
                           IDemagGPU& demag,
                           ExchangeFieldGPU& exch,
                           ZeemanFieldGPU& zeeman,
                           UniaxialAnisotropyFieldGPU* aniso = nullptr);
+
+    double max_torque_now(const Material& mat, IDemagGPU& demag,
+                          FieldSumGPU& extra_fields);
 
     const StructuredGrid& grid() const { return *grid_; }
 
@@ -80,6 +86,9 @@ private:
                        ExchangeFieldGPU& exch,
                        ZeemanFieldGPU& zeeman,
                        UniaxialAnisotropyFieldGPU* aniso);
+
+    void compute_H_eff(const Material& mat, IDemagGPU& demag,
+                       FieldSumGPU& extra_fields);
 };
 
 // ---------------------------------------------------------------------------
@@ -110,12 +119,17 @@ public:
     void upload(const VectorField3D& m);
     void download(VectorField3D& m) const;
 
+    // Fixed-field overload.
     int run(const Material& mat,
             IDemagGPU& demag,
             ExchangeFieldGPU& exch,
             ZeemanFieldGPU& zeeman,
             UniaxialAnisotropyFieldGPU* aniso = nullptr,
             Options opts = {});
+
+    // FieldSumGPU overload.
+    int run(const Material& mat, IDemagGPU& demag,
+            FieldSumGPU& extra_fields, Options opts = {});
 
     const StructuredGrid& grid() const { return *grid_; }
 
@@ -136,12 +150,18 @@ private:
                           ZeemanFieldGPU& zeeman,
                           UniaxialAnisotropyFieldGPU* aniso);
 
+    double compute_energy(const Material& mat, IDemagGPU& demag,
+                          FieldSumGPU& extra_fields);
+
     void compute_H_eff_for(double* d_m_src,
                            const Material& mat,
                            IDemagGPU& demag,
                            ExchangeFieldGPU& exch,
                            ZeemanFieldGPU& zeeman,
                            UniaxialAnisotropyFieldGPU* aniso);
+
+    void compute_H_eff_for(double* d_m_src, const Material& mat,
+                           IDemagGPU& demag, FieldSumGPU& extra_fields);
 };
 
 }  // namespace micromag
