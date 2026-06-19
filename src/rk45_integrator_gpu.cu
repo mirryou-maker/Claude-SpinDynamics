@@ -61,7 +61,7 @@ void RK45IntegratorGPU::alloc_scratch(size_t N) {
 // ---------------------------------------------------------------------------
 void RK45IntegratorGPU::eval_ki(
     const Material& mat,
-    DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+    IDemagGPU& demag, ExchangeFieldGPU& exch,
     ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
     const double* d_m_in, double* d_ki_out)
 {
@@ -95,7 +95,7 @@ void RK45IntegratorGPU::eval_ki(
 // ---------------------------------------------------------------------------
 Real RK45IntegratorGPU::step(
     const Material& mat,
-    DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+    IDemagGPU& demag, ExchangeFieldGPU& exch,
     ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso)
 {
     const double* dm = state_.d_m();

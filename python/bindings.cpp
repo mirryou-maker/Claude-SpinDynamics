@@ -32,6 +32,7 @@
 #include "micromag/skyrmion_tools.hpp"
 
 #ifdef MICROMAG_CUDA
+#include "micromag/demag_gpu_iface.hpp"
 #include "micromag/demag_gpu.hpp"
 #include "micromag/demag_periodic_gpu.hpp"
 #include "micromag/exchange_gpu.hpp"
@@ -846,7 +847,12 @@ PYBIND11_MODULE(_micromag, m) {
     // Phase G: GPU fields (IEffectiveField drop-ins, cuda preset only)
     // ------------------------------------------------------------------
 
-    py::class_<DemagFieldGPU, IEffectiveField, std::shared_ptr<DemagFieldGPU>>(
+    // IDemagGPU: abstract interface shared by DemagFieldGPU and DemagFieldPeriodicGPU.
+    // Allows GPU integrators to accept either via polymorphism.
+    py::class_<IDemagGPU>(m, "IDemagGPU");
+
+    py::class_<DemagFieldGPU, IEffectiveField, IDemagGPU,
+               std::shared_ptr<DemagFieldGPU>>(
             m, "DemagFieldGPU")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"),
              "GPU cuFFT demag field — drop-in for DemagField, 5–20× faster.")
@@ -857,7 +863,7 @@ PYBIND11_MODULE(_micromag, m) {
              "Per-cell demag energy density [J/m³] (GPU accumulate + CPU reduce).")
         .def_property_readonly("name", &DemagFieldGPU::name);
 
-    py::class_<DemagFieldPeriodicGPU, IEffectiveField,
+    py::class_<DemagFieldPeriodicGPU, IEffectiveField, IDemagGPU,
                std::shared_ptr<DemagFieldPeriodicGPU>>(m, "DemagFieldPeriodicGPU")
         .def(py::init<const StructuredGrid&, int>(),
              py::arg("grid"), py::arg("n_rep") = 2,
@@ -948,7 +954,7 @@ PYBIND11_MODULE(_micromag, m) {
              "Download GPU state into CPU VectorField3D (for monitoring).")
         .def("step",
              [](RK4IntegratorGPU& integ, const Material& mat,
-                DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                IDemagGPU& demag, ExchangeFieldGPU& exch,
                 ZeemanFieldGPU& zeeman,
                 UniaxialAnisotropyFieldGPU* aniso) {
                  integ.step(mat, demag, exch, zeeman, aniso);
@@ -956,7 +962,7 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mat"), py::arg("demag"), py::arg("exch"),
              py::arg("zeeman"),
              py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
-             "One full RK4 step on GPU (Exchange + Demag + Zeeman [+ Aniso]).")
+             "One full RK4 step on GPU. demag may be DemagFieldGPU or DemagFieldPeriodicGPU.")
         .def_property("dt", &RK4IntegratorGPU::dt, &RK4IntegratorGPU::set_dt);
 
     // ------------------------------------------------------------------
@@ -991,7 +997,7 @@ PYBIND11_MODULE(_micromag, m) {
         .def("download", &RK45IntegratorGPU::download, py::arg("m"))
         .def("step",
              [](RK45IntegratorGPU& integ, const Material& mat,
-                DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                IDemagGPU& demag, ExchangeFieldGPU& exch,
                 ZeemanFieldGPU& zeeman,
                 UniaxialAnisotropyFieldGPU* aniso) {
                  return integ.step(mat, demag, exch, zeeman, aniso);
@@ -999,7 +1005,8 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mat"), py::arg("demag"), py::arg("exch"),
              py::arg("zeeman"),
              py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
-             "One adaptive DOPRI5 step. Returns actual dt taken.")
+             "One adaptive DOPRI5 step. Returns actual dt taken. "
+             "demag may be DemagFieldGPU or DemagFieldPeriodicGPU.")
         .def_property_readonly("dt",         &RK45IntegratorGPU::dt_current)
         .def_property_readonly("dt_current", &RK45IntegratorGPU::dt_current)
         .def_property_readonly("n_accepted", &RK45IntegratorGPU::n_accepted)
@@ -1027,7 +1034,7 @@ PYBIND11_MODULE(_micromag, m) {
              "Download GPU state into CPU VectorField3D.")
         .def("step",
              [](HeunIntegratorGPU& integ, const Material& mat,
-                DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                IDemagGPU& demag, ExchangeFieldGPU& exch,
                 ZeemanFieldGPU& zeeman, Real T_K,
                 UniaxialAnisotropyFieldGPU* aniso) {
                  integ.step(mat, demag, exch, zeeman, T_K, aniso);
@@ -1037,8 +1044,7 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("T_K")  = Real{0.0},
              py::arg("aniso") = static_cast<UniaxialAnisotropyFieldGPU*>(nullptr),
              "One Stratonovich Heun step on GPU. "
-             "T_K=0 disables noise. "
-             "Optional aniso adds uniaxial anisotropy.")
+             "T_K=0 disables noise. demag may be DemagFieldGPU or DemagFieldPeriodicGPU.")
         .def_property("dt", &HeunIntegratorGPU::dt, &HeunIntegratorGPU::set_dt);
 #endif  // MICROMAG_CUDA
 

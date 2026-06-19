@@ -25,6 +25,7 @@
 #ifdef MICROMAG_CUDA
 
 #include "demag_gpu.hpp"
+#include "demag_gpu_iface.hpp"
 #include "exchange_gpu.hpp"
 #include "field_kernels_gpu.hpp"
 #include "gpu_state.hpp"
@@ -49,8 +50,9 @@ public:
 
     // One Stratonovich Heun step.
     // T_K = 0 disables noise (σ = 0, cuRAND skipped).
+    // demag may be DemagFieldGPU (open BC) or DemagFieldPeriodicGPU (periodic BC).
     void step(const Material&               mat,
-              DemagFieldGPU&                demag,
+              IDemagGPU&                    demag,
               ExchangeFieldGPU&             exch,
               ZeemanFieldGPU&               zeeman,
               Real                          T_K  = 0.0,
@@ -72,10 +74,10 @@ private:
     void*  curand_gen_ = nullptr;
 
     void run_half(const Material& mat,
-                   const double*   d_m_in,   // input  m
-                   double*         d_H,       // H buffer (will be zeroed + filled)
-                   double*         d_ki,      // output ki = llg_torque(m_in, H)
-                   DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                   const double*   d_m_in,
+                   double*         d_H,
+                   double*         d_ki,
+                   IDemagGPU& demag, ExchangeFieldGPU& exch,
                    ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
                    bool add_noise);
 };

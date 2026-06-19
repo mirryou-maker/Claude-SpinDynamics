@@ -6,6 +6,7 @@
 
 #ifdef MICROMAG_CUDA
 
+#include "demag_gpu_iface.hpp"
 #include "effective_field.hpp"
 #include "field.hpp"
 #include "grid.hpp"
@@ -24,7 +25,7 @@ namespace micromag {
 // to the GPU once at construction; runtime cost is 6 forward FFTs +
 // 6 pointwise products + 3 inverse FFTs per step, all on the GPU.
 // ---------------------------------------------------------------------------
-class DemagFieldGPU : public IEffectiveField {
+class DemagFieldGPU : public IEffectiveField, public IDemagGPU {
 public:
     explicit DemagFieldGPU(const StructuredGrid& grid);
     ~DemagFieldGPU();

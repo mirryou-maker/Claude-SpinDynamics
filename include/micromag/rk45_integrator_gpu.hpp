@@ -19,6 +19,7 @@
 #ifdef MICROMAG_CUDA
 
 #include "demag_gpu.hpp"
+#include "demag_gpu_iface.hpp"
 #include "exchange_gpu.hpp"
 #include "field_kernels_gpu.hpp"
 #include "gpu_state.hpp"
@@ -50,8 +51,9 @@ public:
     void download(VectorField3D& m) const      { state_.download(m); }
 
     // One adaptive DOPRI5 step.  Returns the dt actually taken.
+    // demag may be DemagFieldGPU (open BC) or DemagFieldPeriodicGPU (periodic BC).
     Real step(const Material&               mat,
-              DemagFieldGPU&                demag,
+              IDemagGPU&                    demag,
               ExchangeFieldGPU&             exch,
               ZeemanFieldGPU&               zeeman,
               UniaxialAnisotropyFieldGPU*   aniso = nullptr);
@@ -89,7 +91,7 @@ private:
     // Compute H_eff(d_m_in) + LLG torque → d_ki_out.
     // Zeroes d_H, accumulates all fields, launches llg_torque kernel.
     void eval_ki(const Material& mat,
-                 DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                 IDemagGPU& demag, ExchangeFieldGPU& exch,
                  ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
                  const double* d_m_in, double* d_ki_out);
 };

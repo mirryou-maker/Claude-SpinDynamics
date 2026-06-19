@@ -26,6 +26,7 @@
 #ifdef MICROMAG_CUDA
 
 #include "demag_gpu.hpp"
+#include "demag_gpu_iface.hpp"
 #include "exchange_gpu.hpp"
 #include "field_kernels_gpu.hpp"
 #include "gpu_state.hpp"
@@ -49,8 +50,9 @@ public:
 
     // One complete RK4 step — entirely on GPU, no PCIe.
     // aniso may be nullptr (skipped if not present).
+    // demag may be DemagFieldGPU (open BC) or DemagFieldPeriodicGPU (periodic BC).
     void step(const Material&               mat,
-              DemagFieldGPU&                demag,
+              IDemagGPU&                    demag,
               ExchangeFieldGPU&             exch,
               ZeemanFieldGPU&               zeeman,
               UniaxialAnisotropyFieldGPU*   aniso = nullptr);
@@ -64,10 +66,10 @@ private:
 
     // Run one RK4 stage: accumulate fields → ki → update k_acc → (optional) m_stage.
     void run_stage(const Material& mat,
-                   DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+                   IDemagGPU& demag, ExchangeFieldGPU& exch,
                    ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
-                   double stage_scale,    // dt/2 for stages 1-3, 0 for stage 4
-                   double accum_weight);  // 1/6, 2/6, 2/6, 1/6
+                   double stage_scale,
+                   double accum_weight);
 };
 
 }  // namespace micromag

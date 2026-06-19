@@ -7,6 +7,7 @@
 
 #ifdef MICROMAG_CUDA
 
+#include "demag_gpu_iface.hpp"
 #include "effective_field.hpp"
 #include "field.hpp"
 #include "grid.hpp"
@@ -17,7 +18,7 @@ using cufftHandle = int;
 
 namespace micromag {
 
-class DemagFieldPeriodicGPU : public IEffectiveField {
+class DemagFieldPeriodicGPU : public IEffectiveField, public IDemagGPU {
 public:
     // n_rep: number of image-cell repetitions per dimension in Newell sum
     // (default 2 → 5^3 = 125 images, same as CPU DemagFieldPeriodic).

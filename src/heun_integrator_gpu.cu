@@ -84,7 +84,7 @@ void HeunIntegratorGPU::run_half(
     const double*   d_m_in,
     double*         d_H,
     double*         d_ki,
-    DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+    IDemagGPU& demag, ExchangeFieldGPU& exch,
     ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
     bool add_noise)
 {
@@ -120,7 +120,7 @@ void HeunIntegratorGPU::run_half(
 // ---------------------------------------------------------------------------
 void HeunIntegratorGPU::step(
     const Material& mat,
-    DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+    IDemagGPU& demag, ExchangeFieldGPU& exch,
     ZeemanFieldGPU& zeeman, Real T_K,
     UniaxialAnisotropyFieldGPU* aniso)
 {

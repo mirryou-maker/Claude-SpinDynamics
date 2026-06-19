@@ -43,7 +43,7 @@ RK4IntegratorGPU::RK4IntegratorGPU(const StructuredGrid& grid, Real dt)
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::run_stage(
     const Material& mat,
-    DemagFieldGPU& demag, ExchangeFieldGPU& exch,
+    IDemagGPU& demag, ExchangeFieldGPU& exch,
     ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
     double stage_scale, double accum_weight)
 {
@@ -102,7 +102,7 @@ void RK4IntegratorGPU::run_stage(
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::step(
     const Material& mat,
-    DemagFieldGPU&               demag,
+    IDemagGPU&                    demag,
     ExchangeFieldGPU&             exch,
     ZeemanFieldGPU&               zeeman,
     UniaxialAnisotropyFieldGPU*   aniso)
