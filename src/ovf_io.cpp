@@ -115,6 +115,22 @@ void save_ovf(const std::string& filename,
             f << v.x << " " << v.y << " " << v.z << "\n";
         }
         hdr("# End: Data Text");
+    } else if (fmt == OVFFormat::Binary4) {
+        // Binary 4 (IEEE 754 float, little-endian) — half the size of Binary8
+        hdr("# Begin: Data Binary 4");
+        // Check value: 1234567.0 as float (mumax3 convention for Binary 4)
+        const float check4 = 1234567.0f;
+        f.write(reinterpret_cast<const char*>(&check4), 4);
+        for (Index iz = 0; iz < nz; ++iz)
+        for (Index iy = 0; iy < ny; ++iy)
+        for (Index ix = 0; ix < nx; ++ix) {
+            const Vec3& v = m[g.linear_index(ix, iy, iz)];
+            float buf[3] = { static_cast<float>(v.x),
+                             static_cast<float>(v.y),
+                             static_cast<float>(v.z) };
+            f.write(reinterpret_cast<const char*>(buf), 12);
+        }
+        hdr("# End: Data Binary 4");
     } else {
         // Binary 8 (IEEE 754 double, little-endian)
         hdr("# Begin: Data Binary 8");

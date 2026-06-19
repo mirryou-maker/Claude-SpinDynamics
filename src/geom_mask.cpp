@@ -186,6 +186,24 @@ GeomMask sphere(const StructuredGrid& grid, Real r)
     return mask;
 }
 
+GeomMask ellipsoid(const StructuredGrid& grid, Real a, Real b, Real c)
+{
+    const Real cx = Real{0.5} * static_cast<Real>(grid.nx()) * grid.dx();
+    const Real cy = Real{0.5} * static_cast<Real>(grid.ny()) * grid.dy();
+    const Real cz = Real{0.5} * static_cast<Real>(grid.nz()) * grid.dz();
+    GeomMask mask(grid);
+    for (Index iz = 0; iz < grid.nz(); ++iz)
+    for (Index iy = 0; iy < grid.ny(); ++iy)
+    for (Index ix = 0; ix < grid.nx(); ++ix) {
+        const Real x = (static_cast<Real>(ix) + Real{0.5}) * grid.dx() - cx;
+        const Real y = (static_cast<Real>(iy) + Real{0.5}) * grid.dy() - cy;
+        const Real z = (static_cast<Real>(iz) + Real{0.5}) * grid.dz() - cz;
+        mask(ix, iy, iz) = ((x*x)/(a*a) + (y*y)/(b*b) + (z*z)/(c*c) <= Real{1})
+                           ? Real{1} : Real{0};
+    }
+    return mask;
+}
+
 GeomMask layer(const StructuredGrid& grid, Index n)
 {
     return layers(grid, n, n);

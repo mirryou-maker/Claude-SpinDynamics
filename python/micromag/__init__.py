@@ -28,6 +28,7 @@ from _micromag import (
     square,
     cuboid,
     sphere,
+    ellipsoid,
     layer,
     layers,
     x_range,
@@ -142,7 +143,7 @@ __all__ = [
     # Geometry / Shape API (Phase B1 + E)
     "GeomMask", "union_", "sub_", "intersect_",
     "ellipse", "circle", "rect", "cylinder",
-    "square", "cuboid", "sphere",
+    "square", "cuboid", "sphere", "ellipsoid",
     "layer", "layers", "x_range", "y_range", "z_range",
     "translate", "rotate",
     "TipMode", "MFMImage",
@@ -170,8 +171,8 @@ __all__ = [
     # Initial magnetization states (Phase E)
     "uniform_mag", "neel_skyrmion", "bloch_skyrmion",
     "two_domain", "vortex_state", "random_mag",
-    # Run/Steps convenience
-    "run", "steps",
+    # Run/Steps/RunWhile convenience
+    "run", "steps", "run_while",
     # Topology (Phase F)
     "topological_charge_Q", "topological_charge_density", "topological_charge",
     # Skyrmion tracking (Phase G)
@@ -190,6 +191,8 @@ __all__ = [
     "field_fft2d", "compute_heff",
     # Phase J: analysis + material utilities
     "save_profile", "rotate_mag", "checkerboard_regions", "zhang_li_from_current",
+    # Phase L: grain boundary + OVF format + image geometry
+    "adjacent_region_pairs", "set_grain_boundaries", "image_geom",
     # Phase K: spin-wave dispersion wrapper
     "spin_wave_dispersion",
     # Phase D: dynamic write-head utility
@@ -308,6 +311,70 @@ def run(integ, m, mat, heff, t_total: float,
             if callback_dt <= 0 or (t - t_last_cb) >= callback_dt:
                 callback(t, m)
                 t_last_cb = t
+    return t
+
+
+def run_while(integ, m, mat, heff, condition, t_max: float = 10e-9,
+              stt=None, callback=None, callback_dt: float = 0.0,
+              check_every: int = 100):
+    """Run until condition(t, m) returns False or t_max is reached.
+
+    Mirrors mumax3's RunWhile().  The condition is checked every
+    ``check_every`` steps (not every step, for performance).
+
+    Parameters
+    ----------
+    integ       : RK4Integrator | RK45Integrator | HeunIntegrator
+    m           : VectorField3D  (modified in-place)
+    mat         : Material
+    heff        : EffectiveFieldSum
+    condition   : callable(t, m) -> bool  — continue while True
+    t_max       : float — hard stop time [s] (default 10 ns)
+    stt         : SpinTorqueSum | None
+    callback    : callable(t, m) | None — called periodically
+    callback_dt : float — minimum interval between callbacks [s]
+    check_every : int — check condition every N steps (default 100)
+
+    Returns
+    -------
+    float — simulated time at which the loop stopped
+
+    Examples
+    --------
+    Run until <mx> < -0.9 (switching detection):
+
+    >>> mm.run_while(integ, m, mat, heff,
+    ...     condition=lambda t, m: mm.mean_magnetization(m)[0] > -0.9,
+    ...     t_max=2e-9)
+
+    Run until energy converges (relax-like):
+
+    >>> prev_e = [float('inf')]
+    >>> def not_converged(t, m):
+    ...     e = heff.total_energy(m, mat)
+    ...     conv = abs(e - prev_e[0]) / (abs(prev_e[0]) + 1e-30) < 1e-6
+    ...     prev_e[0] = e
+    ...     return not conv
+    >>> mm.run_while(integ, m, mat, heff, not_converged, t_max=5e-9)
+    """
+    t = 0.0
+    step_count = 0
+    t_last_cb = -1.0
+
+    while t < t_max:
+        result = integ.step(m, mat, heff, stt) if stt is not None else integ.step(m, mat, heff)
+        dt_used = result if isinstance(result, float) else integ.dt
+        t += dt_used
+        step_count += 1
+
+        if callback is not None:
+            if callback_dt <= 0 or (t - t_last_cb) >= callback_dt:
+                callback(t, m)
+                t_last_cb = t
+
+        if step_count % check_every == 0 and not condition(t, m):
+            break
+
     return t
 
 
@@ -978,6 +1045,79 @@ def checkerboard_regions(grid) -> "RegionMap":
     return rm
 
 
+def adjacent_region_pairs(region_map):
+    """Find all pairs of adjacent region IDs in a RegionMap (grain-boundary finder).
+
+    Scans all nearest-neighbour pairs (x+1, y+1, z+1) and collects unique
+    (id_A, id_B) pairs where id_A != id_B.  Useful for automatically setting
+    inter-exchange coupling across grain boundaries.
+
+    Parameters
+    ----------
+    region_map : RegionMap
+
+    Returns
+    -------
+    set of (int, int) — each pair appears once, with id_A < id_B
+
+    Example
+    -------
+    >>> rmap = mm.voronoi_grains(g, n_grains=50)
+    >>> pairs = mm.adjacent_region_pairs(rmap)
+    >>> for (ri, rj) in pairs:
+    ...     exch.set_inter_exchange(ri, rj, A_gb)  # grain-boundary A
+    """
+    g = region_map.grid
+    nx, ny, nz = g.nx, g.ny, g.nz
+    pairs = set()
+    for iz in range(nz):
+        for iy in range(ny):
+            for ix in range(nx):
+                lin = ix + nx * (iy + ny * iz)
+                ri = int(region_map[lin])
+                # Check +x neighbour
+                if ix + 1 < nx:
+                    rj = int(region_map[(ix+1) + nx * (iy + ny * iz)])
+                    if ri != rj:
+                        pairs.add((min(ri, rj), max(ri, rj)))
+                # Check +y neighbour
+                if iy + 1 < ny:
+                    rj = int(region_map[ix + nx * ((iy+1) + ny * iz)])
+                    if ri != rj:
+                        pairs.add((min(ri, rj), max(ri, rj)))
+                # Check +z neighbour
+                if iz + 1 < nz:
+                    rj = int(region_map[ix + nx * (iy + ny * (iz+1))])
+                    if ri != rj:
+                        pairs.add((min(ri, rj), max(ri, rj)))
+    return pairs
+
+
+def set_grain_boundaries(exch, region_map, A_gb: float):
+    """Set uniform grain-boundary exchange across all adjacent region pairs.
+
+    Convenience wrapper combining adjacent_region_pairs() and
+    ExchangeField.set_inter_exchange().  Call after voronoi_grains() to
+    apply a reduced exchange stiffness at grain boundaries.
+
+    Parameters
+    ----------
+    exch       : ExchangeField
+    region_map : RegionMap
+    A_gb       : float — exchange constant at grain boundaries [J/m]
+                         (typically 0.0 for decoupled grains, or
+                         a fraction of material.A_exchange for partial coupling)
+
+    Example
+    -------
+    >>> rmap = mm.voronoi_grains(g, n_grains=50)
+    >>> exch.set_region_map(rmap)
+    >>> mm.set_grain_boundaries(exch, rmap, A_gb=0.0)  # decouple grains
+    """
+    for ri, rj in adjacent_region_pairs(region_map):
+        exch.set_inter_exchange(ri, rj, A_gb)
+
+
 def zhang_li_from_current(j_amp: float, direction,
                            Ms: float, P: float = 0.5, xi: float = 0.04):
     """Create ZhangLiSTT from scalar current density and direction.
@@ -1112,6 +1252,86 @@ def spin_wave_dispersion(grid, mat, B_bias: float, component: str = "y",
 
     kvals, freqs, S = field_fft2d(m_xt[:frame], dt=dt_save, dx=dx_axis)
     return kvals, freqs, S
+
+
+# ===========================================================================
+# Phase L — Image geometry, grain-boundary utilities
+# ===========================================================================
+
+def image_geom(grid, filename: str, threshold: float = 128.0,
+               channel: str = "gray", invert: bool = False,
+               layer_mode: str = "extrude"):
+    """Create a GeomMask from an image file (PNG, BMP, TIFF, JPEG, ...).
+
+    The image is resized to match the grid's (nx, ny) dimensions using
+    nearest-neighbour resampling, then thresholded to produce a binary mask.
+    Requires PIL/Pillow: ``pip install Pillow``.
+
+    Parameters
+    ----------
+    grid      : StructuredGrid
+    filename  : str   — image file path (PNG, BMP, TIFF, JPEG, …)
+    threshold : float — pixel intensity in [0, 255]; pixels >= threshold → inside
+    channel   : str   — 'gray' (luminance), 'r', 'g', 'b', or 'alpha'
+    invert    : bool  — if True, swap inside/outside (black=inside by default)
+    layer_mode: str   — 'extrude' (same mask all z), 'single' (only iz=0)
+
+    Returns
+    -------
+    GeomMask — binary 0/1 mask
+
+    Notes
+    -----
+    Coordinate convention: image row 0 → iy=ny-1 (y-up, matching mumax3).
+
+    Example
+    -------
+    >>> mask = mm.image_geom(grid, 'sample.png', threshold=128)
+    >>> mm.set_geom(mask, m, exch)
+    """
+    try:
+        from PIL import Image as _Image
+    except ImportError:
+        raise ImportError("image_geom requires Pillow: pip install Pillow")
+
+    g = grid
+    img = _Image.open(filename)
+
+    # Select channel
+    if channel == "gray":
+        img = img.convert("L")
+        arr_img = _np.array(img, dtype=_np.float32)   # (H, W)
+    elif channel in ("r", "g", "b"):
+        img = img.convert("RGB")
+        cidx = {"r": 0, "g": 1, "b": 2}[channel]
+        arr_img = _np.array(img, dtype=_np.float32)[:, :, cidx]
+    elif channel == "alpha":
+        img = img.convert("RGBA")
+        arr_img = _np.array(img, dtype=_np.float32)[:, :, 3]
+    else:
+        raise ValueError(f"channel must be 'gray','r','g','b','alpha'; got '{channel}'")
+
+    # Resize to (ny, nx) with nearest-neighbour
+    pil_resized = _Image.fromarray(arr_img).resize((g.nx, g.ny), _Image.NEAREST)
+    arr = _np.array(pil_resized, dtype=_np.float32)   # shape (ny, nx)
+
+    # Flip rows: image top (row 0) maps to iy=ny-1 (y-up convention)
+    arr = arr[::-1, :].copy()
+
+    # Threshold → 0/1 float
+    inside = (arr >= threshold).astype(_np.float64)
+    if invert:
+        inside = 1.0 - inside
+
+    # Build result mask: linear index = ix + nx*(iy + ny*iz)
+    result = GeomMask(g)
+    nz_fill = 1 if layer_mode == "single" else g.nz
+    for iz in range(nz_fill):
+        base = g.nx * g.ny * iz
+        for iy in range(g.ny):
+            for ix in range(g.nx):
+                result[base + ix + g.nx * iy] = inside[iy, ix]
+    return result
 
 
 # ===========================================================================

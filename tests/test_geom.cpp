@@ -351,3 +351,36 @@ TEST_CASE("GeomMask: exchange + mask — clear_mask restores full behaviour", "[
     for (Index i = 0; i < g.size(); ++i)
         REQUIRE_THAT((H_masked[i] - H_clear[i]).norm(), WithinAbs(0.0, 1e-6));
 }
+
+// ---------------------------------------------------------------------------
+// Ellipsoid shape
+// ---------------------------------------------------------------------------
+
+TEST_CASE("GeomMask: ellipsoid — centre inside, corner outside", "[geom]") {
+    // 20x20x20 grid, 5 nm cells -> 100x100x100 nm box
+    // ellipsoid semi-axes: a=40nm, b=30nm, c=20nm
+    StructuredGrid g(20, 20, 20, 5e-9, 5e-9, 5e-9);
+    auto mask = ellipsoid(g, 40e-9, 30e-9, 20e-9);
+
+    // Centre cell is inside
+    REQUIRE(mask(10, 10, 10) == Real{1});
+    // Corner is at ~(-47.5,-47.5,-47.5) nm -> (47.5/40)^2+(47.5/30)^2+(47.5/20)^2>>1 -> outside
+    REQUIRE(mask(0, 0, 0) == Real{0});
+
+    // Cell count ~ 4/3*pi*a*b*c / dx^3 = 4/3*pi*8*6*4 = 804
+    // Allow +/-15%: [684, 924]
+    const Index n = count_inside(mask);
+    REQUIRE(n >= 684);
+    REQUIRE(n <= 924);
+}
+
+TEST_CASE("GeomMask: ellipsoid — sphere case matches sphere()", "[geom]") {
+    StructuredGrid g(20, 20, 20, 5e-9, 5e-9, 5e-9);
+    Real r = 30e-9;
+    auto e = ellipsoid(g, r, r, r);
+    auto s = sphere(g, r);
+
+    // Both should produce identical masks
+    for (Index i = 0; i < e.size(); ++i)
+        REQUIRE_THAT(e[i], WithinAbs(s[i], 1e-15));
+}

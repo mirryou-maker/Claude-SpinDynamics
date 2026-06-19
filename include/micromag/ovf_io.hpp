@@ -18,7 +18,8 @@ namespace micromag {
 
 enum class OVFFormat {
     Text,      // ASCII text (portable, large files)
-    Binary8,   // IEEE 754 double (8 bytes/component) — matches mumax3 default
+    Binary4,   // IEEE 754 float  (4 bytes/component) — mumax3 OVF1 compatible, half the size
+    Binary8,   // IEEE 754 double (8 bytes/component) — matches mumax3 default, lossless
 };
 
 // Save a VectorField3D to an OVF 2.0 file.

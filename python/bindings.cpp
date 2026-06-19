@@ -247,6 +247,8 @@ PYBIND11_MODULE(_micromag, m) {
           "Rectangular box: |x|<=lx/2, |y|<=ly/2, |z|<=lz/2. Returns GeomMask.");
     m.def("sphere",  &sphere,  py::arg("grid"), py::arg("r"),
           "Sphere: x²+y²+z²<=r². Returns GeomMask.");
+    m.def("ellipsoid", &ellipsoid, py::arg("grid"), py::arg("a"), py::arg("b"), py::arg("c"),
+          "Ellipsoid: (x/a)²+(y/b)²+(z/c)²<=1. Semi-axes a,b,c along x,y,z. Returns GeomMask.");
     m.def("layer",   &layer,   py::arg("grid"), py::arg("n"),
           "Select single z-layer n (0-based). Returns GeomMask.");
     m.def("layers",  &layers,  py::arg("grid"), py::arg("n1"), py::arg("n2"),
@@ -1468,6 +1470,7 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::enum_<OVFFormat>(m, "OVFFormat")
         .value("Text",    OVFFormat::Text,    "ASCII text — portable, larger files.")
+        .value("Binary4", OVFFormat::Binary4, "IEEE 754 float (4 bytes) — half size, ~7 decimal digits.")
         .value("Binary8", OVFFormat::Binary8, "IEEE 754 double (8 bytes) — lossless, default.");
 
     m.def("save_ovf",

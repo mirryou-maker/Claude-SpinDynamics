@@ -88,6 +88,10 @@ GeomMask cuboid(const StructuredGrid& grid, Real lx, Real ly, Real lz);
 // Sphere: x^2 + y^2 + z^2 <= r^2.
 GeomMask sphere(const StructuredGrid& grid, Real r);
 
+// Ellipsoid: (x/a)^2 + (y/b)^2 + (z/c)^2 <= 1.
+// Semi-axes a, b, c along x, y, z respectively.
+GeomMask ellipsoid(const StructuredGrid& grid, Real a, Real b, Real c);
+
 // Single z-layer n (0-indexed, Neumann BC style). Cells with iz == n inside.
 GeomMask layer(const StructuredGrid& grid, Index n);
 
