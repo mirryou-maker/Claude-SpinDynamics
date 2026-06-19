@@ -178,6 +178,10 @@ __all__ = [
     "field_fft2d", "compute_heff",
     # Phase J: analysis + material utilities
     "save_profile", "rotate_mag", "checkerboard_regions", "zhang_li_from_current",
+    # Phase K: spin-wave dispersion wrapper
+    "spin_wave_dispersion",
+    # Phase D: dynamic write-head utility
+    "moving_gaussian_field",
     # Utilities
     "cuda_available",
     # SP#2 / grid-sizing utilities (pure Python)
@@ -984,3 +988,169 @@ def zhang_li_from_current(j_amp: float, direction,
     J_vec = Vec3(float(d[0] * j_amp), float(d[1] * j_amp), float(d[2] * j_amp))
     stt   = ZhangLiSTT(J_vec, P, xi)
     return stt
+
+
+# ===========================================================================
+# Phase K — spin-wave dispersion high-level wrapper
+# ===========================================================================
+
+def spin_wave_dispersion(grid, mat, B_bias: float, component: str = "y",
+                         axis: int = 0,
+                         t_sim: float = 2e-9, dt_sim: float = 0.5e-12,
+                         dt_save: float = 10e-12,
+                         H_pulse: float = 500.0, f_max: float = 20e9,
+                         seed: int = 7):
+    """Compute spin-wave dispersion S(k, f) for a 1D strip.
+
+    Runs a sinc-pulse broadband spin-wave spectroscopy simulation and returns
+    (kvals, freqs, S) ready for plotting. Equivalent to mumax3's dyn-matrix
+    approach but via time-domain simulation + 2D FFT.
+
+    Equilibrium: m along x, bias B_bias along x.
+    Perturbation: sinc-pulse H_pulse along `component` axis.
+
+    Parameters
+    ----------
+    grid      : StructuredGrid — 1D strip (ny=nz=1 recommended)
+    mat       : Material
+    B_bias    : float — bias field amplitude [T] (along x)
+    component : str — magnetization component to record ('x','y','z')
+    axis      : int — spatial axis to Fourier-transform (0=x,1=y,2=z)
+    t_sim     : float — total simulation time [s]
+    dt_sim    : float — integration time step [s]
+    dt_save   : float — recording interval [s]
+    H_pulse   : float — sinc-pulse amplitude [A/m]
+    f_max     : float — sinc-pulse bandwidth [Hz]
+    seed      : int   — RNG seed for initial noise
+
+    Returns
+    -------
+    kvals : ndarray (nx,) — wavenumber [rad/m], centred
+    freqs : ndarray (nt,) — frequency [Hz]
+    S     : ndarray (nt, nx) — |FFT|² power spectrum
+
+    Example
+    -------
+    >>> g   = mm.StructuredGrid(200, 1, 1, 20e-9, 20e-9, 20e-9)
+    >>> mat = mm.Material.permalloy()
+    >>> k, f, S = mm.spin_wave_dispersion(g, mat, B_bias=0.1)
+    >>> plt.pcolormesh(k/1e6, f[:len(f)//2]/1e9, S[:len(f)//2], ...)
+    """
+    import numpy as _np2
+
+    mu_0   = 4 * _math.pi * 1e-7
+    H_bias = B_bias / mu_0
+
+    # Fields
+    exch        = ExchangeField(BoundaryCondition.Neumann)
+    zeeman_bias = ZeemanField(Vec3(H_bias, 0, 0))
+    zeeman_ac   = ZeemanField(Vec3(0, 0, 0))
+    heff = EffectiveFieldSum()
+    heff.add(zeeman_bias)
+    heff.add(zeeman_ac)
+    heff.add(exch)
+
+    # Initial state
+    m = uniform_mag(grid, Vec3(1, 0, 0))
+    arr = _np2.asarray(to_numpy(m))
+    rng = _np2.random.default_rng(seed)
+    perp1, perp2 = (1, 2) if component == "x" else (0, 2) if component == "y" else (0, 1)
+    arr[..., perp1] += rng.normal(0, 1e-3, arr[..., 0].shape)
+    arr[..., perp2] += rng.normal(0, 1e-3, arr[..., 0].shape)
+    norms = _np2.linalg.norm(arr, axis=-1, keepdims=True)
+    arr /= norms
+    from_numpy(m, arr)
+
+    # Sizes
+    g = grid
+    sizes = (g.nx, g.ny, g.nz)
+    n_axis = sizes[axis]
+    dx_axis = (g.dx, g.dy, g.dz)[axis]
+    comp_idx = {"x": 0, "y": 1, "z": 2}[component]
+
+    n_frames = int(t_sim / dt_save)
+    m_xt = _np2.zeros((n_frames, n_axis))
+
+    integ = RK4Integrator(dt_sim)
+    t = 0.0
+    frame = 0
+    t_last_save = -dt_save
+
+    while t < t_sim and frame < n_frames:
+        H_sinc = sinc_pulse(t, Vec3(0, H_pulse, 0) if component != "x"
+                              else Vec3(0, 0, H_pulse), f_max)
+        zeeman_ac.H_ext = H_sinc
+        integ.step(m, mat, heff)
+        t += dt_sim
+        if t - t_last_save >= dt_save - 1e-15:
+            arr_t = _np2.asarray(to_numpy(m))
+            if axis == 0:
+                m_xt[frame, :] = arr_t[0, 0, :, comp_idx]
+            elif axis == 1:
+                m_xt[frame, :] = arr_t[0, :, 0, comp_idx]
+            else:
+                m_xt[frame, :] = arr_t[:, 0, 0, comp_idx]
+            frame += 1
+            t_last_save = t
+
+    kvals, freqs, S = field_fft2d(m_xt[:frame], dt=dt_save, dx=dx_axis)
+    return kvals, freqs, S
+
+
+# ===========================================================================
+# Phase D — Dynamic geometry / Moving write head utilities
+# ===========================================================================
+
+def moving_gaussian_field(grid, H_amp, sigma: float, polarity: float = 1.0,
+                           axis: int = 0, direction: int = 2):
+    """Create a Gaussian write-head spatial field at a given x-position.
+
+    Returns a VectorField3D with H[direction] = polarity*H_amp * exp(-0.5*(r-x0)²/σ²)
+    for all cells. Rebuild or call again with updated x0 each time the head moves.
+
+    Parameters
+    ----------
+    grid      : StructuredGrid
+    H_amp     : float — peak field amplitude [A/m]
+    sigma     : float — Gaussian width [m]
+    polarity  : float — +1 or -1 (bit polarity)
+    axis      : int   — sweep axis (0=x, 1=y, 2=z)
+    direction : int   — field direction component (0=x, 1=y, 2=z)
+
+    Returns
+    -------
+    Callable[[float], VectorField3D] — call with head_position [m] to get field
+
+    Example
+    -------
+    >>> head_fn = mm.moving_gaussian_field(g, H_write=5e5, sigma=15e-9)
+    >>> for t in time_steps:
+    ...     x_head = v_head * t
+    ...     H_field = head_fn(x_head, polarity=+1)
+    ...     zeeman_spatial.H_field = H_field
+    """
+    g = grid
+    nx, ny, nz = g.nx, g.ny, g.nz
+    sizes = (nx, ny, nz)
+    steps = (g.dx, g.dy, g.dz)
+    n_axis = sizes[axis]
+    ds = steps[axis]
+
+    # Cell-centre positions along sweep axis
+    pos = (_np.arange(n_axis) + 0.5) * ds
+
+    def head_field(x0: float, pol: float = polarity) -> "VectorField3D":
+        """Return H field at head position x0 [m] with polarity pol."""
+        H_arr = _np.zeros((nz, ny, nx, 3))
+        profile = pol * H_amp * _np.exp(-0.5 * ((pos - x0) / sigma) ** 2)
+        if axis == 0:
+            H_arr[..., direction] = profile[_np.newaxis, _np.newaxis, :]
+        elif axis == 1:
+            H_arr[..., direction] = profile[_np.newaxis, :, _np.newaxis]
+        else:
+            H_arr[..., direction] = profile[:, _np.newaxis, _np.newaxis]
+        field = VectorField3D(grid)
+        from_numpy(field, H_arr)
+        return field
+
+    return head_field
