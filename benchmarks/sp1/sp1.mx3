@@ -1,0 +1,27 @@
+// muMAG Standard Problem 1 — mumax3 reference (long-axis hysteresis).
+SetGridSize(100, 50, 1)
+SetCellSize(20e-9, 20e-9, 20e-9)
+Msat  = 800e3
+Aex   = 1.3e-11
+Ku1   = 500
+anisU = vector(1, 0, 0)
+
+m = uniform(1, 0.02, 0)
+TableAdd(B_ext)
+
+Bmax := 80e-3
+dB := 8e-3
+Hy   := 0.5e-3
+
+// descending branch
+for B := Bmax; B >= -Bmax-1e-9; B -= dB {
+    B_ext = vector(B, Hy, 0)
+    minimize()
+    TableSave()
+}
+// ascending branch
+for B := -Bmax; B <= Bmax+1e-9; B += dB {
+    B_ext = vector(B, Hy, 0)
+    minimize()
+    TableSave()
+}

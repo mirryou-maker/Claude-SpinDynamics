@@ -162,7 +162,39 @@ all four `add()` bindings so the compositor keeps its terms alive.
 
 ![SP#5 core trajectory](sp5/sp5_core.png)
 
-## Remaining (planned)
+## SP#1 — hysteresis loop (long axis)
 
-SP#5 (Zhang-Li STT, vortex-core steady displacement) and SP#1 (hysteresis)
-5-way — pending.
+2 um x 1 um x 20 nm permalloy (Ms=8e5, A=1.3e-11, Ku=500 J/m^3, easy axis ||
+long edge), 100x50x1 cells. Field swept along the long axis (+0.5 mT y to break
+symmetry), relaxed at each step (continuation); Claude-SD (RelaxGPU) vs mumax3
+(minimize()), identical setup.
+
+| config | Hc (mT) | remanence <mx>(0) |
+|--------|--------:|------------------:|
+| Claude-SD f64 | -6.40 | 0.8687 |
+| Claude-SD f32 | -6.40 | 0.8687 |
+| mumax3        | -5.49 | 0.8683 |
+
+-> **Remanence matches mumax3 to 4e-4 and the entire reversible branch agrees to
+< 1e-3** (e.g. at +80/+40/+8/0 mT the two <mx> are identical to 3-4 digits);
+**f32 reproduces f64 exactly**. The coercivity differs by ~0.9 mT (within the
+8 mT field-step resolution and SP#1's notorious switching-field sensitivity --
+the loops differ only at the single field step where the magnetisation reverses).
+
+![SP#1 loop](sp1/sp1_loop.png)
+
+## Summary
+
+| problem | what | Claude-SD vs reference |
+|---------|------|------------------------|
+| SP#4 | field-A reversal dynamics | matches mumax3/OOMMF, mx-RMS 0.011-0.018 (fixed RK4 + adaptive RK45, f64 & f32) |
+| SP#3 | cube flower/vortex energy crossing | reproduces mumax3 to < 3e-4; both L_c ~ 8.0 at N=28 (continuum 8.47 = shared finite-cell) |
+| SP#5 | Zhang-Li STT vortex-core motion | transverse displacement matches mumax3 to 0.1 nm; f64=f32 to 0.01 nm |
+| SP#1 | long-axis hysteresis | remanence matches to 4e-4, reversible branch to < 1e-3; Hc within SP#1 spread |
+| perf | fixed-step throughput sweep | correct; ~4.7x slower per field-eval than mumax3 (f32), f32 ~5x faster than f64 |
+
+Bugs found & fixed along the way: a d_H race across concurrent GPU field streams
+(FieldSumGPU/Relax/Minimize/Heun) that injected spurious LLG dissipation, and a
+raw-pointer lifetime footgun in the `add()` bindings (now `keep_alive`). The
+demag was independently verified against the **Aharoni exact** prism formula
+(0.2 %).
