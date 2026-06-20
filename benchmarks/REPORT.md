@@ -66,34 +66,34 @@ schedule also crashes it; the working SP#4 MIF uses a single 2-stage
 
 Throughput vs grid size, ms per field-evaluation (one demag FFT + exchange;
 Claude-SD RK4 = 4 evals/step, mumax3/MuMax-CO Heun = 2). Thin-film grids
-(nz=1), FixDt=1e-14.
-
-**After the 2-D-FFT thin-film fix** (`pad_nz=1`, see below):
+(nz=1), FixDt=1e-14. **After two demag optimisations** (2-D FFT + real kernels):
 
 | cells | Claude-SD f64 | Claude-SD f32 | mumax3 f32 | f32 vs mumax3 |
 |-------|--------------:|--------------:|-----------:|--------------:|
-| 16 384   | 0.226 | 0.129 | 0.263 | **0.49x (faster)** |
-| 65 536   | 0.669 | 0.182 | 0.299 | **0.61x (faster)** |
-| 262 144  | 2.596 | 0.501 | 0.421 | 1.19x |
-| 524 288  | 5.899 | 1.133 | 0.629 | 1.80x |
-| 1 048 576 | 12.89 | 2.756 | 1.212 | 2.28x |
+| 16 384   | 0.227 | 0.135 | 0.263 | **0.51x (faster)** |
+| 65 536   | 0.633 | 0.175 | 0.299 | **0.59x (faster)** |
+| 262 144  | 2.528 | 0.465 | 0.421 | 1.10x |
+| 524 288  | 5.755 | 1.048 | 0.629 | 1.67x |
+| 1 048 576 | 12.63 | 2.614 | 1.212 | 2.16x |
 
-The demag is FFT-bound: profiling (`MICROMAG_DEMAG_PROFILE=1`) showed the
-forward+inverse FFTs are ~86-88% of every demag eval. The single biggest win was
-realising a **single-layer (nz=1) film needs no z-padding** -- the code padded z
-to 2 and ran a 3-D FFT with a cuFFT-unfriendly z=2 dimension. Setting `pad_nz=1`
-makes it a true 2-D FFT and **~halved the demag** everywhere:
+The demag is FFT-bound; profiling (`MICROMAG_DEMAG_PROFILE=1`) drove two fixes:
 
-| cells | f32 ms/eval before | after | speedup |
-|-------|-------------------:|------:|--------:|
-| 262 144  | 1.037 | 0.501 | 2.07x |
-| 1 048 576 | 5.739 | 2.756 | 2.08x |
+1. **2-D FFT for single-layer (nz=1) films** (`pad_nz=1`). A thin film has no
+   z wrap-around, so the demag is a pure 2-D convolution; the code had padded z
+   to 2 and run a 3-D FFT. This ~halved the demag (f32 1 M: 5.74 -> 2.76 ms/eval).
+2. **Real (symmetry-reduced) demag kernels.** The 6 kernel FFTs are purely real
+   (diagonals even -> real; off-diagonals odd-odd-even -> i*i -> real), so they
+   are stored real, not complex. This **halves the kernel VRAM** (1 M: 640 ->
+   332 MB) and cut the pointwise-MAC ~28% (f32 1 M: 2.76 -> 2.61 ms/eval). The
+   imaginary parts were always zero, so the result is unchanged (GPU demag still
+   matches CPU to 1.5e-9).
 
-Net: **Claude-SD f32 now beats mumax3 at <= 65 K cells and is within 1.2x at
-262 K**; the residual 2.3x at 1 M (was 4.7x) is the large-grid FFT, where mumax3's
-transform pipeline is still more efficient. float32 stays ~4-5x faster than
-double and uses ~half the VRAM. Correctness was re-checked (GPU demag = CPU demag
-to 1.5e-9; 100 GPU tests pass).
+Net vs the original: **f32 1 M demag 2.2x faster (gap to mumax3 4.7x -> 2.16x)**,
+Claude-SD now beats mumax3 at <= 65 K cells and is within 1.1x at 262 K. float64
+is FFT-bound (double cuFFT ~9x slower than single) so f32 is preferred for large
+runs; it stays ~4-5x faster than f64. The residual 2.16x at 1 M is the large-grid
+FFT, where mumax3's transform pipeline is still ~1.7x more efficient -- a deeper
+target (padding/plan scheme). 100 GPU unit tests pass throughout.
 
 ![throughput](perf/perf_throughput.png)
 

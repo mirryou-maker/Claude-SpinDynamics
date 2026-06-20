@@ -47,6 +47,9 @@ static inline GREAL_CUFFT_COMPLEX* as_cx(void* p) {
 static inline const GREAL_CUFFT_COMPLEX* as_cxc(const void* p) {
     return reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(p);
 }
+static inline const GREAL_CUFFT_REAL* as_realc(const void* p) {
+    return reinterpret_cast<const GREAL_CUFFT_REAL*>(p);
+}
 
 // ===========================================================================
 // GPU Newell tensor ??device functions
@@ -202,20 +205,19 @@ __global__ static void fill_offdiag_gpu(
 #undef GPU_PUT
 
 // ===========================================================================
-// P11: float32 helper — convert cufftDoubleComplex[] to cufftComplex[] in-place.
-// Used only during precompute_kernel() to downcast the D2Z FFT output to
-// the GReal-typed kernel storage buffers (d_K_xx_ etc.).
-// No-op in double mode (sizes match, plain memcpy suffices).
-#ifdef MICROMAG_FLOAT32
-__global__ static void dc_to_fc(cufftComplex* __restrict__ dst,
+// Extract the REAL part of the (double-complex) kernel FFT into the GReal-typed
+// REAL kernel storage (d_K_xx_ etc.).  The demag kernel FFTs are purely real:
+// the diagonal components are even in all axes (cosine transform -> real) and
+// the off-diagonals are odd-odd-even (i*i -> real), so the imaginary parts are
+// zero and dropping them is exact.  Storing real (not complex) kernels halves
+// both the kernel VRAM and the pointwise-MAC read bandwidth.
+__global__ static void dc_to_real(GREAL_CUFFT_REAL* __restrict__ dst,
                                   const cufftDoubleComplex* __restrict__ src,
                                   size_t N) {
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
-    dst[i].x = static_cast<float>(src[i].x);
-    dst[i].y = static_cast<float>(src[i].y);
+    dst[i] = static_cast<GREAL_CUFFT_REAL>(src[i].x);
 }
-#endif
 
 // ===========================================================================
 // CUDA kernel: combined H = Ka*Ma + Kb*Mb + Kc*Mc for all 3 output components
@@ -223,41 +225,39 @@ __global__ static void dc_to_fc(cufftComplex* __restrict__ dst,
 // MF_all layout: [Mx_f (N bins) | My_f (N bins) | Mz_f (N bins)]
 // HF_all layout: [Hx_f (N bins) | Hy_f (N bins) | Hz_f (N bins)]
 // ===========================================================================
+// Real (symmetry-reduced) kernels: each K is a real scalar, so K*M just scales
+// the complex M bin (no cross terms) — half the kernel read bandwidth and
+// fewer flops than the old complex*complex multiply.
 __global__ static void pointwise_mac_all3(
     GREAL_CUFFT_COMPLEX* __restrict__ HF_all,
-    const GREAL_CUFFT_COMPLEX* __restrict__ Kxx,
-    const GREAL_CUFFT_COMPLEX* __restrict__ Kxy,
-    const GREAL_CUFFT_COMPLEX* __restrict__ Kxz,
-    const GREAL_CUFFT_COMPLEX* __restrict__ Kyy,
-    const GREAL_CUFFT_COMPLEX* __restrict__ Kyz,
-    const GREAL_CUFFT_COMPLEX* __restrict__ Kzz,
+    const GREAL_CUFFT_REAL* __restrict__ Kxx,
+    const GREAL_CUFFT_REAL* __restrict__ Kxy,
+    const GREAL_CUFFT_REAL* __restrict__ Kxz,
+    const GREAL_CUFFT_REAL* __restrict__ Kyy,
+    const GREAL_CUFFT_REAL* __restrict__ Kyz,
+    const GREAL_CUFFT_REAL* __restrict__ Kzz,
     const GREAL_CUFFT_COMPLEX* __restrict__ MF_all,
     size_t N)
 {
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
-    // Load M components (one load per component from contiguous regions)
     const GREAL_CUFFT_COMPLEX Mx = MF_all[i];
     const GREAL_CUFFT_COMPLEX My = MF_all[N + i];
     const GREAL_CUFFT_COMPLEX Mz = MF_all[2*N + i];
 
-    auto re = [](const GREAL_CUFFT_COMPLEX& a, const GREAL_CUFFT_COMPLEX& b)
-        { return a.x*b.x - a.y*b.y; };
-    auto im = [](const GREAL_CUFFT_COMPLEX& a, const GREAL_CUFFT_COMPLEX& b)
-        { return a.x*b.y + a.y*b.x; };
+    const GREAL_CUFFT_REAL kxx = Kxx[i], kxy = Kxy[i], kxz = Kxz[i];
+    const GREAL_CUFFT_REAL kyy = Kyy[i], kyz = Kyz[i], kzz = Kzz[i];
 
     // Hx = Kxx*Mx + Kxy*My + Kxz*Mz
-    HF_all[i].x = re(Kxx[i],Mx) + re(Kxy[i],My) + re(Kxz[i],Mz);
-    HF_all[i].y = im(Kxx[i],Mx) + im(Kxy[i],My) + im(Kxz[i],Mz);
-
+    HF_all[i].x       = kxx*Mx.x + kxy*My.x + kxz*Mz.x;
+    HF_all[i].y       = kxx*Mx.y + kxy*My.y + kxz*Mz.y;
     // Hy = Kxy*Mx + Kyy*My + Kyz*Mz
-    HF_all[N+i].x = re(Kxy[i],Mx) + re(Kyy[i],My) + re(Kyz[i],Mz);
-    HF_all[N+i].y = im(Kxy[i],Mx) + im(Kyy[i],My) + im(Kyz[i],Mz);
-
+    HF_all[N+i].x     = kxy*Mx.x + kyy*My.x + kyz*Mz.x;
+    HF_all[N+i].y     = kxy*Mx.y + kyy*My.y + kyz*Mz.y;
     // Hz = Kxz*Mx + Kyz*My + Kzz*Mz
-    HF_all[2*N+i].x = re(Kxz[i],Mx) + re(Kyz[i],My) + re(Kzz[i],Mz);
-    HF_all[2*N+i].y = im(Kxz[i],Mx) + im(Kyz[i],My) + im(Kzz[i],Mz);
+    HF_all[2*N+i].x   = kxz*Mx.x + kyz*My.x + kzz*Mz.x;
+    HF_all[2*N+i].y   = kxz*Mx.y + kyz*My.y + kzz*Mz.y;
 }
 
 // ===========================================================================
@@ -370,13 +370,14 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
                              (int)pad_nz_, (int)pad_ny_, (int)pad_nx_,
                              CUFFT_D2Z));
 
-    // Kernel frequency-domain storage (6 components)
-    CUDA_CHECK(cudaMalloc(&d_K_xx_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
-    CUDA_CHECK(cudaMalloc(&d_K_yy_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
-    CUDA_CHECK(cudaMalloc(&d_K_zz_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
-    CUDA_CHECK(cudaMalloc(&d_K_xy_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
-    CUDA_CHECK(cudaMalloc(&d_K_xz_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
-    CUDA_CHECK(cudaMalloc(&d_K_yz_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
+    // Kernel frequency-domain storage (6 components) — stored REAL (the demag
+    // kernel FFTs are real), so half the bytes of the old complex storage.
+    CUDA_CHECK(cudaMalloc(&d_K_xx_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_yy_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_zz_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_xy_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_xz_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_yz_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
 
     // Step 6a: batch buffers ??all 3 components contiguous
     CUDA_CHECK(cudaMalloc(&d_M_all_,      3 * real_sz_ * sizeof(GReal)));
@@ -393,7 +394,9 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
     CUDA_CHECK(cudaMallocHost(&h_M_compact_pinned_,  3 * unpad_sz_ * sizeof(GReal)));
     CUDA_CHECK(cudaMallocHost(&h_Hunpad_all_pinned_, 3 * unpad_sz_ * sizeof(GReal)));
 
-    // Batch cuFFT plans (cufftPlanMany with batch=3)
+    // Batch cuFFT plans (cufftPlanMany with batch=3).  (A rank-2 plan for the
+    // pad_nz==1 case was tried and gave no speedup — cuFFT already collapses the
+    // leading n[0]=1, so the rank-3 form is kept for simplicity.)
     int n[3] = {(int)pad_nz_, (int)pad_ny_, (int)pad_nx_};
     CUFFT_CHECK(cufftPlanMany(
         &plan_fwd_batch_, 3, n,
@@ -465,23 +468,16 @@ void DemagFieldGPU::precompute_kernel() {
         static_cast<unsigned>(nz_));
 
     // Helper: zero padded buffer, run fill kernel, FFT (always D2Z = double),
-    // then copy/convert to destination d_K_dest (GREAL_CUFFT_COMPLEX typed).
-    // In double mode: plain memcpy (sizes match).
-    // In float32 mode: dc_to_fc conversion kernel (cufftDoubleComplex → cufftComplex).
+    // then extract the REAL part of the FFT into the GReal-typed REAL kernel
+    // storage d_K_dest (the demag kernel FFTs are real; see dc_to_real).
     constexpr int BLK_PRE = 256;
     auto copy_or_convert = [&](void* d_K_dest) {
-#ifdef MICROMAG_FLOAT32
         const int gcx = static_cast<int>((cplx_sz_ + BLK_PRE - 1) / BLK_PRE);
-        dc_to_fc<<<gcx, BLK_PRE, 0, s>>>(
-            reinterpret_cast<cufftComplex*>(d_K_dest),
+        dc_to_real<<<gcx, BLK_PRE, 0, s>>>(
+            reinterpret_cast<GREAL_CUFFT_REAL*>(d_K_dest),
             reinterpret_cast<const cufftDoubleComplex*>(d_c_buf_),
             cplx_sz_);
         CUDA_CHECK(cudaGetLastError());
-#else
-        CUDA_CHECK(cudaMemcpyAsync(d_K_dest, d_c_buf_,
-            cplx_sz_ * sizeof(cufftDoubleComplex),
-            cudaMemcpyDeviceToDevice, s));
-#endif
     };
 
     auto fill_fft_diag = [&](void* d_K_dest, int perm) {
@@ -608,8 +604,8 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     // bins into registers before writing) → no separate d_HF_all_ buffer needed.
     pointwise_mac_all3<<<gcx, BLK, 0, s>>>(
         as_cx(d_MF_all_),
-        as_cxc(d_K_xx_), as_cxc(d_K_xy_), as_cxc(d_K_xz_),
-        as_cxc(d_K_yy_), as_cxc(d_K_yz_), as_cxc(d_K_zz_),
+        as_realc(d_K_xx_), as_realc(d_K_xy_), as_realc(d_K_xz_),
+        as_realc(d_K_yy_), as_realc(d_K_yz_), as_realc(d_K_zz_),
         as_cxc(d_MF_all_),
         cplx_sz_);
     CUDA_CHECK(cudaGetLastError());
@@ -750,8 +746,8 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
         // In-place: H_f overwrites M_f in d_MF_all_ (no separate d_HF_all_).
         pointwise_mac_all3<<<gcx, BLK, 0, s>>>(
             as_cx(d_MF_all_),
-            as_cxc(d_K_xx_), as_cxc(d_K_xy_), as_cxc(d_K_xz_),
-            as_cxc(d_K_yy_), as_cxc(d_K_yz_), as_cxc(d_K_zz_),
+            as_realc(d_K_xx_), as_realc(d_K_xy_), as_realc(d_K_xz_),
+            as_realc(d_K_yy_), as_realc(d_K_yz_), as_realc(d_K_zz_),
             as_cxc(d_MF_all_), cplx_sz_);
         CUDA_CHECK(cudaGetLastError());
     }
