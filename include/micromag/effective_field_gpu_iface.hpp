@@ -19,6 +19,7 @@
 #include "gpu_real.hpp"
 #include "material.hpp"
 #include <vector>
+#include <cuda_runtime.h>
 
 namespace micromag {
 
@@ -54,10 +55,19 @@ public:
     std::size_t size() const { return fields_.size(); }
 
     // Accumulate all fields into d_H_out (must be pre-zeroed by caller).
+    //
+    // Each field runs on its OWN CUDA stream and accumulates in-place
+    // (d_H_out += H_field).  Without a barrier between fields the read-
+    // modify-write of d_H_out races across the independent streams, so some
+    // cells silently lose a field's contribution — worst at high-field
+    // boundary cells, which injects spurious energy dissipation into the LLG
+    // dynamics.  Serialise with a device sync after each field.
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const {
-        for (auto* f : fields_)
+        for (auto* f : fields_) {
             f->accumulate_gpu_ptr(d_m, mat, d_H_out);
+            cudaDeviceSynchronize();
+        }
     }
 
 private:
