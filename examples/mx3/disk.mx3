@@ -1,0 +1,12 @@
+// Geometry demo: a 120 nm permalloy disk relaxed into a vortex.
+SetGridSize(32, 32, 1)
+SetCellSize(4e-9, 4e-9, 5e-9)
+
+Msat  = 800e3
+Aex   = 13e-12
+alpha = 0.5
+
+setgeom(circle(120e-9))     // 120 nm diameter disk (cells outside are empty)
+m = vortex(1, 1)
+minimize()
+save(m)

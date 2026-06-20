@@ -1,0 +1,20 @@
+// Control-flow smoke test: for / if-else / := / ++ / comparison / print.
+SetGridSize(8, 8, 1)
+SetCellSize(5e-9, 5e-9, 5e-9)
+Msat  = 800e3
+Aex   = 13e-12
+alpha = 0.5
+m = uniform(1, 0, 0)
+
+for i := 0; i < 3; i++ {
+    Bz := 0.02 * i
+    B_ext = vector(0, 0, Bz)
+    minimize()
+    tableSave()
+    print("step", i, "Bz(T)", Bz)
+    if Bz > 0.02 {
+        print("  strong field")
+    } else {
+        print("  weak field")
+    }
+}

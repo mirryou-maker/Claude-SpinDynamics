@@ -34,6 +34,15 @@ Solver controls
     MaxErr = <expr>;  MaxDt = <expr>;  MinDt = <expr>
     SetSolver(n)                       # accepted; 5/6 -> adaptive RK45, else RK4
 
+Geometry (CPU backend only — the GPU solver lacks empty-cell handling)
+    setgeom(ellipse(dx, dy) | circle(d) | rect(lx, ly) | square(s) |
+            cylinder(d, h) | cuboid(lx, ly, lz) | ellipsoid(dx, dy, dz))
+
+Control flow (Go-style braces)
+    for init; cond; post { ... }       # e.g. for i := 0; i < N; i++ { ... }
+    if cond { ... } else { ... }
+    operators: < > <= >= == != && || !  and  ++ -- += -= *= /=
+
 Run / relax
     relax()
     minimize()
@@ -74,7 +83,7 @@ _TOKEN_RE = re.compile(r"""
       (?P<NUMBER>\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)
     | (?P<IDENT>[A-Za-z_]\w*)
     | (?P<STRING>"[^"]*")
-    | (?P<OP>:=|[-+*/(),.=])
+    | (?P<OP>:=|\+\+|--|\+=|-=|\*=|/=|==|!=|<=|>=|&&|\|\||[-+*/(){},.<>=!;])
     | (?P<WS>[ \t\r]+)
 """, re.VERBOSE)
 
@@ -122,6 +131,26 @@ def tokenize_line(line: str):
     return toks
 
 
+def tokenize(src):
+    """Tokenize a whole source into one flat token list, emitting NEWLINE
+    statement terminators (suppressed inside unbalanced parentheses so
+    multi-line calls work) and a trailing EOF token."""
+    src = _strip_comments(src)
+    out, depth = [], 0
+    for line in src.split("\n"):
+        lt = tokenize_line(line)
+        for t in lt:
+            if t.kind == "OP" and t.value == "(":
+                depth += 1
+            elif t.kind == "OP" and t.value == ")":
+                depth -= 1
+            out.append(t)
+        if depth <= 0 and lt:
+            out.append(Token("NEWLINE", "\n"))
+    out.append(Token("EOF", None))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Values produced by expression evaluation
 # ---------------------------------------------------------------------------
@@ -163,9 +192,37 @@ class _ExprParser:
         return None
 
     def parse(self):
-        v = self._expr()
+        v = self._or()
         if self.i != len(self.toks):
             raise SyntaxError(f"trailing tokens in expression: {self.toks[self.i:]}")
+        return v
+
+    def _or(self):
+        v = self._and()
+        while self._peek() and self._peek().value == "||":
+            self._next(); r = self._and()
+            v = 1.0 if (_truth(v) or _truth(r)) else 0.0
+        return v
+
+    def _and(self):
+        v = self._equality()
+        while self._peek() and self._peek().value == "&&":
+            self._next(); r = self._equality()
+            v = 1.0 if (_truth(v) and _truth(r)) else 0.0
+        return v
+
+    def _equality(self):
+        v = self._relational()
+        while self._peek() and self._peek().value in ("==", "!="):
+            op = self._next().value; r = self._relational()
+            v = 1.0 if ((v == r) == (op == "==")) else 0.0
+        return v
+
+    def _relational(self):
+        v = self._expr()
+        while self._peek() and self._peek().value in ("<", ">", "<=", ">="):
+            op = self._next().value; r = self._expr()
+            v = 1.0 if _cmp(op, v, r) else 0.0
         return v
 
     def _expr(self):           # additive
@@ -198,6 +255,9 @@ class _ExprParser:
         if t and t.kind == "OP" and t.value == "+":
             self._next()
             return self._unary()
+        if t and t.kind == "OP" and t.value == "!":
+            self._next()
+            return 0.0 if _truth(self._unary()) else 1.0
         return self._atom()
 
     def _atom(self):
@@ -247,7 +307,14 @@ def _is_num(v):
 
 def _binop(op, a, b):
     if _is_num(a) and _is_num(b):
-        return {"+": a + b, "-": a - b, "*": a * b, "/": a / b}[op]
+        if op == "+":
+            return a + b
+        if op == "-":
+            return a - b
+        if op == "*":
+            return a * b
+        if op == "/":
+            return a / b
     raise TypeError(f"cannot apply '{op}' to {a!r}, {b!r}")
 
 
@@ -255,6 +322,14 @@ def _neg(a):
     if _is_num(a):
         return -a
     raise TypeError(f"cannot negate {a!r}")
+
+
+def _truth(v):
+    return bool(v) if not _is_num(v) else v != 0.0
+
+
+def _cmp(op, a, b):
+    return {"<": a < b, ">": a > b, "<=": a <= b, ">=": a >= b}[op]
 
 
 def _call_func(name, args):
@@ -265,6 +340,9 @@ def _call_func(name, args):
     if name in ("uniform", "vortex", "random", "randommag", "twodomain",
                 "neelskyrmion", "blochskyrmion"):
         return Config(name, args)
+    if name in ("ellipse", "circle", "rect", "cylinder", "square",
+                "cuboid", "ellipsoid"):
+        return Config("shape:" + name, args)
     fn = _MATH_FUNCS.get(name)
     if fn is not None:
         return fn(*args)
@@ -315,6 +393,8 @@ class Engine:
         # built objects (lazy)
         self._fields_built = False
         self._demag = self._exch = self._aniso = self._dmi = self._zeeman = None
+        self._dmi_bulk = None
+        self.geom_mask = None       # optional GeomMask (setgeom)
 
         # time + outputs
         self.t = 0.0
@@ -345,6 +425,48 @@ class Engine:
         if self.grid is None:
             raise RuntimeError("grid not defined — call SetGridSize and SetCellSize first")
 
+    # -- geometry ----------------------------------------------------------
+    def set_geom(self, cfg):
+        self._require_grid()
+        mask = self._build_mask(cfg)
+        if self.gpu:
+            # The GPU solver normalises every cell, so empty (m=0) cells blow up
+            # to NaN. Geometry needs the CPU backend (its normalize() skips them).
+            _warn("setgeom: geometry is only supported on the CPU backend; "
+                  "ignoring geometry — re-run with gpu=False for masked shapes")
+            return
+        self.geom_mask = mask
+        if self.m is not None:
+            self._apply_geom()
+
+    def _build_mask(self, cfg):
+        g = self.grid
+        if not (isinstance(cfg, Config) and cfg.kind.startswith("shape:")):
+            raise TypeError("setgeom expects a shape, e.g. ellipse(dx, dy)")
+        shape = cfg.kind.split(":", 1)[1]
+        a = cfg.args
+        # mumax3 shapes take full diameters/lengths; micromag ellipse/circle/
+        # cylinder use semi-axes/radii, so halve those.
+        if shape == "ellipse":
+            return mm.ellipse(g, a[0] / 2, a[1] / 2)
+        if shape == "circle":
+            return mm.circle(g, a[0] / 2)
+        if shape == "cylinder":
+            return mm.cylinder(g, a[0] / 2, a[1])
+        if shape == "ellipsoid":
+            return mm.ellipsoid(g, a[0] / 2, a[1] / 2, a[2] / 2)
+        if shape == "rect":
+            return mm.rect(g, a[0], a[1])
+        if shape == "square":
+            return mm.square(g, a[0])
+        if shape == "cuboid":
+            return mm.cuboid(g, a[0], a[1], a[2])
+        raise ValueError(f"unsupported shape '{shape}'")
+
+    def _apply_geom(self):
+        if self.geom_mask is not None:
+            self.m.apply_mask(self.geom_mask)
+
     # -- fields ------------------------------------------------------------
     def _build_fields(self):
         if self._fields_built:
@@ -359,6 +481,7 @@ class Engine:
             self._aniso = mm.UniaxialAnisotropyFieldGPU(g)
             self._zeeman = mm.ZeemanFieldGPU(g, mm.Vec3(0, 0, 0))
             self._dmi = mm.InterfacialDMIFieldGPU(g, 0.0)
+            self._dmi_bulk = mm.BulkDMIFieldGPU(g, 0.0)
         else:
             # CPU fields are stateless w.r.t. the grid (read it from the field
             # at accumulate time); only demag needs the grid for FFT setup.
@@ -368,6 +491,7 @@ class Engine:
             self._aniso = mm.UniaxialAnisotropyField()
             self._zeeman = mm.ZeemanField(mm.Vec3(0, 0, 0))
             self._dmi = mm.InterfacialDMIField(0.0)
+            self._dmi_bulk = mm.BulkDMIField(0.0)
         self._fields_built = True
 
     def _sync_params(self):
@@ -380,12 +504,16 @@ class Engine:
         _set(self._zeeman, "H_ext", "set_H_ext", H)
         # DMI strength (D is a read/write property)
         _set(self._dmi, "D", "set_D", self.dind)
+        _set(self._dmi_bulk, "D", "set_D", self.dbulk)
 
     def _active_fields(self):
         """Return (demag_or_None, field_sum_or_effsum) with current params synced."""
         self._build_fields()
         self._sync_params()
+        if self.geom_mask is not None:
+            _call_method(self._exch, "set_mask", self.geom_mask)   # CPU only; GPU no-op
         use_dmi = abs(self.dind) > 0
+        use_bulk = abs(self.dbulk) > 0
         use_ani = abs(self.ku1) > 0
         if self.gpu:
             fs = mm.FieldSumGPU()
@@ -394,6 +522,8 @@ class Engine:
                 fs.add(self._aniso)
             if use_dmi:
                 fs.add(self._dmi)
+            if use_bulk:
+                fs.add(self._dmi_bulk)
             fs.add(self._zeeman)
             demag = self._demag if self.enable_demag else None
             return demag, fs
@@ -406,6 +536,8 @@ class Engine:
                 fs.add(self._aniso)
             if use_dmi:
                 fs.add(self._dmi)
+            if use_bulk:
+                fs.add(self._dmi_bulk)
             fs.add(self._zeeman)
             return None, fs
 
@@ -435,6 +567,7 @@ class Engine:
             _warn(f"m = {k}(...) approximated as uniform +z (use micromag skyrmion helpers for exact)")
         else:
             _warn(f"unsupported m initialiser '{k}', leaving m unchanged")
+        self._apply_geom()
 
     def _set_random(self):
         import numpy as np
@@ -618,6 +751,18 @@ class Engine:
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
+def _call_method(obj, method, *args):
+    """Call obj.method(*args) if it exists; return False if absent/failed."""
+    fn = getattr(obj, method, None)
+    if callable(fn):
+        try:
+            fn(*args)
+            return True
+        except Exception:
+            return False
+    return False
+
+
 def _set(obj, prop, method, val):
     """Set a value via a pybind property (preferred) or a setter method."""
     try:
@@ -668,39 +813,79 @@ class Interpreter:
         self.env = {}            # user variables (name := expr)
 
     def run_source(self, src):
-        for lineno, line in _logical_lines(src):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                self._exec_stmt(line)
-            except Exception as e:
-                _warn(f"line {lineno}: {type(e).__name__}: {e}  [{line}]")
+        try:
+            nodes = _Parser(tokenize(src)).parse_program()
+        except Exception as e:
+            _warn(f"parse error: {type(e).__name__}: {e}")
+            return
+        self._exec_block(nodes)
 
-    def _exec_stmt(self, line):
-        toks = tokenize_line(line)
-        if not toks:
-            return
-        # assignment:  IDENT (= | :=) expr
-        if len(toks) >= 2 and toks[0].kind == "IDENT" and toks[1].kind == "OP" \
-                and toks[1].value in ("=", ":="):
-            self._do_assign(toks[0].value, toks[1].value, toks[2:])
-            return
-        # call:  IDENT ( ... )
-        if len(toks) >= 2 and toks[0].kind == "IDENT" and toks[1].kind == "OP" \
-                and toks[1].value == "(":
-            inner = _matched_inner(toks, 1)
-            self._do_call(toks[0].value, inner)
-            return
-        # method call:  IDENT . IDENT ( ... )
-        if len(toks) >= 4 and toks[0].kind == "IDENT" and toks[1].value == "." \
-                and toks[2].kind == "IDENT" and toks[3].value == "(":
-            _warn(f"method call '{toks[0].value}.{toks[2].value}(...)' not supported, skipped")
-            return
-        _warn(f"unrecognised statement: {line}")
+    def _exec_block(self, nodes):
+        for node in nodes:
+            try:
+                self._exec_node(node)
+            except Exception as e:
+                _warn(f"{type(e).__name__}: {e}  [{_node_str(node)}]")
+
+    def _exec_node(self, node):
+        kind = node[0]
+        if kind == "assign":
+            self._do_assign(node[1], node[2], node[3])
+        elif kind == "call":
+            self._do_call(node[1], node[2])
+        elif kind == "for":
+            self._exec_for(node)
+        elif kind == "if":
+            self._exec_if(node)
+        elif kind == "method":
+            _warn(f"method call '{node[1]}.{node[2]}(...)' not supported, skipped")
+        elif kind == "nop":
+            pass
+        else:
+            _warn(f"unrecognised statement: {_node_str(node)}")
+
+    def _exec_for(self, node):
+        _, init, cond, post, body = node
+        self._exec_node(init)
+        guard = 0
+        while _truth(eval_expr(cond, self.env)):
+            self._exec_block(body)
+            self._exec_node(post)
+            guard += 1
+            if guard > 1_000_000:
+                _warn("for loop exceeded 1e6 iterations, aborting")
+                break
+
+    def _exec_if(self, node):
+        _, cond, then_body, else_body = node
+        if _truth(eval_expr(cond, self.env)):
+            self._exec_block(then_body)
+        else:
+            self._exec_block(else_body)
+
+    def _get_var(self, name):
+        if name in self.env:
+            return self.env[name]
+        e = self.eng
+        return {"msat": e.mat.Ms, "aex": e.aex, "alpha": e.mat.alpha,
+                "ku1": e.ku1, "dind": e.dind, "dbulk": e.dbulk,
+                "maxerr": e.maxerr, "maxdt": e.maxdt, "mindt": e.mindt}.get(name, 0.0)
 
     def _do_assign(self, name, op, rhs_toks):
+        if op in ("++", "--"):
+            self.env[name] = self._get_var(name) + (1.0 if op == "++" else -1.0)
+            return
         val = eval_expr(rhs_toks, self.env)
+        if op in ("+=", "-=", "*=", "/="):
+            cur = self._get_var(name)
+            if op == "+=":
+                val = cur + val
+            elif op == "-=":
+                val = cur - val
+            elif op == "*=":
+                val = cur * val
+            else:
+                val = cur / val
         e = self.eng
         if name == "msat":
             e.mat.Ms = float(val)
@@ -716,7 +901,6 @@ class Interpreter:
             e.dind = float(val)
         elif name == "dbulk":
             e.dbulk = float(val)
-            _warn("Dbulk (bulk DMI) not yet wired; interfacial DMI (Dind) is supported")
         elif name == "b_ext":
             e.bext = tuple(val) if isinstance(val, Vec) else (0, 0, 0)
         elif name == "enabledemag":
@@ -758,8 +942,9 @@ class Interpreter:
             e.table_save()
         elif name == "tableautosave":
             e.add_tableautosave(float(args[0]))
-        elif name in ("setgeom", "defregion", "setregion", "edgesmooth",
-                      "tablesaveafter"):
+        elif name == "setgeom":
+            e.set_geom(args[0])
+        elif name in ("defregion", "setregion", "edgesmooth", "tablesaveafter"):
             _warn(f"'{name}(...)' not supported, skipped")
         else:
             _warn(f"unknown command '{name}(...)', skipped")
@@ -809,6 +994,156 @@ def _first_string(arg_groups):
             if t.kind == "STRING":
                 return t.value
     return None
+
+
+# ---------------------------------------------------------------------------
+# Statement parser — token stream -> statement AST (supports for / if / else)
+# ---------------------------------------------------------------------------
+class _Parser:
+    def __init__(self, toks):
+        self.toks = toks
+        self.i = 0
+
+    def _peek(self):
+        return self.toks[self.i]
+
+    def _next(self):
+        t = self.toks[self.i]
+        self.i += 1
+        return t
+
+    def _skip_terms(self):
+        while self._peek().kind == "NEWLINE" or \
+                (self._peek().kind == "OP" and self._peek().value == ";"):
+            self.i += 1
+
+    def parse_program(self):
+        stmts = []
+        self._skip_terms()
+        while self._peek().kind != "EOF":
+            stmts.append(self._statement())
+            self._skip_terms()
+        return stmts
+
+    def _block(self):
+        if not (self._peek().kind == "OP" and self._peek().value == "{"):
+            raise SyntaxError("expected '{'")
+        self._next()
+        stmts = []
+        self._skip_terms()
+        while not (self._peek().kind == "OP" and self._peek().value == "}"):
+            if self._peek().kind == "EOF":
+                raise SyntaxError("unclosed '{'")
+            stmts.append(self._statement())
+            self._skip_terms()
+        self._next()                       # consume '}'
+        return stmts
+
+    def _statement(self):
+        t = self._peek()
+        if t.kind == "IDENT" and t.value == "for":
+            return self._for()
+        if t.kind == "IDENT" and t.value == "if":
+            return self._if()
+        return _parse_simple(self._collect())
+
+    def _collect(self):
+        """Collect tokens until a top-level NEWLINE / ';' / '}' terminator."""
+        toks, depth = [], 0
+        while True:
+            t = self._peek()
+            if t.kind == "EOF":
+                break
+            if depth == 0 and (t.kind == "NEWLINE" or
+                               (t.kind == "OP" and t.value in (";", "}"))):
+                break
+            if t.kind == "OP" and t.value == "(":
+                depth += 1
+            elif t.kind == "OP" and t.value == ")":
+                depth -= 1
+            toks.append(self._next())
+        return toks
+
+    def _header(self):
+        """Collect tokens up to the top-level '{' that opens a block."""
+        toks, depth = [], 0
+        while True:
+            t = self._peek()
+            if t.kind == "EOF":
+                raise SyntaxError("expected '{'")
+            if depth == 0 and t.kind == "OP" and t.value == "{":
+                break
+            if t.kind == "OP" and t.value == "(":
+                depth += 1
+            elif t.kind == "OP" and t.value == ")":
+                depth -= 1
+            toks.append(self._next())
+        return toks
+
+    def _for(self):
+        self._next()                       # 'for'
+        header = self._header()
+        body = self._block()
+        parts = _split_semicolons(header)
+        if len(parts) == 3:
+            return ("for", _parse_simple(parts[0]), parts[1],
+                    _parse_simple(parts[2]), body)
+        if len(parts) == 1:                # for <cond> { ... }
+            return ("for", ("nop",), parts[0], ("nop",), body)
+        raise SyntaxError("malformed 'for' header")
+
+    def _if(self):
+        self._next()                       # 'if'
+        cond = self._header()
+        then_body = self._block()
+        else_body = []
+        save = self.i
+        self._skip_terms()
+        if self._peek().kind == "IDENT" and self._peek().value == "else":
+            self._next()
+            self._skip_terms()
+            if self._peek().kind == "IDENT" and self._peek().value == "if":
+                else_body = [self._if()]
+            else:
+                else_body = self._block()
+        else:
+            self.i = save                  # no else — don't swallow terminators
+        return ("if", cond, then_body, else_body)
+
+
+def _split_semicolons(toks):
+    groups, cur, depth = [], [], 0
+    for t in toks:
+        if t.kind == "OP" and t.value == "(":
+            depth += 1; cur.append(t)
+        elif t.kind == "OP" and t.value == ")":
+            depth -= 1; cur.append(t)
+        elif t.kind == "OP" and t.value == ";" and depth == 0:
+            groups.append(cur); cur = []
+        else:
+            cur.append(t)
+    groups.append(cur)
+    return groups
+
+
+def _parse_simple(toks):
+    if not toks:
+        return ("nop",)
+    if len(toks) == 2 and toks[0].kind == "IDENT" and toks[1].value in ("++", "--"):
+        return ("assign", toks[0].value, toks[1].value, [])
+    if len(toks) >= 2 and toks[0].kind == "IDENT" and toks[1].kind == "OP" \
+            and toks[1].value in ("=", ":=", "+=", "-=", "*=", "/="):
+        return ("assign", toks[0].value, toks[1].value, toks[2:])
+    if len(toks) >= 2 and toks[0].kind == "IDENT" and toks[1].value == "(":
+        return ("call", toks[0].value, _matched_inner(toks, 1))
+    if len(toks) >= 4 and toks[0].kind == "IDENT" and toks[1].value == "." \
+            and toks[2].kind == "IDENT" and toks[3].value == "(":
+        return ("method", toks[0].value, toks[2].value, _matched_inner(toks, 3))
+    return ("unknown", toks)
+
+
+def _node_str(node):
+    return f"<{node[0]} {node[1] if len(node) > 1 else ''}>"
 
 
 def _logical_lines(src):
