@@ -26,12 +26,15 @@ namespace {
 void torque_field(const VectorField3D& m, const VectorField3D& H,
                   const Material& mat, const MaterialField3D* matf,
                   VectorField3D& out) {
+    const Index N = m.size();
     if (matf) {
-        for (Index i = 0; i < m.size(); ++i)
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (Index i = 0; i < N; ++i)
             out[i] = llg_torque(m[i], H[i], matf->alpha(i));
     } else {
         const Real alpha = mat.alpha;
-        for (Index i = 0; i < m.size(); ++i)
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (Index i = 0; i < N; ++i)
             out[i] = llg_torque(m[i], H[i], alpha);
     }
 }
@@ -39,7 +42,9 @@ void torque_field(const VectorField3D& m, const VectorField3D& H,
 // out[i] = base[i] + scale * k[i]
 void axpy(const VectorField3D& base, Real scale,
           const VectorField3D& k, VectorField3D& out) {
-    for (Index i = 0; i < base.size(); ++i)
+    const Index N = base.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i)
         out[i] = base[i] + k[i] * scale;
 }
 
@@ -75,7 +80,9 @@ void RK4Integrator::step(VectorField3D& m, const Material& mat,
     if (stt) stt->accumulate(*m_tmp_, mat, *k4_);
 
     const Real c = h / 6.0;
-    for (Index i = 0; i < m.size(); ++i)
+    const Index N = m.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i)
         m[i] += (*k1_)[i] * c
               + (*k2_)[i] * (2 * c)
               + (*k3_)[i] * (2 * c)
@@ -107,7 +114,9 @@ namespace {
 // in-place: out[i] = a + scale*k
 void axpy_rk45(VectorField3D& out, const VectorField3D& a,
                Real s, const VectorField3D& k) {
-    for (Index i = 0; i < a.size(); ++i)
+    const Index N = a.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i)
         out[i] = a[i] + k[i] * s;
 }
 
@@ -118,7 +127,9 @@ void multi_axpy(VectorField3D& out, const VectorField3D& base,
                 Real c2, const VectorField3D& k2,
                 Real c3, const VectorField3D& k3) {
     const Real hc1 = h * c1, hc2 = h * c2, hc3 = h * c3;
-    for (Index i = 0; i < base.size(); ++i)
+    const Index N = base.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i)
         out[i] = base[i] + k1[i]*hc1 + k2[i]*hc2 + k3[i]*hc3;
 }
 void multi_axpy4(VectorField3D& out, const VectorField3D& base,
@@ -128,7 +139,9 @@ void multi_axpy4(VectorField3D& out, const VectorField3D& base,
                  Real c3, const VectorField3D& k3,
                  Real c4, const VectorField3D& k4) {
     const Real hc1=h*c1, hc2=h*c2, hc3=h*c3, hc4=h*c4;
-    for (Index i = 0; i < base.size(); ++i)
+    const Index N = base.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i)
         out[i] = base[i] + k1[i]*hc1 + k2[i]*hc2 + k3[i]*hc3 + k4[i]*hc4;
 }
 void multi_axpy5(VectorField3D& out, const VectorField3D& base,
@@ -139,7 +152,9 @@ void multi_axpy5(VectorField3D& out, const VectorField3D& base,
                  Real c4, const VectorField3D& k4,
                  Real c5, const VectorField3D& k5) {
     const Real hc1=h*c1, hc2=h*c2, hc3=h*c3, hc4=h*c4, hc5=h*c5;
-    for (Index i = 0; i < base.size(); ++i)
+    const Index N = base.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i)
         out[i] = base[i] + k1[i]*hc1 + k2[i]*hc2 + k3[i]*hc3
                + k4[i]*hc4 + k5[i]*hc5;
 }
@@ -169,6 +184,7 @@ Real RK45Integrator::error_norm(const VectorField3D& m,
                                  const VectorField3D& e) const {
     Real sum = 0.0;
     const Index N = m.size();
+    #pragma omp parallel for schedule(static) reduction(+:sum) if(N > 4096)
     for (Index i = 0; i < N; ++i) {
         for (int c = 0; c < 3; ++c) {
             const Real mi  = (&m[i].x)[c];
@@ -186,6 +202,7 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
                             const EffectiveFieldSum& heff,
                             const SpinTorqueSum* stt) {
     ensure_scratch(m.grid());
+    const Index N = m.size();   // for OpenMP-parallelised per-cell stage loops
 
     // FSAL: k1 was already computed as stage-7 of the previous accepted step.
     // Recompute only on the very first call or after a rejected step.
@@ -205,7 +222,8 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
         if (stt) stt->accumulate(*m_tmp_, mat, *k2_);
 
         // --- Stage 3 ---
-        for (Index i = 0; i < m.size(); ++i)
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (Index i = 0; i < N; ++i)
             (*m_tmp_)[i] = m[i] + (*k1_)[i]*(h*3.0/40.0)
                                  + (*k2_)[i]*(h*9.0/40.0);
         heff.compute(*m_tmp_, mat, *H_);
@@ -213,7 +231,8 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
         if (stt) stt->accumulate(*m_tmp_, mat, *k3_);
 
         // --- Stage 4 ---
-        for (Index i = 0; i < m.size(); ++i)
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (Index i = 0; i < N; ++i)
             (*m_tmp_)[i] = m[i] + (*k1_)[i]*(h*44.0/45.0)
                                  + (*k2_)[i]*(h*(-56.0/15.0))
                                  + (*k3_)[i]*(h*32.0/9.0);
@@ -222,7 +241,8 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
         if (stt) stt->accumulate(*m_tmp_, mat, *k4_);
 
         // --- Stage 5 ---
-        for (Index i = 0; i < m.size(); ++i)
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (Index i = 0; i < N; ++i)
             (*m_tmp_)[i] = m[i] + (*k1_)[i]*(h*19372.0/6561.0)
                                  + (*k2_)[i]*(h*(-25360.0/2187.0))
                                  + (*k3_)[i]*(h*64448.0/6561.0)
@@ -232,7 +252,8 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
         if (stt) stt->accumulate(*m_tmp_, mat, *k5_);
 
         // --- Stage 6 ---
-        for (Index i = 0; i < m.size(); ++i)
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (Index i = 0; i < N; ++i)
             (*m_tmp_)[i] = m[i] + (*k1_)[i]*(h*9017.0/3168.0)
                                  + (*k2_)[i]*(h*(-355.0/33.0))
                                  + (*k3_)[i]*(h*46732.0/5247.0)
@@ -243,7 +264,8 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
         if (stt) stt->accumulate(*m_tmp_, mat, *k6_);
 
         // --- 5th-order solution m5 ---
-        for (Index i = 0; i < m.size(); ++i)
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (Index i = 0; i < N; ++i)
             (*m5_)[i] = m[i] + (*k1_)[i]*(h*35.0/384.0)
                               + (*k3_)[i]*(h*500.0/1113.0)
                               + (*k4_)[i]*(h*125.0/192.0)
@@ -256,7 +278,8 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
         if (stt) stt->accumulate(*m5_, mat, *k7_);
 
         // --- Error estimate: err = h*(e1*k1+e3*k3+e4*k4+e5*k5+e6*k6+e7*k7) ---
-        for (Index i = 0; i < m.size(); ++i)
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (Index i = 0; i < N; ++i)
             (*err_)[i] = (*k1_)[i]*(h*71.0/57600.0)
                        + (*k3_)[i]*(h*(-71.0/16695.0))
                        + (*k4_)[i]*(h*71.0/1920.0)
@@ -320,6 +343,7 @@ void HeunIntegrator::step(VectorField3D& m, const Material& mat,
                            const SpinTorqueSum*     stt) {
     ensure_scratch(m.grid());
     const Real h = dt_;
+    const Index N = m.size();
 
     // ---- Generate new thermal noise η^n (once per step) ----
     if (thermal) thermal->resample(mat);
@@ -334,7 +358,8 @@ void HeunIntegrator::step(VectorField3D& m, const Material& mat,
     if (stt) stt->accumulate(m, mat, *k1_);
 
     // m_pred = normalize(m + h*k1)
-    for (Index i = 0; i < m.size(); ++i)
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i)
         (*m_pred_)[i] = m[i] + (*k1_)[i] * h;
     m_pred_->normalize();
 
@@ -349,7 +374,8 @@ void HeunIntegrator::step(VectorField3D& m, const Material& mat,
 
     // m = normalize(m + h/2*(k1+k2))
     const Real hh = h * 0.5;
-    for (Index i = 0; i < m.size(); ++i)
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i)
         m[i] = m[i] + ((*k1_)[i] + (*k2_)[i]) * hh;
     m.normalize();
 }

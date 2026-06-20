@@ -320,13 +320,18 @@ void DemagField::accumulate(const VectorField3D& m,
     // Step 1: pack Mx/My/Mz into the 3-component real buffer (zero-padded).
     // r_buf_3_ layout: [Mx_padded | My_padded | Mz_padded]
     std::fill(r_buf_3_.begin(), r_buf_3_.end(), 0.0);
-    for (Index kz = 0; kz < nz_; ++kz)
-    for (Index ky = 0; ky < ny_; ++ky)
-    for (Index kx = 0; kx < nx_; ++kx) {
-        const std::size_t src = static_cast<std::size_t>(kx + nx_ * (ky + ny_ * kz));
+    // Flattened over the unpadded grid (src == linear index) so OpenMP scales
+    // on thin-z grids; each iteration writes its own padded dst → race-free.
+    const Index Ncells = nx_ * ny_ * nz_;
+    #pragma omp parallel for schedule(static) if(Ncells > 4096)
+    for (Index src = 0; src < Ncells; ++src) {
+        const Index kx   = src % nx_;
+        const Index trow = src / nx_;
+        const Index ky   = trow % ny_;
+        const Index kz   = trow / ny_;
         const std::size_t dst = static_cast<std::size_t>(kx + pad_nx_ * (ky + pad_ny_ * kz));
-        const Vec3&  v       = m[static_cast<Index>(src)];
-        const double Ms_cell = matf_ ? matf_->Ms(static_cast<Index>(src)) : Ms;
+        const Vec3&  v       = m[src];
+        const double Ms_cell = matf_ ? matf_->Ms(src) : Ms;
         r_buf_3_[dst]                 = Ms_cell * v.x;
         r_buf_3_[real_size  + dst]    = Ms_cell * v.y;
         r_buf_3_[2*real_size + dst]   = Ms_cell * v.z;
@@ -338,7 +343,8 @@ void DemagField::accumulate(const VectorField3D& m,
 
     // Step 3: pointwise tensor multiply  H_f = -N * M_f  (all 3 rows at once).
     // Read Mx/My/Mz before overwriting (in-place within c_buf_3_).
-    for (std::size_t i = 0; i < c_total; ++i) {
+    #pragma omp parallel for schedule(static) if(c_total > 4096)
+    for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(c_total); ++i) {
         const std::complex<double> Mx = c_buf_3_[i];
         const std::complex<double> My = c_buf_3_[c_total     + i];
         const std::complex<double> Mz = c_buf_3_[2*c_total   + i];
@@ -352,11 +358,16 @@ void DemagField::accumulate(const VectorField3D& m,
     fftw_execute(reinterpret_cast<fftw_plan>(plan_inv_3_));
 
     // Step 5: unpack and accumulate into H_out (all 3 components, one loop).
-    for (Index kz = 0; kz < nz_; ++kz)
-    for (Index ky = 0; ky < ny_; ++ky)
-    for (Index kx = 0; kx < nx_; ++kx) {
+    // Flattened over the unpadded grid (dst == linear index); each iteration
+    // writes its own H_out[dst] → race-free under OpenMP.
+    const Index Ncells2 = nx_ * ny_ * nz_;
+    #pragma omp parallel for schedule(static) if(Ncells2 > 4096)
+    for (Index dst = 0; dst < Ncells2; ++dst) {
+        const Index kx   = dst % nx_;
+        const Index trow = dst / nx_;
+        const Index ky   = trow % ny_;
+        const Index kz   = trow / ny_;
         const std::size_t src = static_cast<std::size_t>(kx + pad_nx_ * (ky + pad_ny_ * kz));
-        const Index       dst = kx + nx_ * (ky + ny_ * kz);
         H_out[dst].x += r_buf_3_[src]                  * norm_factor;
         H_out[dst].y += r_buf_3_[real_size   + src]    * norm_factor;
         H_out[dst].z += r_buf_3_[2*real_size + src]    * norm_factor;

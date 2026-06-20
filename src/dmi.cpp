@@ -20,10 +20,14 @@ void BulkDMIField::accumulate(const VectorField3D& m,
     const StructuredGrid& g = m.grid();
     const Real prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
 
-    for (Index iz = 0; iz < g.nz(); ++iz)
-    for (Index iy = 0; iy < g.ny(); ++iy)
-    for (Index ix = 0; ix < g.nx(); ++ix) {
-        const Index idx = g.linear_index(ix, iy, iz);
+    const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
+    const Index Ntot = nx * ny * nz;
+    #pragma omp parallel for schedule(static) if(Ntot > 4096)
+    for (Index idx = 0; idx < Ntot; ++idx) {
+        const Index ix   = idx % nx;
+        const Index trow = idx / nx;
+        const Index iy   = trow % ny;
+        const Index iz   = trow / ny;
         Vec3 gx = grad_x(m, g, ix, iy, iz);
         Vec3 gy = grad_y(m, g, ix, iy, iz);
         Vec3 gz = grad_z(m, g, ix, iy, iz);
@@ -85,10 +89,14 @@ void InterfacialDMIField::accumulate(const VectorField3D& m,
     const StructuredGrid& g = m.grid();
     const Real prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
 
-    for (Index iz = 0; iz < g.nz(); ++iz)
-    for (Index iy = 0; iy < g.ny(); ++iy)
-    for (Index ix = 0; ix < g.nx(); ++ix) {
-        const Index idx = g.linear_index(ix, iy, iz);
+    const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
+    const Index Ntot = nx * ny * nz;
+    #pragma omp parallel for schedule(static) if(Ntot > 4096)
+    for (Index idx = 0; idx < Ntot; ++idx) {
+        const Index ix   = idx % nx;
+        const Index trow = idx / nx;
+        const Index iy   = trow % ny;
+        const Index iz   = trow / ny;
         Vec3 gx = grad_x(m, g, ix, iy, iz);
         Vec3 gy = grad_y(m, g, ix, iy, iz);
         Vec3 H_dmi{ gx.z, gy.z, -(gx.x + gy.y) };

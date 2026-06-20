@@ -81,15 +81,20 @@ void SurfaceAnisotropyField::accumulate(const VectorField3D& m,
     // H_s = (2 Ks / (mu0 * Ms * t)) * (m · n_hat) * n_hat
     const Real prefac = Real{2} * Ks_ / (mu0 * Ms * t);
 
-    for (Index iz = 0; iz < g.nz(); ++iz)
-    for (Index iy = 0; iy < g.ny(); ++iy)
-    for (Index ix = 0; ix < g.nx(); ++ix) {
+    const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
+    const Index Ntot = nx * ny * nz;
+    #pragma omp parallel for schedule(static) if(Ntot > 4096)
+    for (Index idx = 0; idx < Ntot; ++idx) {
+        const Index ix   = idx % nx;
+        const Index trow = idx / nx;
+        const Index iy   = trow % ny;
+        const Index iz   = trow / ny;
         if (!is_surface_cell(g, ix, iy, iz)) continue;
-        if (mask_ && (*mask_)[g.linear_index(ix,iy,iz)] < Real{0.5}) continue;
+        if (mask_ && (*mask_)[idx] < Real{0.5}) continue;
 
-        const Vec3& mi = m[g.linear_index(ix, iy, iz)];
+        const Vec3& mi = m[idx];
         const Real  mn = mi.x * n_.x + mi.y * n_.y + mi.z * n_.z;
-        H_out[g.linear_index(ix, iy, iz)] += n_ * (prefac * mn);
+        H_out[idx] += n_ * (prefac * mn);
     }
 }
 

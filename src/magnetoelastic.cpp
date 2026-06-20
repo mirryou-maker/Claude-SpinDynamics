@@ -31,6 +31,7 @@ void MagnetoelasticField::accumulate(const VectorField3D& m,
     const auto& g = m.grid();
     const Index N = g.nx() * g.ny() * g.nz();
 
+    #pragma omp parallel for schedule(static) if(N > 4096)
     for (Index i = 0; i < N; ++i) {
         const Vec3& mi = m[i];
         const Real mx = mi.x, my = mi.y, mz = mi.z;

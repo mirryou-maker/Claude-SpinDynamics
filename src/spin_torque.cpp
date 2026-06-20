@@ -25,7 +25,9 @@ void SlonczewskiSTT::accumulate(const VectorField3D& m,
     const Real aJ = a_J(mat.Ms);
     const Real bJ = -beta_ * aJ;
 
-    for (Index i = 0; i < m.size(); ++i) {
+    const Index N = m.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i) {
         Vec3 mi      = m[i];
         Vec3 mxp     = mi.cross(p_);
         Vec3 mxmxp   = mi.cross(mxp);
@@ -56,7 +58,9 @@ void SpinOrbitTorque::accumulate(const VectorField3D& m,
                                   VectorField3D& dm_out) const {
     const Real a = a_SOT(mat.Ms);
 
-    for (Index i = 0; i < m.size(); ++i) {
+    const Index N = m.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i) {
         Vec3 mi      = m[i];
         Vec3 mxs     = mi.cross(sigma_);
         Vec3 mxmxs   = mi.cross(mxs);
@@ -95,10 +99,13 @@ void ZhangLiSTT::accumulate(const VectorField3D& m,
     // Compute (ĵ·∇)m  at each cell via finite differences (Neumann BC)
     // Then add u*(grad_m - xi*m×grad_m) to dm_out
 
-    for (Index iz = 0; iz < nz; ++iz)
-    for (Index iy = 0; iy < ny; ++iy)
-    for (Index ix = 0; ix < nx; ++ix) {
-        const Index idx = g.linear_index(ix, iy, iz);
+    const Index Ntot = nx * ny * nz;
+    #pragma omp parallel for schedule(static) if(Ntot > 4096)
+    for (Index idx = 0; idx < Ntot; ++idx) {
+        const Index ix   = idx % nx;
+        const Index trow = idx / nx;
+        const Index iy   = trow % ny;
+        const Index iz   = trow / ny;
         Vec3 mi = m[idx];
 
         // ∂m/∂x

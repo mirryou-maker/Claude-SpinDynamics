@@ -40,6 +40,10 @@ option(MICROMAG_FLOAT32      "Use float32 on GPU (reduces VRAM, ~1.5x bandwidth)
 # FFTW3 (required for demagnetisation field) --------------------------------
 find_package(FFTW3 CONFIG REQUIRED)
 
+# OpenMP — parallelise CPU per-cell loops (field accumulate, integrator
+# stages, demag pack/unpack). Optional: pragmas are no-ops without it.
+find_package(OpenMP)
+
 # Core library --------------------------------------------------------------
 add_library(micromag_core
     src/grid.cpp
@@ -78,6 +82,12 @@ target_include_directories(micromag_core
 )
 target_compile_features(micromag_core PUBLIC cxx_std_20)
 target_link_libraries(micromag_core PUBLIC FFTW3::fftw3)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(micromag_core PRIVATE OpenMP::OpenMP_CXX)
+    message(STATUS "  OpenMP:        enabled (CPU loop parallelism)")
+else()
+    message(STATUS "  OpenMP:        NOT found (CPU loops run serially)")
+endif()
 
 # Demo executables ----------------------------------------------------------
 add_executable(hello_micromag apps/hello_micromag.cpp)

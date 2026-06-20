@@ -12,7 +12,10 @@ void VectorField3D::set_uniform(const Vec3& m) {
 }
 
 void VectorField3D::normalize() {
-    for (auto& v : data_) {
+    const Index N = static_cast<Index>(data_.size());
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i) {
+        Vec3& v = data_[static_cast<std::size_t>(i)];
         Real n = v.norm();
         if (n > Real{1e-30}) {
             v /= n;

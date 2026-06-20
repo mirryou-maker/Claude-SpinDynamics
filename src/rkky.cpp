@@ -12,7 +12,9 @@ void RKKYField::accumulate(const VectorField3D& /*m*/,
     // H = J/(mu_0 Ms d) * m_ref
     // J < 0 (antiferromagnetic): H opposes m_ref → drives antiparallel alignment
     const Real coeff = J_RKKY_ / (constants::mu_0 * mat.Ms * d_spacer_);
-    for (Index i = 0; i < H_out.size(); ++i) {
+    const Index N = H_out.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index i = 0; i < N; ++i) {
         H_out[i].x += coeff * (*ref_m_)[i].x;
         H_out[i].y += coeff * (*ref_m_)[i].y;
         H_out[i].z += coeff * (*ref_m_)[i].z;

@@ -6,10 +6,12 @@ namespace micromag {
 void UniaxialAnisotropyField::accumulate(const VectorField3D& m,
                                           const Material& mat,
                                           VectorField3D& H_out) const {
+    const Index N = m.size();
     if (matf_) {
         // Per-cell: K1 and easy_axis from matf_; Ku2 always from uniform mat.
         const Real k2_mat = mat.Ku2;
-        for (Index idx = 0; idx < m.size(); ++idx) {
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (Index idx = 0; idx < N; ++idx) {
             const Real K1 = matf_->K_uniaxial(idx);
             if (K1 == 0 && k2_mat == 0) continue;
 
@@ -36,7 +38,8 @@ void UniaxialAnisotropyField::accumulate(const VectorField3D& m,
     const Real k1_pre = 2.0 * mat.K_uniaxial * inv_mu0Ms;
     const Real k2_pre = 4.0 * mat.Ku2 * inv_mu0Ms;
 
-    for (Index idx = 0; idx < m.size(); ++idx) {
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index idx = 0; idx < N; ++idx) {
         const Real c = m[idx].dot(u);
         H_out[idx] += u * (k1_pre * c + k2_pre * c * c * c);
     }

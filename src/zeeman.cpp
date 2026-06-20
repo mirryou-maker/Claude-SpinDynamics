@@ -5,7 +5,9 @@ namespace micromag {
 void ZeemanField::accumulate(const VectorField3D& m,
                               const Material& /*mat*/,
                               VectorField3D& H_out) const {
-    for (Index idx = 0; idx < m.size(); ++idx)
+    const Index N = m.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index idx = 0; idx < N; ++idx)
         H_out[idx] += H_ext_;
 }
 

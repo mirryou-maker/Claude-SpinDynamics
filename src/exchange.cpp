@@ -68,13 +68,20 @@ void ExchangeField::accumulate(const VectorField3D& m,
     const Real idz2 = 1.0 / (g.dz() * g.dz());
     const Real pre_uniform = 2.0 * mat.A_exchange / (constants::mu_0 * mat.Ms);
 
-    for (Index k = 0; k < g.nz(); ++k)
-    for (Index j = 0; j < g.ny(); ++j)
-    for (Index i = 0; i < g.nx(); ++i) {
+    // Flattened single loop (x-fastest: ic = i + nx*(j + ny*k)) so OpenMP
+    // parallelises across all cells regardless of thin-z grid shape. Each
+    // iteration writes only its own H_out[ic] → race-free.
+    const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
+    const Index Ntot = nx * ny * nz;
+    #pragma omp parallel for schedule(static) if(Ntot > 4096)
+    for (Index ic = 0; ic < Ntot; ++ic) {
+        const Index i    = ic % nx;
+        const Index trow = ic / nx;
+        const Index j    = trow % ny;
+        const Index k    = trow / ny;
         // Skip cells outside the geometry (mask == 0 → inactive)
         if (mask_ && (*mask_)(i, j, k) < Real{0.5}) continue;
 
-        const Index ic = g.linear_index(i, j, k);
         const Vec3  mc = m[ic];
 
         const Index in_px = neighbor_index(g, i,j,k, +1,0,0, bc_, mask_);

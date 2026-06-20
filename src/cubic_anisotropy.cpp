@@ -34,7 +34,9 @@ void CubicAnisotropyField::accumulate(const VectorField3D& m,
     const Real pre1 = -2.0 * Kc1_ * inv_mu0Ms;
     const Real pre2 = -2.0 * Kc2_ * inv_mu0Ms;
 
-    for (Index idx = 0; idx < m.size(); ++idx) {
+    const Index N = m.size();
+    #pragma omp parallel for schedule(static) if(N > 4096)
+    for (Index idx = 0; idx < N; ++idx) {
         const Vec3& mi = m[idx];
         const Real a1 = mi.dot(c1_);
         const Real a2 = mi.dot(c2_);

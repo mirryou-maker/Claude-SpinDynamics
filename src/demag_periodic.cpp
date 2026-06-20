@@ -211,10 +211,11 @@ void DemagFieldPeriodic::accumulate(const VectorField3D& m,
     std::vector<std::complex<double>> Mx_f(Nc), My_f(Nc), Mz_f(Nc);
 
     auto fft_comp = [&](int c, std::vector<std::complex<double>>& out) {
-        for (std::size_t i = 0; i < N; ++i) {
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(N); ++i) {
             const Vec3& v = m[static_cast<Index>(i)];
             const double Ms_cell = matf_ ? matf_->Ms(static_cast<Index>(i)) : Ms;
-            r_buf_[i] = Ms_cell * (c == 0 ? v.x : c == 1 ? v.y : v.z);
+            r_buf_[static_cast<std::size_t>(i)] = Ms_cell * (c == 0 ? v.x : c == 1 ? v.y : v.z);
         }
         fftw_execute(reinterpret_cast<fftw_plan>(plan_fwd_));
         out = c_buf_;
@@ -232,11 +233,13 @@ void DemagFieldPeriodic::accumulate(const VectorField3D& m,
                          const std::vector<std::complex<double>>& Mb,
                          const std::vector<std::complex<double>>& Mc,
                          int out_comp) {
-        for (std::size_t i = 0; i < Nc; ++i)
-            c_buf_[i] = Ka[i]*Ma[i] + Kb[i]*Mb[i] + Kc[i]*Mc[i];
+        #pragma omp parallel for schedule(static) if(Nc > 4096)
+        for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(Nc); ++i)
+            c_buf_[static_cast<std::size_t>(i)] = Ka[i]*Ma[i] + Kb[i]*Mb[i] + Kc[i]*Mc[i];
         fftw_execute(reinterpret_cast<fftw_plan>(plan_inv_));
-        for (std::size_t i = 0; i < N; ++i) {
-            const double h = -r_buf_[i] * norm;
+        #pragma omp parallel for schedule(static) if(N > 4096)
+        for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(N); ++i) {
+            const double h = -r_buf_[static_cast<std::size_t>(i)] * norm;
             Vec3& hv = H_out[static_cast<Index>(i)];
             if      (out_comp == 0) hv.x += h;
             else if (out_comp == 1) hv.y += h;
