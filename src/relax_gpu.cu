@@ -8,6 +8,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include <cub/device/device_reduce.cuh>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -28,17 +29,35 @@
 namespace micromag {
 
 // ===========================================================================
-// Device utility: atomicMax for double (non-negative values only).
-// IEEE bit pattern of non-negative doubles is ordered like uint64.
+// CUB DeviceReduce helpers — one robust, single-call GPU reduction over N
+// elements (replaces the previous shared-memory block reductions, which also
+// silently lost accuracy for N > 65536 in the two-pass energy sum). Temp
+// storage is sized on first use and cached in (d_tmp, cap).
 // ===========================================================================
-__device__ static void atomicMaxDouble(double* addr, double val) {
-    unsigned long long* addr_ull = reinterpret_cast<unsigned long long*>(addr);
-    unsigned long long  val_ull  = __double_as_longlong(val);
-    unsigned long long  old_ull  = *addr_ull;
-    while (val_ull > old_ull) {
-        unsigned long long assumed = old_ull;
-        old_ull = atomicCAS(addr_ull, assumed, val_ull);
+static void cub_max(void*& d_tmp, size_t& cap,
+                    const double* d_in, double* d_out, int N, cudaStream_t s) {
+    size_t need = 0;
+    CUDA_CHECK(cub::DeviceReduce::Max(nullptr, need, d_in, d_out, N, s));
+    if (need > cap) {
+        if (d_tmp) cudaFree(d_tmp);
+        CUDA_CHECK(cudaMalloc(&d_tmp, need));
+        cap = need;
     }
+    size_t bytes = need;
+    CUDA_CHECK(cub::DeviceReduce::Max(d_tmp, bytes, d_in, d_out, N, s));
+}
+
+static void cub_sum(void*& d_tmp, size_t& cap,
+                    const double* d_in, double* d_out, int N, cudaStream_t s) {
+    size_t need = 0;
+    CUDA_CHECK(cub::DeviceReduce::Sum(nullptr, need, d_in, d_out, N, s));
+    if (need > cap) {
+        if (d_tmp) cudaFree(d_tmp);
+        CUDA_CHECK(cudaMalloc(&d_tmp, need));
+        cap = need;
+    }
+    size_t bytes = need;
+    CUDA_CHECK(cub::DeviceReduce::Sum(d_tmp, bytes, d_in, d_out, N, s));
 }
 
 // ===========================================================================
@@ -84,42 +103,26 @@ __global__ static void damping_euler_kernel(
 }
 
 // ===========================================================================
-// max-torque reduction: writes max |m횞H|짼 (atomicMax) to d_max[0].
-// Caller must set d_max[0] = 0 before launch.
+// Per-cell squared torque  |m×H|²  → tsq_out[N]  (reduced by cub::DeviceReduce::Max)
 // ===========================================================================
-__global__ static void max_torque_kernel(
-    double* __restrict__       d_max,  // [1] output ??stays double for precise reduction
+__global__ static void torque_sq_kernel(
+    double* __restrict__       tsq_out,  // [N] stays double for precise reduction
     const GReal* __restrict__  m,
     const GReal* __restrict__  H,
     int N)
 {
-    __shared__ double smem[256];
-    const int idx   = blockIdx.x * blockDim.x + threadIdx.x;
-    const int tid   = threadIdx.x;
-
-    double local_max = 0.0;
-    if (idx < N) {
-        const double mx = static_cast<double>(m[0*N+idx]),
-                     my = static_cast<double>(m[1*N+idx]),
-                     mz = static_cast<double>(m[2*N+idx]);
-        const double Hx = static_cast<double>(H[0*N+idx]),
-                     Hy = static_cast<double>(H[1*N+idx]),
-                     Hz = static_cast<double>(H[2*N+idx]);
-        const double tx = my*Hz - mz*Hy;
-        const double ty = mz*Hx - mx*Hz;
-        const double tz = mx*Hy - my*Hx;
-        local_max = tx*tx + ty*ty + tz*tz;
-    }
-
-    smem[tid] = local_max;
-    __syncthreads();
-
-    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
-        if (tid < s) smem[tid] = fmax(smem[tid], smem[tid + s]);
-        __syncthreads();
-    }
-
-    if (tid == 0) atomicMaxDouble(d_max, smem[0]);
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+    const double mx = static_cast<double>(m[0*N+idx]),
+                 my = static_cast<double>(m[1*N+idx]),
+                 mz = static_cast<double>(m[2*N+idx]);
+    const double Hx = static_cast<double>(H[0*N+idx]),
+                 Hy = static_cast<double>(H[1*N+idx]),
+                 Hz = static_cast<double>(H[2*N+idx]);
+    const double tx = my*Hz - mz*Hy;
+    const double ty = mz*Hx - mx*Hz;
+    const double tz = mx*Hy - my*Hx;
+    tsq_out[idx] = tx*tx + ty*ty + tz*tz;
 }
 
 // ===========================================================================
@@ -139,26 +142,6 @@ __global__ static void mdot_H_kernel(
     e_out[idx] = static_cast<double>(m[0*N+idx])*static_cast<double>(H[0*N+idx])
                + static_cast<double>(m[1*N+idx])*static_cast<double>(H[1*N+idx])
                + static_cast<double>(m[2*N+idx])*static_cast<double>(H[2*N+idx]);
-}
-
-// ===========================================================================
-// Block-sum reduction (for energy): writes partial sums to out[blockIdx.x].
-// ===========================================================================
-__global__ static void block_sum_kernel(
-    double* __restrict__ out,
-    const double* __restrict__ in,
-    int N)
-{
-    __shared__ double smem[256];
-    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    const int tid = threadIdx.x;
-    smem[tid] = (idx < N) ? in[idx] : 0.0;
-    __syncthreads();
-    for (int s = blockDim.x/2; s > 0; s >>= 1) {
-        if (tid < s) smem[tid] += smem[tid + s];
-        __syncthreads();
-    }
-    if (tid == 0) out[blockIdx.x] = smem[0];
 }
 
 // ===========================================================================
@@ -215,11 +198,27 @@ static void unpack3N(const std::vector<GReal>& buf, size_t N, VectorField3D& m) 
 // ===========================================================================
 RelaxGPU::RelaxGPU(const StructuredGrid& grid)
     : grid_(&grid), N_(static_cast<size_t>(grid.size())) {
-    relax_alloc(N_, d_m_, d_H_, d_max_, stream_);
+    // d_percell_ ([N] torque² scratch) allocated via the d_energy slot.
+    relax_alloc(N_, d_m_, d_H_, d_max_, stream_, nullptr, &d_percell_);
 }
 
 RelaxGPU::~RelaxGPU() {
-    relax_free(d_m_, d_H_, d_max_, stream_);
+    relax_free(d_m_, d_H_, d_max_, stream_, nullptr, d_percell_);
+    if (d_cub_tmp_) cudaFree(d_cub_tmp_);
+}
+
+// Per-cell |m×H|² → CUB Max → sqrt. d_H_ must already hold H_eff for d_m_src.
+double RelaxGPU::reduce_max_torque(const GReal* d_m_src) {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    const int N = static_cast<int>(N_);
+    const int blk = 256, grd = (N + blk - 1) / blk;
+    torque_sq_kernel<<<grd, blk, 0, s>>>(d_percell_, d_m_src, d_H_, N);
+    CUDA_CHECK(cudaGetLastError());
+    cub_max(d_cub_tmp_, cub_bytes_, d_percell_, d_max_, N, s);
+    double h_max;
+    CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+    return std::sqrt(h_max);
 }
 
 void RelaxGPU::upload(const VectorField3D& m) {
@@ -252,20 +251,8 @@ double RelaxGPU::max_torque_now(const Material& mat,
                                  ExchangeFieldGPU& exch,
                                  ZeemanFieldGPU& zeeman,
                                  UniaxialAnisotropyFieldGPU* aniso) {
-    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     compute_H_eff(mat, demag, exch, zeeman, aniso);
-    const double zero = 0.0;
-    CUDA_CHECK(cudaMemcpyAsync(d_max_, &zero, sizeof(double), cudaMemcpyHostToDevice, s));
-    const int blk = 256, grd = static_cast<int>((N_+blk-1)/blk);
-    max_torque_kernel<<<grd, blk, 0, s>>>(d_max_,
-        d_m_,
-        d_H_,
-        static_cast<int>(N_));
-    CUDA_CHECK(cudaGetLastError());
-    double h_max;
-    CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
-    CUDA_CHECK(cudaStreamSynchronize(s));
-    return std::sqrt(h_max);
+    return reduce_max_torque(d_m_);
 }
 
 int RelaxGPU::run(const Material& mat,
@@ -288,17 +275,7 @@ int RelaxGPU::run(const Material& mat,
 
         // Convergence check: D2H only one scalar every check_every steps.
         if (step % opts.check_every == 0) {
-            const double zero = 0.0;
-            CUDA_CHECK(cudaMemcpyAsync(d_max_, &zero, sizeof(double), cudaMemcpyHostToDevice, s));
-            max_torque_kernel<<<grd, blk, 0, s>>>(d_max_,
-                d_m_,
-                d_H_,
-                N);
-            CUDA_CHECK(cudaGetLastError());
-            double h_max;
-            CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
-            CUDA_CHECK(cudaStreamSynchronize(s));
-            if (std::sqrt(h_max) < opts.threshold)
+            if (reduce_max_torque(d_m_) < opts.threshold)
                 return step;
         }
 
@@ -328,6 +305,35 @@ MinimizeGPU::MinimizeGPU(const StructuredGrid& grid)
 
 MinimizeGPU::~MinimizeGPU() {
     relax_free(d_m_, d_H_, d_max_, stream_, d_m_trial_, d_energy_);
+    if (d_cub_tmp_) cudaFree(d_cub_tmp_);
+}
+
+// Per-cell |m×H|² → CUB Max → sqrt. d_H_ must already hold H_eff for d_m_src.
+double MinimizeGPU::reduce_max_torque(const GReal* d_m_src) {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    const int N = static_cast<int>(N_);
+    const int blk = 256, grd = (N + blk - 1) / blk;
+    torque_sq_kernel<<<grd, blk, 0, s>>>(d_energy_, d_m_src, d_H_, N);
+    CUDA_CHECK(cudaGetLastError());
+    cub_max(d_cub_tmp_, cub_bytes_, d_energy_, d_max_, N, s);
+    double h_max;
+    CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+    return std::sqrt(h_max);
+}
+
+// Per-cell m·H → CUB Sum (one scalar). d_H_ must already hold H_eff for d_m_src.
+double MinimizeGPU::reduce_mdotH_sum(const GReal* d_m_src) {
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    const int N = static_cast<int>(N_);
+    const int blk = 256, grd = (N + blk - 1) / blk;
+    mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_, d_m_src, d_H_, N);
+    CUDA_CHECK(cudaGetLastError());
+    cub_sum(d_cub_tmp_, cub_bytes_, d_energy_, d_max_, N, s);
+    double h_sum;
+    CUDA_CHECK(cudaMemcpyAsync(&h_sum, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+    return h_sum;
 }
 
 void MinimizeGPU::upload(const VectorField3D& m) {
@@ -369,28 +375,9 @@ double MinimizeGPU::compute_energy(const Material& mat,
     compute_H_eff_for(d_m_, mat, demag, exch, zeeman, aniso);
 
     // Per-cell m쨌H
-    mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_,
-        d_m_,
-        d_H_,
-        N);
-    CUDA_CHECK(cudaGetLastError());
+    const double h_sum = reduce_mdotH_sum(d_m_);
 
-    // Block-level sum reduction: d_energy ??d_max (reuse as scratch)
-    // First pass: grd blocks ??grd partial sums stored in first grd cells
-    block_sum_kernel<<<grd, blk, 0, s>>>(d_max_, d_energy_, N);
-    CUDA_CHECK(cudaGetLastError());
-
-    // Second pass: sum the grd partial sums (grd ??256 for N ??65536)
-    // For larger N: multi-pass or download partial sums
-    const int grd2 = (grd + blk - 1) / blk;
-    block_sum_kernel<<<grd2, blk, 0, s>>>(d_energy_, d_max_, grd);
-    CUDA_CHECK(cudaGetLastError());
-
-    double h_sum;
-    CUDA_CHECK(cudaMemcpyAsync(&h_sum, d_energy_, sizeof(double), cudaMemcpyDeviceToHost, s));
-    CUDA_CHECK(cudaStreamSynchronize(s));
-
-    // E = -關?/2 * Ms * sum(m쨌H) * dV   (standard LLG energy sign)
+    // E = -mu0/2 * Ms * sum(m.H) * dV   (standard LLG energy sign)
     const double dV = grid_->cell_volume();
     return -constants::mu_0 * 0.5 * mat.Ms * h_sum * dV;
 }
@@ -415,31 +402,12 @@ int MinimizeGPU::run(const Material& mat,
 
         // Convergence check every check_every steps
         if (step % opts.check_every == 0) {
-            const double zero = 0.0;
-            CUDA_CHECK(cudaMemcpyAsync(d_max_, &zero, sizeof(double), cudaMemcpyHostToDevice, s));
-            max_torque_kernel<<<grd, blk, 0, s>>>(d_max_,
-                d_m_,
-                d_H_,
-                N);
-            CUDA_CHECK(cudaGetLastError());
-            double h_max;
-            CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
-            CUDA_CHECK(cudaStreamSynchronize(s));
-            if (std::sqrt(h_max) < opts.threshold)
+            if (reduce_max_torque(d_m_) < opts.threshold)
                 return step;
         }
 
         // Energy before trial step
-        mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_,
-            d_m_,
-            d_H_,
-            N);
-        block_sum_kernel<<<grd, blk, 0, s>>>(d_max_, d_energy_, N);
-        const int grd2 = (grd + blk - 1) / blk;
-        block_sum_kernel<<<grd2, blk, 0, s>>>(d_energy_, d_max_, grd);
-        double E0;
-        CUDA_CHECK(cudaMemcpyAsync(&E0, d_energy_, sizeof(double), cudaMemcpyDeviceToHost, s));
-        CUDA_CHECK(cudaStreamSynchronize(s));
+        const double E0 = reduce_mdotH_sum(d_m_);
 
         // Trial step: copy m ??m_trial, advance m_trial
         copy3N_kernel<<<(3*N+blk-1)/blk, blk, 0, s>>>(
@@ -455,15 +423,7 @@ int MinimizeGPU::run(const Material& mat,
 
         // Energy after trial (need H_eff for m_trial)
         compute_H_eff_for(d_m_trial_, mat, demag, exch, zeeman, aniso);
-        mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_,
-            d_m_trial_,
-            d_H_,
-            N);
-        block_sum_kernel<<<grd, blk, 0, s>>>(d_max_, d_energy_, N);
-        block_sum_kernel<<<grd2, blk, 0, s>>>(d_energy_, d_max_, grd);
-        double E1;
-        CUDA_CHECK(cudaMemcpyAsync(&E1, d_energy_, sizeof(double), cudaMemcpyDeviceToHost, s));
-        CUDA_CHECK(cudaStreamSynchronize(s));
+        const double E1 = reduce_mdotH_sum(d_m_trial_);
 
         if (E1 < E0) {
             // Accept: swap m ??m_trial
@@ -500,20 +460,8 @@ void RelaxGPU::compute_H_eff(const Material& mat, IDemagGPU& demag,
 
 double RelaxGPU::max_torque_now(const Material& mat, IDemagGPU& demag,
                                  FieldSumGPU& extra_fields) {
-    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     compute_H_eff(mat, demag, extra_fields);
-    const double zero = 0.0;
-    CUDA_CHECK(cudaMemcpyAsync(d_max_, &zero, sizeof(double), cudaMemcpyHostToDevice, s));
-    const int blk = 256, grd = static_cast<int>((N_+blk-1)/blk);
-    max_torque_kernel<<<grd, blk, 0, s>>>(d_max_,
-        d_m_,
-        d_H_,
-        static_cast<int>(N_));
-    CUDA_CHECK(cudaGetLastError());
-    double h_max;
-    CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
-    CUDA_CHECK(cudaStreamSynchronize(s));
-    return std::sqrt(h_max);
+    return reduce_max_torque(d_m_);
 }
 
 int RelaxGPU::run(const Material& mat, IDemagGPU& demag,
@@ -530,17 +478,7 @@ int RelaxGPU::run(const Material& mat, IDemagGPU& demag,
         compute_H_eff(mat, demag, extra_fields);
 
         if (step % opts.check_every == 0) {
-            const double zero = 0.0;
-            CUDA_CHECK(cudaMemcpyAsync(d_max_, &zero, sizeof(double), cudaMemcpyHostToDevice, s));
-            max_torque_kernel<<<grd, blk, 0, s>>>(d_max_,
-                d_m_,
-                d_H_,
-                N);
-            CUDA_CHECK(cudaGetLastError());
-            double h_max;
-            CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
-            CUDA_CHECK(cudaStreamSynchronize(s));
-            if (std::sqrt(h_max) < opts.threshold)
+            if (reduce_max_torque(d_m_) < opts.threshold)
                 return step;
         }
 
@@ -578,19 +516,9 @@ double MinimizeGPU::compute_energy(const Material& mat, IDemagGPU& demag,
     const int blk = 256, grd = (N + blk - 1) / blk;
 
     compute_H_eff_for(d_m_, mat, demag, extra_fields);
-    mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_,
-        d_m_,
-        d_H_,
-        N);
-    CUDA_CHECK(cudaGetLastError());
-    block_sum_kernel<<<grd, blk, 0, s>>>(d_max_, d_energy_, N);
-    CUDA_CHECK(cudaGetLastError());
-    const int grd2 = (grd + blk - 1) / blk;
-    block_sum_kernel<<<grd2, blk, 0, s>>>(d_energy_, d_max_, grd);
-    CUDA_CHECK(cudaGetLastError());
-    double h_sum;
-    CUDA_CHECK(cudaMemcpyAsync(&h_sum, d_energy_, sizeof(double), cudaMemcpyDeviceToHost, s));
-    CUDA_CHECK(cudaStreamSynchronize(s));
+    const double h_sum = reduce_mdotH_sum(d_m_);
+
+    // E = -mu0/2 * Ms * sum(m.H) * dV   (standard LLG energy sign)
     const double dV = grid_->cell_volume();
     return -constants::mu_0 * 0.5 * mat.Ms * h_sum * dV;
 }
@@ -609,30 +537,11 @@ int MinimizeGPU::run(const Material& mat, IDemagGPU& demag,
         compute_H_eff_for(d_m_, mat, demag, extra_fields);
 
         if (step % opts.check_every == 0) {
-            const double zero = 0.0;
-            CUDA_CHECK(cudaMemcpyAsync(d_max_, &zero, sizeof(double), cudaMemcpyHostToDevice, s));
-            max_torque_kernel<<<grd, blk, 0, s>>>(d_max_,
-                d_m_,
-                d_H_,
-                N);
-            CUDA_CHECK(cudaGetLastError());
-            double h_max;
-            CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
-            CUDA_CHECK(cudaStreamSynchronize(s));
-            if (std::sqrt(h_max) < opts.threshold)
+            if (reduce_max_torque(d_m_) < opts.threshold)
                 return step;
         }
 
-        mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_,
-            d_m_,
-            d_H_,
-            N);
-        block_sum_kernel<<<grd, blk, 0, s>>>(d_max_, d_energy_, N);
-        const int grd2 = (grd + blk - 1) / blk;
-        block_sum_kernel<<<grd2, blk, 0, s>>>(d_energy_, d_max_, grd);
-        double E0;
-        CUDA_CHECK(cudaMemcpyAsync(&E0, d_energy_, sizeof(double), cudaMemcpyDeviceToHost, s));
-        CUDA_CHECK(cudaStreamSynchronize(s));
+        const double E0 = reduce_mdotH_sum(d_m_);
 
         copy3N_kernel<<<(3*N+blk-1)/blk, blk, 0, s>>>(
             d_m_trial_,
@@ -646,15 +555,7 @@ int MinimizeGPU::run(const Material& mat, IDemagGPU& demag,
         CUDA_CHECK(cudaGetLastError());
 
         compute_H_eff_for(d_m_trial_, mat, demag, extra_fields);
-        mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_,
-            d_m_trial_,
-            d_H_,
-            N);
-        block_sum_kernel<<<grd, blk, 0, s>>>(d_max_, d_energy_, N);
-        block_sum_kernel<<<grd2, blk, 0, s>>>(d_energy_, d_max_, grd);
-        double E1;
-        CUDA_CHECK(cudaMemcpyAsync(&E1, d_energy_, sizeof(double), cudaMemcpyDeviceToHost, s));
-        CUDA_CHECK(cudaStreamSynchronize(s));
+        const double E1 = reduce_mdotH_sum(d_m_trial_);
 
         if (E1 < E0) {
             std::swap(d_m_, d_m_trial_);

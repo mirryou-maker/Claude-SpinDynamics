@@ -79,8 +79,15 @@ private:
 
     GReal*  d_m_  = nullptr;   // [3N] current magnetisation (GReal for P11 float32)
     GReal*  d_H_  = nullptr;   // [3N] effective field scratch
-    double* d_max_= nullptr;   // [1] max torque reduction (stays double for precision)
+    double* d_max_= nullptr;   // [1] reduction scalar output (CUB); stays double
+    double* d_percell_ = nullptr; // [N] per-cell scratch (|m×H|² for CUB Max)
+    void*   d_cub_tmp_ = nullptr; // CUB DeviceReduce temp storage (lazily sized)
+    size_t  cub_bytes_ = 0;
     void*   stream_= nullptr;
+
+    // Per-cell |m×H|² then cub::DeviceReduce::Max → sqrt = max torque [A/m].
+    // Assumes d_H_ already holds H_eff for d_m_src.
+    double reduce_max_torque(const GReal* d_m_src);
 
     void compute_H_eff(const Material& mat,
                        IDemagGPU& demag,
@@ -141,9 +148,15 @@ private:
     GReal*  d_m_       = nullptr;   // [3N] current magnetisation
     GReal*  d_m_trial_ = nullptr;   // [3N] trial step
     GReal*  d_H_       = nullptr;   // [3N] effective field scratch
-    double* d_max_     = nullptr;   // [1] max torque reduction (stays double)
-    double* d_energy_  = nullptr;   // [N] per-cell energy (stays double for precision)
+    double* d_max_     = nullptr;   // [1] reduction scalar output (CUB); stays double
+    double* d_energy_  = nullptr;   // [N] per-cell scratch (m·H or |m×H|²); double
+    void*   d_cub_tmp_ = nullptr;   // CUB DeviceReduce temp storage (lazily sized)
+    size_t  cub_bytes_ = 0;
     void*   stream_= nullptr;
+
+    // CUB reductions over d_energy_ (assume d_H_ holds H_eff for d_m_src).
+    double reduce_max_torque(const GReal* d_m_src);   // Max → sqrt = |m×H|max [A/m]
+    double reduce_mdotH_sum(const GReal* d_m_src);    // Sum of m·H (unscaled)
 
     double compute_energy(const Material& mat,
                           IDemagGPU& demag,
