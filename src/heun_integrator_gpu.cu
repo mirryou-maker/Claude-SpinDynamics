@@ -95,6 +95,7 @@ void HeunIntegratorGPU::run_half(
 
     CUDA_CHECK(cudaMemsetAsync(d_H, 0, 3*N*sizeof(GReal),
                                static_cast<cudaStream_t>(s)));
+    CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(s)));
 
     exch.accumulate_gpu_ptr(d_m_in, mat, d_H);
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -195,6 +196,7 @@ void HeunIntegratorGPU::run_half(
 
     CUDA_CHECK(cudaMemsetAsync(d_H, 0, 3*N*sizeof(GReal),
                                static_cast<cudaStream_t>(s)));
+    CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(s)));
 
     extra_fields.accumulate_gpu_ptr(d_m_in, mat, d_H);
     CUDA_CHECK(cudaDeviceSynchronize());
