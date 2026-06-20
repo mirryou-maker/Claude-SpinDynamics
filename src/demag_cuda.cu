@@ -352,7 +352,11 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
 {
     pad_nx_ = 2 * nx_;
     pad_ny_ = 2 * ny_;
-    pad_nz_ = 2 * nz_;
+    // No wrap-around in a dimension of extent 1, so a single-layer film (nz=1)
+    // needs NO z-padding: the demag is then a pure 2-D (x,y) convolution and the
+    // FFT collapses from 3-D-with-z=2 to 2-D, ~2x less transform work.  The
+    // kernel-fill z-mirror writes are all guarded by (kz>0) so they no-op here.
+    pad_nz_ = (nz_ == 1) ? 1 : 2 * nz_;
     fft_nx_ = pad_nx_ / 2 + 1;
 
     unpad_sz_ = static_cast<size_t>(nx_ * ny_ * nz_);
@@ -701,6 +705,14 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
     const double norm       = -1.0 / static_cast<double>(pad_nx_ * pad_ny_ * pad_nz_);
     constexpr int BLK       = 256;
 
+    // --- temporary phase profiler (MICROMAG_DEMAG_PROFILE=1) ----------------
+    static const bool prof = (std::getenv("MICROMAG_DEMAG_PROFILE") != nullptr);
+    static int prof_call = 0;
+    cudaEvent_t ev[7];
+    if (prof) { for (auto& e : ev) cudaEventCreate(&e); cudaEventRecord(ev[0], s); }
+    auto mark = [&](int i){ if (prof) cudaEventRecord(ev[i], s); };
+    // -----------------------------------------------------------------------
+
     // 1. Ms-scale d_m ??d_M_compact_  (D2D, no PCIe)
     {
         const int N3  = static_cast<int>(3 * unpad_sz_);
@@ -724,11 +736,13 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             (size_t)pad_nx_, (size_t)pad_ny_, real_sz_, unpad_sz_);
         CUDA_CHECK(cudaGetLastError());
     }
+    mark(1);  // prep done (scale+memset+scatter)
 
     // 4. Batch forward FFT
     CUFFT_CHECK(GREAL_CUFFT_EXEC_FWD(plan_fwd_batch_,
         reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_),
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_)));
+    mark(2);  // fwd FFT done
 
     // 5. Pointwise MAC
     {
@@ -741,11 +755,13 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             as_cxc(d_MF_all_), cplx_sz_);
         CUDA_CHECK(cudaGetLastError());
     }
+    mark(3);  // MAC done
 
     // 6. Batch inverse FFT — output reuses d_M_all_ (free after forward FFT).
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(plan_inv_batch_,
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_)));
+    mark(4);  // inv FFT done
 
     // 7. Fused extract + normalise + accumulate straight into d_H_out
     //    (replaces extract_all3 + add_3N_kernel; no d_Hunpad_all_ round-trip).
@@ -760,8 +776,25 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             real_sz_, unpad_sz_, norm);
         CUDA_CHECK(cudaGetLastError());
     }
+    mark(5);  // extract done
     // Sync before returning so caller on a different stream sees d_H_out updates.
     CUDA_CHECK(cudaStreamSynchronize(s));
+
+    if (prof) {
+        float t[5];
+        cudaEventElapsedTime(&t[0], ev[0], ev[1]);   // prep
+        cudaEventElapsedTime(&t[1], ev[1], ev[2]);   // fwd FFT
+        cudaEventElapsedTime(&t[2], ev[2], ev[3]);   // MAC
+        cudaEventElapsedTime(&t[3], ev[3], ev[4]);   // inv FFT
+        cudaEventElapsedTime(&t[4], ev[4], ev[5]);   // extract
+        if (++prof_call % 20 == 0)
+            std::fprintf(stderr,
+                "[demag %dx%dx%d] prep=%.3f fwdFFT=%.3f MAC=%.3f invFFT=%.3f extract=%.3f ms "
+                "(FFT=%.0f%%)\n", (int)nx_, (int)ny_, (int)nz_,
+                t[0], t[1], t[2], t[3], t[4],
+                100.0 * (t[1]+t[3]) / (t[0]+t[1]+t[2]+t[3]+t[4]));
+        for (auto& e : ev) cudaEventDestroy(e);
+    }
 }
 
 // ===========================================================================
