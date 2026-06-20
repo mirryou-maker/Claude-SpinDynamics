@@ -1,7 +1,7 @@
-// magnetoelastic_gpu.cu — GPU magnetoelastic field
+﻿// magnetoelastic_gpu.cu ??GPU magnetoelastic field
 //
 // CUDA kernel: all N cells in parallel.
-// Memory layout: [3×N] component-major, buf[c*N + idx].
+// Memory layout: [3횞N] component-major, buf[c*N + idx].
 
 #ifdef MICROMAG_CUDA
 
@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "micromag/gpu_real.hpp"
 #include "micromag/magnetoelastic.hpp"
 #include "micromag/magnetoelastic_gpu.hpp"
 #include "micromag/types.hpp"
@@ -29,8 +30,8 @@ namespace micromag {
 // CUDA kernel
 // ===========================================================================
 __global__ static void magnetoelastic_kernel(
-    double* __restrict__       H_out,  // [3×N] accumulate
-    const double* __restrict__ m,      // [3×N]
+    GReal* __restrict__       H_out,  // [3횞N] accumulate
+    const GReal* __restrict__ m,      // [3횞N]
     double p1, double p2,              // -2B1/(mu0Ms), -2B2/(mu0Ms)
     double exx, double eyy, double ezz,
     double exy, double exz, double eyz,
@@ -56,8 +57,8 @@ MagnetoelasticFieldGPU::MagnetoelasticFieldGPU(Real B1, Real B2,
          static_cast<size_t>(grid.ny()) *
          static_cast<size_t>(grid.nz()))
 {
-    CUDA_CHECK(cudaMalloc(&d_m_scratch_, 3 * N_ * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_H_scratch_, 3 * N_ * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_m_scratch_, 3 * N_ * sizeof(GReal)));
+    CUDA_CHECK(cudaMalloc(&d_H_scratch_, 3 * N_ * sizeof(GReal)));
     cudaStream_t s;
     CUDA_CHECK(cudaStreamCreate(&s));
     stream_ = static_cast<void*>(s);
@@ -90,33 +91,34 @@ void MagnetoelasticFieldGPU::accumulate(const VectorField3D& m,
     const double p2 = prefac * static_cast<double>(B2_);
 
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
-    auto* dm = static_cast<double*>(d_m_scratch_);
-    auto* dH = static_cast<double*>(d_H_scratch_);
+    auto* dm = static_cast<GReal*>(d_m_scratch_);
+    auto* dH = static_cast<GReal*>(d_H_scratch_);
 
-    // Pack VectorField3D → component-major host buffer
-    std::vector<double> h_m(3 * N_);
+    // Pack VectorField3D ??component-major host buffer
+    std::vector<GReal> h_m(3 * N_);
     for (Index i = 0; i < static_cast<Index>(N_); ++i) {
-        h_m[i]        = m[i].x;
-        h_m[N_   + i] = m[i].y;
-        h_m[2*N_ + i] = m[i].z;
+        h_m[i]        = static_cast<GReal>(m[i].x);
+        h_m[N_   + i] = static_cast<GReal>(m[i].y);
+        h_m[2*N_ + i] = static_cast<GReal>(m[i].z);
     }
 
-    CUDA_CHECK(cudaMemcpy(dm, h_m.data(), 3*N_*sizeof(double), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(double)));
+    CUDA_CHECK(cudaMemcpy(dm, h_m.data(), 3*N_*sizeof(GReal), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(GReal)));
 
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
     magnetoelastic_kernel<<<grd, blk, 0, s>>>(
-        dH, dm, p1, p2,
+        reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
+        p1, p2,
         static_cast<double>(exx_), static_cast<double>(eyy_),
         static_cast<double>(ezz_), static_cast<double>(exy_),
         static_cast<double>(exz_), static_cast<double>(eyz_),
         static_cast<int>(N_));
     CUDA_CHECK(cudaGetLastError());
 
-    std::vector<double> h_H(3 * N_);
+    std::vector<GReal> h_H(3 * N_);
     CUDA_CHECK(cudaStreamSynchronize(s));
-    CUDA_CHECK(cudaMemcpy(h_H.data(), dH, 3*N_*sizeof(double), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_H.data(), dH, 3*N_*sizeof(GReal), cudaMemcpyDeviceToHost));
 
     for (Index i = 0; i < static_cast<Index>(N_); ++i) {
         H_out[i].x += h_H[i];
@@ -128,9 +130,9 @@ void MagnetoelasticFieldGPU::accumulate(const VectorField3D& m,
 // ===========================================================================
 // accumulate_gpu_ptr (direct GPU path for future integrator integration)
 // ===========================================================================
-void MagnetoelasticFieldGPU::accumulate_gpu_ptr(const double* d_m,
+void MagnetoelasticFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
                                                   const Material& mat,
-                                                  double* d_H_out) const {
+                                                  GReal* d_H_out) const {
     const Real Ms = mat.Ms;
     if (Ms == Real{0}) return;
 
@@ -142,7 +144,9 @@ void MagnetoelasticFieldGPU::accumulate_gpu_ptr(const double* d_m,
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
     magnetoelastic_kernel<<<grd, blk, 0, s>>>(
-        d_H_out, d_m, p1, p2,
+        reinterpret_cast<GReal*>(d_H_out),
+        reinterpret_cast<const GReal*>(d_m),
+        p1, p2,
         static_cast<double>(exx_), static_cast<double>(eyy_),
         static_cast<double>(ezz_), static_cast<double>(exy_),
         static_cast<double>(exz_), static_cast<double>(eyz_),
@@ -162,3 +166,4 @@ Real MagnetoelasticFieldGPU::energy(const VectorField3D& m,
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+

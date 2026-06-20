@@ -1,6 +1,6 @@
-// rk4_integrator_gpu.cu — G6: Full-GPU RK4 LLG integrator
+﻿// rk4_integrator_gpu.cu ??G6: Full-GPU RK4 LLG integrator
 //
-// Assembles G1–G5 building blocks into a single step() with zero PCIe overhead.
+// Assembles G1?밎5 building blocks into a single step() with zero PCIe overhead.
 // All kernels run on GPUMagState::stream_; field streams are redirected via
 // set_stream() so the entire pipeline is serialised on one CUDA stream.
 
@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "micromag/gpu_real.hpp"
 #include "micromag/rk4_gpu.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
 #include "micromag/types.hpp"
@@ -28,7 +29,7 @@ RK4IntegratorGPU::RK4IntegratorGPU(const StructuredGrid& grid, Real dt)
     : state_(grid), dt_(dt) {}
 
 // ---------------------------------------------------------------------------
-// run_stage — one of the four RK4 stages
+// run_stage ??one of the four RK4 stages
 //
 // On entry:  state_.d_m()  holds the stage's starting magnetization
 //            state_.d_m0() holds m at the beginning of the step
@@ -48,11 +49,11 @@ void RK4IntegratorGPU::run_stage(
     double stage_scale, double accum_weight)
 {
     void* s = state_.stream();
-    double* dm  = state_.d_m();
-    double* dH  = state_.d_H();
-    double* dm0 = state_.d_m0();
-    double* dki = state_.d_ki();
-    double* dka = state_.d_k_acc();
+    GReal* dm  = state_.d_m();
+    GReal* dH  = state_.d_H();
+    GReal* dm0 = state_.d_m0();
+    GReal* dki = state_.d_ki();
+    GReal* dka = state_.d_k_acc();
     const int N = static_cast<int>(state_.N());
 
     // 1. Zero effective field accumulator; sync ensures H=0 before any field writes
@@ -62,22 +63,25 @@ void RK4IntegratorGPU::run_stage(
     // 2. Accumulate each field contribution.  Each field uses its own internal
     //    CUDA stream.  cudaDeviceSynchronize() after each ensures the write to
     //    d_H is complete before the next field starts, eliminating race conditions.
-    //    Overhead: ~3 × 1-5 μs per stage — negligible vs demag cost (≥7 ms/step).
-    exch.accumulate_gpu_ptr(dm, mat, dH);
+    //    Overhead: ~3 횞 1-5 關s per stage ??negligible vs demag cost (?? ms/step).
+    exch.accumulate_gpu_ptr(dm, mat,
+                             dH);
     CUDA_CHECK(cudaDeviceSynchronize());
 
-    zeeman.accumulate_gpu_ptr(dm, mat, dH);
+    zeeman.accumulate_gpu_ptr(dm, mat,
+                               dH);
     CUDA_CHECK(cudaDeviceSynchronize());
 
     if (aniso) {
-        aniso->accumulate_gpu_ptr(dm, mat, dH);
+        aniso->accumulate_gpu_ptr(dm, mat,
+                                   dH);
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     // Demag uses its own stream and syncs internally before returning.
-    demag.accumulate_gpu_ptr(dm, mat, dH);
-    // After return: d_H = H_exch + H_zeeman + H_aniso + H_demag  ✓
-
+    demag.accumulate_gpu_ptr(dm, mat,
+                              dH);
+    // After return: d_H = H_exch + H_zeeman + H_aniso + H_demag  ??
     // 3. LLG torque: ki = f(m, H)
     launch_llg_torque(dki, dm, dH, mat.alpha, N, s);
 
@@ -90,7 +94,7 @@ void RK4IntegratorGPU::run_stage(
 }
 
 // ---------------------------------------------------------------------------
-// step — complete 4-stage RK4 step
+// step ??complete 4-stage RK4 step
 //
 // Butcher tableau (classic RK4):
 //   stage 1: eval at m0,          accumulate 1/6,  next = m0 + dt/2*k1
@@ -124,7 +128,7 @@ void RK4IntegratorGPU::step(
     run_stage(mat, demag, exch, zeeman, aniso, h * 1.0,  2.0/6.0); // k3
     run_stage(mat, demag, exch, zeeman, aniso, 0.0,      1.0/6.0); // k4
 
-    // Finalize: m = m0 + dt * k_acc
+    // Finalize: m = m0 + dt * k_acc  (state_ accessors return GReal*)
     launch_rk4_finalize(state_.d_m(), state_.d_m0(), state_.d_k_acc(),
                          h, static_cast<int>(state_.N()), s);
 
@@ -137,7 +141,7 @@ void RK4IntegratorGPU::step(
 }
 
 // ---------------------------------------------------------------------------
-// run_stage — FieldSumGPU overload (optional spin torques)
+// run_stage ??FieldSumGPU overload (optional spin torques)
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::run_stage(
     const Material& mat,
@@ -146,26 +150,29 @@ void RK4IntegratorGPU::run_stage(
     SpinTorqueSumGPU* torques)
 {
     void* s = state_.stream();
-    double* dm  = state_.d_m();
-    double* dH  = state_.d_H();
-    double* dm0 = state_.d_m0();
-    double* dki = state_.d_ki();
-    double* dka = state_.d_k_acc();
+    GReal* dm  = state_.d_m();
+    GReal* dH  = state_.d_H();
+    GReal* dm0 = state_.d_m0();
+    GReal* dki = state_.d_ki();
+    GReal* dka = state_.d_k_acc();
     const int N = static_cast<int>(state_.N());
 
     state_.zero_H();
     state_.sync();
 
-    extra_fields.accumulate_gpu_ptr(dm, mat, dH);
+    extra_fields.accumulate_gpu_ptr(dm, mat,
+                                     dH);
     CUDA_CHECK(cudaDeviceSynchronize());
 
-    demag.accumulate_gpu_ptr(dm, mat, dH);
+    demag.accumulate_gpu_ptr(dm, mat,
+                              dH);
 
     launch_llg_torque(dki, dm, dH, mat.alpha, N, s);
 
     // Spin torques: add dm/dt contributions AFTER LLG torque
     if (torques && torques->size() > 0) {
-        torques->accumulate_gpu_ptr(dm, mat, dki);
+        torques->accumulate_gpu_ptr(dm, mat,
+                                     dki);
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
@@ -176,7 +183,7 @@ void RK4IntegratorGPU::run_stage(
 }
 
 // ---------------------------------------------------------------------------
-// step — FieldSumGPU overload (no spin torques)
+// step ??FieldSumGPU overload (no spin torques)
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::step(
     const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields)
@@ -200,7 +207,7 @@ void RK4IntegratorGPU::step(
 }
 
 // ---------------------------------------------------------------------------
-// step — FieldSumGPU + SpinTorqueSumGPU overload
+// step ??FieldSumGPU + SpinTorqueSumGPU overload
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::step(
     const Material& mat, IDemagGPU& demag,
@@ -227,3 +234,4 @@ void RK4IntegratorGPU::step(
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+

@@ -1,9 +1,9 @@
-#pragma once
-// spin_torque_gpu.hpp — GPU spin torque kernels (STT, SOT, Zhang-Li).
+﻿#pragma once
+// spin_torque_gpu.hpp ??GPU spin torque kernels (STT, SOT, Zhang-Li).
 //
-// GPU spin torques add to d_dm_out [1/s] (component-major [3×N]).
+// GPU spin torques add to d_dm_out [1/s] (component-major [3횞N]).
 // They are applied AFTER launch_llg_torque() at each integrator stage:
-//   H_eff → LLG torque → + spin torques → weighted accumulate → m update
+//   H_eff ??LLG torque ??+ spin torques ??weighted accumulate ??m update
 //
 // All classes take StructuredGrid at construction (for N, dx, dy, dz).
 // Interface: ISpinTorqueGPU (pure virtual) + SpinTorqueSumGPU (compositor)
@@ -19,6 +19,7 @@
 
 #ifdef MICROMAG_CUDA
 
+#include "gpu_real.hpp"
 #include "grid.hpp"
 #include "material.hpp"
 #include "types.hpp"
@@ -27,21 +28,20 @@
 namespace micromag {
 
 // ---------------------------------------------------------------------------
-// ISpinTorqueGPU — abstract interface for GPU spin torques.
+// ISpinTorqueGPU ??abstract interface for GPU spin torques.
 //
 // accumulate_gpu_ptr: adds dm/dt [1/s] to d_dm_out in-place.
-// d_m and d_dm_out are component-major [3×N] on device.
+// d_m and d_dm_out are component-major [3횞N] on device.
 // ---------------------------------------------------------------------------
 class ISpinTorqueGPU {
 public:
     virtual ~ISpinTorqueGPU() = default;
 
-    virtual void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                                     double* d_dm_out) const = 0;
+    virtual void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const = 0;
 };
 
 // ---------------------------------------------------------------------------
-// SpinTorqueSumGPU — ordered compositor of ISpinTorqueGPU pointers.
+// SpinTorqueSumGPU ??ordered compositor of ISpinTorqueGPU pointers.
 // ---------------------------------------------------------------------------
 class SpinTorqueSumGPU {
 public:
@@ -51,8 +51,7 @@ public:
     void clear()                { terms_.clear(); }
     std::size_t size() const    { return terms_.size(); }
 
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_dm_out) const {
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const {
         for (auto* t : terms_)
             t->accumulate_gpu_ptr(d_m, mat, d_dm_out);
     }
@@ -62,20 +61,20 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// SlonczewskiSTTGPU — Slonczewski CPP spin-transfer torque
+// SlonczewskiSTTGPU ??Slonczewski CPP spin-transfer torque
 //
-// τ = a_J [m×(m×p̂)] + b_J [m×p̂]
-//   a_J = γ₀ħ J P / (2 e Ms d)   [1/s]
-//   b_J = -β a_J
+// ? = a_J [m횞(m횞p?)] + b_J [m횞p?]
+//   a_J = 款?침 J P / (2 e Ms d)   [1/s]
+//   b_J = -棺 a_J
 // ---------------------------------------------------------------------------
 class SlonczewskiSTTGPU : public ISpinTorqueGPU {
 public:
     // grid  : simulation grid (needed for N)
-    // J     : current density [A/m²] (signed; >0 = e⁻ from FL to RL)
+    // J     : current density [A/m짼] (signed; >0 = e??from FL to RL)
     // P     : spin polarisation [0,1]
     // d     : free-layer thickness [m]
     // p     : reference polarisation direction (normalised internally)
-    // beta  : field-like/damping-like ratio (b_J = -β a_J)
+    // beta  : field-like/damping-like ratio (b_J = -棺 a_J)
     SlonczewskiSTTGPU(const StructuredGrid& grid,
                        Real J, Real P, Real d, Vec3 p, Real beta = 0.0);
     ~SlonczewskiSTTGPU();
@@ -83,8 +82,7 @@ public:
     SlonczewskiSTTGPU(const SlonczewskiSTTGPU&)            = delete;
     SlonczewskiSTTGPU& operator=(const SlonczewskiSTTGPU&) = delete;
 
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_dm_out) const override;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const override;
 
     Real J()    const { return J_; }
     Real P()    const { return P_; }
@@ -106,15 +104,15 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// SpinOrbitTorqueGPU — spin Hall effect (SOT)
+// SpinOrbitTorqueGPU ??spin Hall effect (SOT)
 //
-// τ = a_SOT [η_DL m×(m×σ̂) + η_FL (m×σ̂)]
-//   a_SOT = γ₀ħ J_c θ_SH / (2 e Ms d_fm)   [1/s]
+// ? = a_SOT [管_DL m횞(m횞??) + 管_FL (m횞??)]
+//   a_SOT = 款?침 J_c 罐_SH / (2 e Ms d_fm)   [1/s]
 // ---------------------------------------------------------------------------
 class SpinOrbitTorqueGPU : public ISpinTorqueGPU {
 public:
     // grid    : simulation grid (needed for N)
-    // J_c     : charge current density [A/m²] (signed)
+    // J_c     : charge current density [A/m짼] (signed)
     // theta_SH: spin Hall angle (signed; e.g. -0.07 for Ta, +0.12 for Pt)
     // d_fm    : FM thickness [m]
     // sigma   : spin-Hall polarisation direction (normalised internally)
@@ -128,8 +126,7 @@ public:
     SpinOrbitTorqueGPU(const SpinOrbitTorqueGPU&)            = delete;
     SpinOrbitTorqueGPU& operator=(const SpinOrbitTorqueGPU&) = delete;
 
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_dm_out) const override;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const override;
 
     Real J_c()      const { return J_c_; }
     Real theta_SH() const { return theta_SH_; }
@@ -153,26 +150,25 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// ZhangLiSTTGPU — current-driven domain wall motion (CIP-STT)
+// ZhangLiSTTGPU ??current-driven domain wall motion (CIP-STT)
 //
-// τ = u [(ĵ·∇)m − ξ m×(ĵ·∇)m]
-//   u = P μ_B |J| / (e Ms)   [m/s]
+// ? = u [(캔쨌??m ??刮 m횞(캔쨌??m]
+//   u = P 關_B |J| / (e Ms)   [m/s]
 // Gradient by finite differences (Neumann BC, 1st-order at boundaries).
 // ---------------------------------------------------------------------------
 class ZhangLiSTTGPU : public ISpinTorqueGPU {
 public:
     // grid : simulation grid (for N, nx, ny, nz, dx, dy, dz)
-    // J    : current density vector [A/m²], e.g. {1e12, 0, 0}
+    // J    : current density vector [A/m짼], e.g. {1e12, 0, 0}
     // P    : spin polarisation [0,1]
-    // xi   : non-adiabaticity parameter (typically 0.01–0.1)
+    // xi   : non-adiabaticity parameter (typically 0.01??.1)
     ZhangLiSTTGPU(const StructuredGrid& grid, Vec3 J, Real P, Real xi);
     ~ZhangLiSTTGPU();
 
     ZhangLiSTTGPU(const ZhangLiSTTGPU&)            = delete;
     ZhangLiSTTGPU& operator=(const ZhangLiSTTGPU&) = delete;
 
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_dm_out) const override;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const override;
 
     Vec3 J()   const { return J_; }
     Real P()   const { return P_; }
@@ -195,3 +191,4 @@ private:
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+

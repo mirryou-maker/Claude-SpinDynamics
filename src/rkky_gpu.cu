@@ -1,8 +1,8 @@
-// rkky_gpu.cu — RKKYFieldGPU: interlayer RKKY coupling on GPU.
+﻿// rkky_gpu.cu ??RKKYFieldGPU: interlayer RKKY coupling on GPU.
 //
 // Kernel: H_out[idx] += factor * d_ref[idx]
 // factor = -J / (mu_0 * Ms * d_spacer)
-// Memory layout: [3×N] component-major (same as all other GPU fields).
+// Memory layout: [3횞N] component-major (same as all other GPU fields).
 
 #ifdef MICROMAG_CUDA
 
@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "micromag/gpu_real.hpp"
 #include "micromag/rkky_gpu.hpp"
 #include "micromag/field.hpp"
 #include "micromag/material.hpp"
@@ -30,8 +31,8 @@ namespace micromag {
 // Kernel: H_out += factor * m_ref
 // ---------------------------------------------------------------------------
 __global__ static void rkky_kernel(
-    double* __restrict__       H_out,
-    const double* __restrict__ d_ref,
+    GReal* __restrict__       H_out,
+    const double* __restrict__ d_ref,   // ref layer kept in double (shared with CPU fallback D2H)
     double factor,
     int N)
 {
@@ -64,7 +65,7 @@ RKKYFieldGPU::~RKKYFieldGPU() {
 }
 
 // ---------------------------------------------------------------------------
-// set_ref — upload reference layer CPU -> device (interleaved -> component-major)
+// set_ref ??upload reference layer CPU -> device (interleaved -> component-major)
 // ---------------------------------------------------------------------------
 void RKKYFieldGPU::set_ref(const VectorField3D& ref_m) {
     std::vector<double> buf(3 * N_);
@@ -111,9 +112,9 @@ Real RKKYFieldGPU::energy(const VectorField3D& m, const Material& mat) const {
     std::vector<double> h_ref(3 * N_);
     CUDA_CHECK(cudaMemcpy(h_ref.data(), d_ref_, 3*N_*sizeof(double),
                           cudaMemcpyDeviceToHost));
-    // E = -mu_0 * Ms * sum(m · H_RKKY) * dV
-    //   = mu_0 * Ms * (J/(mu_0*Ms*d)) * sum(m · m_ref) * dV
-    //   = (J/d) * sum(m · m_ref) * dV
+    // E = -mu_0 * Ms * sum(m 쨌 H_RKKY) * dV
+    //   = mu_0 * Ms * (J/(mu_0*Ms*d)) * sum(m 쨌 m_ref) * dV
+    //   = (J/d) * sum(m 쨌 m_ref) * dV
     double dot_sum = 0.0;
     for (Index i = 0; i < static_cast<Index>(N_); ++i) {
         dot_sum += m[i].x * h_ref[0*N_ + i]
@@ -127,9 +128,9 @@ Real RKKYFieldGPU::energy(const VectorField3D& m, const Material& mat) const {
 // ---------------------------------------------------------------------------
 // Full-GPU path (IEffectiveFieldGPU)
 // ---------------------------------------------------------------------------
-void RKKYFieldGPU::accumulate_gpu_ptr(const double* /*d_m*/,
+void RKKYFieldGPU::accumulate_gpu_ptr(const GReal* /*d_m*/,
                                        const Material& mat,
-                                       double* d_H_out) const {
+                                       GReal* d_H_out) const {
     if (d_spacer_ == 0.0 || mat.Ms == 0.0) return;
     const double mu0 = 4e-7 * 3.14159265358979323846;
     // coeff = +J/(mu0*Ms*d)  (same sign as CPU rkky.cpp)
@@ -138,10 +139,14 @@ void RKKYFieldGPU::accumulate_gpu_ptr(const double* /*d_m*/,
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    rkky_kernel<<<grd, blk, 0, s>>>(d_H_out, d_ref_, factor, static_cast<int>(N_));
+    rkky_kernel<<<grd, blk, 0, s>>>(
+        d_H_out,
+        d_ref_,
+        factor, static_cast<int>(N_));
     CUDA_CHECK(cudaGetLastError());
 }
 
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+

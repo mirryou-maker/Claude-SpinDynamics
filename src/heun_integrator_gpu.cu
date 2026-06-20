@@ -1,26 +1,26 @@
-// heun_integrator_gpu.cu — G8: GPU Heun integrator (SLLG finite-T)
+﻿// heun_integrator_gpu.cu ??G8: GPU Heun integrator (SLLG finite-T)
 //
 // Stratonovich Heun scheme:
-//   1. Generate η^n once per step: N(0, σ) via cuRAND
-//      σ = sqrt(2α k_B T / (μ₀ Ms γ₀ V Δt))  [A/m]
+//   1. Generate 管^n once per step: N(0, ?) via cuRAND
+//      ? = sqrt(2慣 k_B T / (關? Ms 款? V ?t))  [A/m]
 //
 //   Predictor:
-//     H = H_eff(m^n) + η^n
+//     H = H_eff(m^n) + 管^n
 //     k1 = f(m^n, H)
-//     m_pred = normalize(m^n + dt·k1)
+//     m_pred = normalize(m^n + dt쨌k1)
 //
-//   Corrector (SAME η^n — Stratonovich):
-//     H = H_eff(m_pred) + η^n
+//   Corrector (SAME 管^n ??Stratonovich):
+//     H = H_eff(m_pred) + 管^n
 //     k2 = f(m_pred, H)
-//     m^{n+1} = normalize(m^n + dt/2·(k1 + k2))
+//     m^{n+1} = normalize(m^n + dt/2쨌(k1 + k2))
 //
-// T_K=0: σ=0, cuRAND skipped, gives deterministic Heun ODE integrator.
+// T_K=0: ?=0, cuRAND skipped, gives deterministic Heun ODE integrator.
 //
 // GPUMagState buffer reuse:
-//   d_m_     → m^n
-//   d_m0_    → m_pred
-//   d_ki_    → k1
-//   d_k_acc_ → k2
+//   d_m_     ??m^n
+//   d_m0_    ??m_pred
+//   d_ki_    ??k1
+//   d_k_acc_ ??k2
 
 #ifdef MICROMAG_CUDA
 
@@ -30,6 +30,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "micromag/gpu_real.hpp"
 #include "micromag/heun_integrator_gpu.hpp"
 #include "micromag/rk4_gpu.hpp"
 #include "micromag/spin_torque_gpu.hpp"
@@ -63,7 +64,7 @@ HeunIntegratorGPU::HeunIntegratorGPU(const StructuredGrid& grid,
     // N_pad: 3*N rounded up to even (cuRAND requirement)
     const size_t N3 = 3 * state_.N();
     N_pad_ = (N3 % 2 == 0) ? N3 : N3 + 1;
-    CUDA_CHECK(cudaMalloc(&d_noise_, N_pad_ * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_noise_, N_pad_ * sizeof(GReal)));  // P11: GReal noise buffer
 
     curandGenerator_t gen;
     CURAND_CHECK(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
@@ -78,13 +79,13 @@ HeunIntegratorGPU::~HeunIntegratorGPU() {
 }
 
 // ---------------------------------------------------------------------------
-// run_half — accumulate fields into d_H, compute torque into d_ki
+// run_half ??accumulate fields into d_H, compute torque into d_ki
 // ---------------------------------------------------------------------------
 void HeunIntegratorGPU::run_half(
     const Material& mat,
-    const double*   d_m_in,
-    double*         d_H,
-    double*         d_ki,
+    const GReal*    d_m_in,
+    GReal*          d_H,
+    GReal*          d_ki,
     IDemagGPU& demag, ExchangeFieldGPU& exch,
     ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
     bool add_noise)
@@ -92,7 +93,7 @@ void HeunIntegratorGPU::run_half(
     void* s = state_.stream();
     const int N = static_cast<int>(state_.N());
 
-    CUDA_CHECK(cudaMemsetAsync(d_H, 0, 3*N*sizeof(double),
+    CUDA_CHECK(cudaMemsetAsync(d_H, 0, 3*N*sizeof(GReal),
                                static_cast<cudaStream_t>(s)));
 
     exch.accumulate_gpu_ptr(d_m_in, mat, d_H);
@@ -106,18 +107,16 @@ void HeunIntegratorGPU::run_half(
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
-    demag.accumulate_gpu_ptr(d_m_in, mat, d_H);   // syncs internally
+    demag.accumulate_gpu_ptr(d_m_in, mat, d_H);
 
     if (add_noise)
-        launch_add_3N(d_H,
-                      reinterpret_cast<const double*>(d_noise_),
-                      N, s);
+        launch_add_3N(d_H, static_cast<const GReal*>(d_noise_), N, s);
 
     launch_llg_torque(d_ki, d_m_in, d_H, mat.alpha, N, s);
 }
 
 // ---------------------------------------------------------------------------
-// step — one complete Stratonovich Heun step
+// step ??one complete Stratonovich Heun step
 // ---------------------------------------------------------------------------
 void HeunIntegratorGPU::step(
     const Material& mat,
@@ -129,25 +128,35 @@ void HeunIntegratorGPU::step(
     const Real h = dt_;
     void*      s = state_.stream();
 
-    // ---- Generate thermal noise η^n (once per step) -------------------------
+    // ---- Generate thermal noise 管^n (once per step) -------------------------
     const bool thermal = (T_K > 0.0 && mat.Ms > 0.0);
     if (thermal) {
-        // σ = sqrt(2α k_B T / (μ₀ Ms γ₀ V dt))
+        // ? = sqrt(2慣 k_B T / (關? Ms 款? V dt))
         const Real V   = dx_ * dy_ * dz_;
         const Real num = 2.0 * mat.alpha * constants::k_B * T_K;
         const Real den = constants::mu_0 * mat.Ms * constants::gamma_0 * V * h;
         const double sig = std::sqrt(num / den);
 
-        // cuRAND: fills d_noise_[N_pad_] with N(0, sig) doubles
+        // cuRAND: fills d_noise_[N_pad_] with N(0, sig) ??type matches GReal.
+#ifdef MICROMAG_FLOAT32
+        CURAND_CHECK(curandGenerateNormal(
+            static_cast<curandGenerator_t>(curand_gen_),
+            static_cast<float*>(d_noise_),
+            static_cast<size_t>(N_pad_), 0.0f, static_cast<float>(sig)));
+#else
         CURAND_CHECK(curandGenerateNormalDouble(
             static_cast<curandGenerator_t>(curand_gen_),
-            reinterpret_cast<double*>(d_noise_),
+            static_cast<double*>(d_noise_),
             static_cast<size_t>(N_pad_), 0.0, sig));
+#endif
     }
 
     // ---- Predictor -----------------------------------------------------------
-    // k1 = f(m^n, H_eff + η^n);  m_pred = normalize(m^n + dt·k1)
-    run_half(mat, state_.d_m(), state_.d_H(), state_.d_ki(),
+    // k1 = f(m^n, H_eff + 管^n);  m_pred = normalize(m^n + dt쨌k1)
+    run_half(mat,
+             state_.d_m(),
+             state_.d_H(),
+             state_.d_ki(),
              demag, exch, zeeman, aniso, thermal);
 
     launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, s);
@@ -155,11 +164,14 @@ void HeunIntegratorGPU::step(
     state_.sync();
 
     // ---- Corrector -----------------------------------------------------------
-    // k2 = f(m_pred, H_eff + η^n)  [SAME noise — Stratonovich]
-    run_half(mat, state_.d_m0(), state_.d_H(), state_.d_k_acc(),
+    // k2 = f(m_pred, H_eff + 管^n)  [SAME noise ??Stratonovich]
+    run_half(mat,
+             state_.d_m0(),
+             state_.d_H(),
+             state_.d_k_acc(),
              demag, exch, zeeman, aniso, thermal);
 
-    // m^{n+1} = normalize(m^n + dt/2·(k1 + k2))
+    // m^{n+1} = normalize(m^n + dt/2쨌(k1 + k2))
     launch_heun_corrector(state_.d_m(), state_.d_ki(), state_.d_k_acc(),
                            h * 0.5, N, s);
     launch_normalize(state_.d_m(), N, s);
@@ -167,13 +179,13 @@ void HeunIntegratorGPU::step(
 }
 
 // ---------------------------------------------------------------------------
-// run_half — FieldSumGPU overload
+// run_half ??FieldSumGPU overload
 // ---------------------------------------------------------------------------
 void HeunIntegratorGPU::run_half(
     const Material& mat,
-    const double*   d_m_in,
-    double*         d_H,
-    double*         d_ki,
+    const GReal*    d_m_in,
+    GReal*          d_H,
+    GReal*          d_ki,
     IDemagGPU& demag, FieldSumGPU& extra_fields,
     bool add_noise,
     SpinTorqueSumGPU* torques)
@@ -181,7 +193,7 @@ void HeunIntegratorGPU::run_half(
     void* s = state_.stream();
     const int N = static_cast<int>(state_.N());
 
-    CUDA_CHECK(cudaMemsetAsync(d_H, 0, 3*N*sizeof(double),
+    CUDA_CHECK(cudaMemsetAsync(d_H, 0, 3*N*sizeof(GReal),
                                static_cast<cudaStream_t>(s)));
 
     extra_fields.accumulate_gpu_ptr(d_m_in, mat, d_H);
@@ -190,9 +202,7 @@ void HeunIntegratorGPU::run_half(
     demag.accumulate_gpu_ptr(d_m_in, mat, d_H);
 
     if (add_noise)
-        launch_add_3N(d_H,
-                      reinterpret_cast<const double*>(d_noise_),
-                      N, s);
+        launch_add_3N(d_H, static_cast<const GReal*>(d_noise_), N, s);
 
     launch_llg_torque(d_ki, d_m_in, d_H, mat.alpha, N, s);
 
@@ -203,7 +213,7 @@ void HeunIntegratorGPU::run_half(
 }
 
 // ---------------------------------------------------------------------------
-// step — FieldSumGPU overload (optional spin torques, optional noise)
+// step ??FieldSumGPU overload (optional spin torques, optional noise)
 // ---------------------------------------------------------------------------
 void HeunIntegratorGPU::step(
     const Material& mat, IDemagGPU& demag,
@@ -220,22 +230,35 @@ void HeunIntegratorGPU::step(
         const Real num = 2.0 * mat.alpha * constants::k_B * T_K;
         const Real den = constants::mu_0 * mat.Ms * constants::gamma_0 * V * h;
         const double sig = std::sqrt(num / den);
+#ifdef MICROMAG_FLOAT32
+        CURAND_CHECK(curandGenerateNormal(
+            static_cast<curandGenerator_t>(curand_gen_),
+            static_cast<float*>(d_noise_),
+            static_cast<size_t>(N_pad_), 0.0f, static_cast<float>(sig)));
+#else
         CURAND_CHECK(curandGenerateNormalDouble(
             static_cast<curandGenerator_t>(curand_gen_),
-            reinterpret_cast<double*>(d_noise_),
+            static_cast<double*>(d_noise_),
             static_cast<size_t>(N_pad_), 0.0, sig));
+#endif
     }
 
     // Predictor
-    run_half(mat, state_.d_m(), state_.d_H(), state_.d_ki(),
+    run_half(mat,
+             state_.d_m(),
+             state_.d_H(),
+             state_.d_ki(),
              demag, extra_fields, thermal, torques);
 
     launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, s);
     launch_normalize(state_.d_m0(), N, s);
     state_.sync();
 
-    // Corrector (same noise — Stratonovich)
-    run_half(mat, state_.d_m0(), state_.d_H(), state_.d_k_acc(),
+    // Corrector (same noise ??Stratonovich)
+    run_half(mat,
+             state_.d_m0(),
+             state_.d_H(),
+             state_.d_k_acc(),
              demag, extra_fields, thermal, torques);
 
     launch_heun_corrector(state_.d_m(), state_.d_ki(), state_.d_k_acc(),
@@ -247,3 +270,4 @@ void HeunIntegratorGPU::step(
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+

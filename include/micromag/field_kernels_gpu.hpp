@@ -43,8 +43,8 @@ public:
                                   const Material& mat) const override;
     const char* name() const override { return "ZeemanFieldGPU"; }
 
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
+                             GReal* d_H_out) const;
 
     Vec3 H_ext() const            { return H_ext_; }
     void set_H_ext(const Vec3& H) { H_ext_ = H; }
@@ -74,8 +74,8 @@ public:
                                   const Material& mat) const override;
     const char* name() const override { return "UniaxialAnisotropyFieldGPU"; }
 
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
+                             GReal* d_H_out) const;
     void set_stream(void* s) { stream_ = s; }
 
     // Per-cell material: uploads K_uniaxial, easy_axis, Ms from MaterialField3D.
@@ -120,8 +120,8 @@ public:
                                   const Material& mat) const override;
     const char* name() const override { return "CubicAnisotropyFieldGPU"; }
 
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
+                             GReal* d_H_out) const;
     void set_stream(void* s) { stream_ = s; }
 
     Real Kc1() const { return Kc1_; }

@@ -10,6 +10,7 @@
 #include "exchange_gpu.hpp"
 #include "field.hpp"
 #include "field_kernels_gpu.hpp"
+#include "gpu_real.hpp"
 #include "grid.hpp"
 #include "material.hpp"
 #include "types.hpp"
@@ -76,9 +77,9 @@ private:
     const StructuredGrid* grid_;
     size_t                N_;
 
-    double* d_m_  = nullptr;   // [3N] current magnetisation
-    double* d_H_  = nullptr;   // [3N] effective field scratch
-    double* d_max_= nullptr;   // [1] max torque reduction buffer
+    GReal*  d_m_  = nullptr;   // [3N] current magnetisation (GReal for P11 float32)
+    GReal*  d_H_  = nullptr;   // [3N] effective field scratch
+    double* d_max_= nullptr;   // [1] max torque reduction (stays double for precision)
     void*   stream_= nullptr;
 
     void compute_H_eff(const Material& mat,
@@ -137,11 +138,11 @@ private:
     const StructuredGrid* grid_;
     size_t                N_;
 
-    double* d_m_  = nullptr;
-    double* d_m_trial_ = nullptr;
-    double* d_H_  = nullptr;
-    double* d_max_= nullptr;
-    double* d_energy_ = nullptr;   // [N] per-cell energy for reduction
+    GReal*  d_m_       = nullptr;   // [3N] current magnetisation
+    GReal*  d_m_trial_ = nullptr;   // [3N] trial step
+    GReal*  d_H_       = nullptr;   // [3N] effective field scratch
+    double* d_max_     = nullptr;   // [1] max torque reduction (stays double)
+    double* d_energy_  = nullptr;   // [N] per-cell energy (stays double for precision)
     void*   stream_= nullptr;
 
     double compute_energy(const Material& mat,
@@ -153,14 +154,14 @@ private:
     double compute_energy(const Material& mat, IDemagGPU& demag,
                           FieldSumGPU& extra_fields);
 
-    void compute_H_eff_for(double* d_m_src,
+    void compute_H_eff_for(GReal* d_m_src,
                            const Material& mat,
                            IDemagGPU& demag,
                            ExchangeFieldGPU& exch,
                            ZeemanFieldGPU& zeeman,
                            UniaxialAnisotropyFieldGPU* aniso);
 
-    void compute_H_eff_for(double* d_m_src, const Material& mat,
+    void compute_H_eff_for(GReal* d_m_src, const Material& mat,
                            IDemagGPU& demag, FieldSumGPU& extra_fields);
 };
 

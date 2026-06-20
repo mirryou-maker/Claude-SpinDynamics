@@ -9,6 +9,7 @@
 #include "demag_gpu_iface.hpp"
 #include "effective_field.hpp"
 #include "field.hpp"
+#include "gpu_real.hpp"
 #include "grid.hpp"
 #include "material.hpp"
 #include "types.hpp"
@@ -74,9 +75,9 @@ private:
     // Step 6b: compact GPU buffer for sparse upload (only unpadded region)
     void*   d_M_compact_ = nullptr;        // double[3 × unpad_sz_]  — GPU scatter src
 
-    // Pinned host buffers (fast DMA transfers)
-    double* h_M_compact_pinned_      = nullptr; // double[3 × unpad_sz_] — compact upload
-    double* h_Hunpad_all_pinned_     = nullptr; // double[3 × unpad_sz_] — H download
+    // Pinned host buffers (fast DMA transfers) — GReal for P11 float32 compat
+    GReal* h_M_compact_pinned_      = nullptr; // GReal[3 × unpad_sz_] — compact upload
+    GReal* h_Hunpad_all_pinned_     = nullptr; // GReal[3 × unpad_sz_] — H download
 
     // cuFFT plans
     cufftHandle plan_fwd_ = 0;        // single D2Z — used by precompute_kernel
@@ -92,8 +93,8 @@ public:
     // G6: GPU-pointer path (d_m [3×N] component-major → adds H_demag to d_H_out).
     // Runs on internal stream_ and syncs before returning, so caller can safely
     // continue on a different stream after this call.
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
+                             GReal* d_H_out) const override;
 };
 
 }  // namespace micromag

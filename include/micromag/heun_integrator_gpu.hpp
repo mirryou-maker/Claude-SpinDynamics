@@ -29,6 +29,7 @@
 #include "effective_field_gpu_iface.hpp"
 #include "exchange_gpu.hpp"
 #include "field_kernels_gpu.hpp"
+#include "gpu_real.hpp"
 #include "gpu_state.hpp"
 #include "material.hpp"
 #include "spin_torque_gpu.hpp"
@@ -82,20 +83,21 @@ private:
     // cuRAND generator (opaque void* to avoid curand.h in header)
     void*  curand_gen_ = nullptr;
 
-    // Fixed-field run_half (original)
+    // Fixed-field run_half
+    // P11: all [3×N] device buffer pointers use GReal (float or double per build flag).
     void run_half(const Material& mat,
-                   const double*   d_m_in,
-                   double*         d_H,
-                   double*         d_ki,
+                   const GReal*    d_m_in,
+                   GReal*          d_H,
+                   GReal*          d_ki,
                    IDemagGPU& demag, ExchangeFieldGPU& exch,
                    ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
                    bool add_noise);
 
-    // FieldSumGPU run_half (new overload)
+    // FieldSumGPU run_half overload
     void run_half(const Material& mat,
-                   const double*   d_m_in,
-                   double*         d_H,
-                   double*         d_ki,
+                   const GReal*    d_m_in,
+                   GReal*          d_H,
+                   GReal*          d_ki,
                    IDemagGPU& demag, FieldSumGPU& extra_fields,
                    bool add_noise,
                    SpinTorqueSumGPU* torques = nullptr);

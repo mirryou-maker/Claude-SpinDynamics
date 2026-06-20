@@ -21,6 +21,7 @@
 #include "micromag/material.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
 #include "micromag/zeeman.hpp"
+#include "gpu_test_tol.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -88,7 +89,7 @@ TEST_CASE("RK4IntegratorGPU one step: Zeeman only vs CPU", "[integ][gpu]") {
     INFO("max |GPU - CPU| = " << err);
     INFO("CPU[0] = (" << m_cpu2[0].x << ", " << m_cpu2[0].y << ", " << m_cpu2[0].z << ")");
     INFO("GPU[0] = (" << m_gpu[0].x  << ", " << m_gpu[0].y  << ", " << m_gpu[0].z  << ")");
-    REQUIRE(err < 1e-12);
+    REQUIRE(err < micromag::gtol(1e-12));
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +134,7 @@ TEST_CASE("RK4IntegratorGPU 10 steps vs CPU", "[integ][gpu]") {
     INFO("10-step max |GPU - CPU| = " << err);
     INFO("CPU <mx> = " << [&](){ double s=0; for(Index i=0;i<g.size();++i) s+=m_cpu[i].x; return s/g.size(); }());
     INFO("GPU <mx> = " << [&](){ double s=0; for(Index i=0;i<g.size();++i) s+=m_gpu[i].x; return s/g.size(); }());
-    REQUIRE(err < 1e-10);
+    REQUIRE(err < micromag::gtol(1e-10));
 }
 
 #endif // MICROMAG_CUDA

@@ -23,6 +23,7 @@
 #include "effective_field_gpu_iface.hpp"
 #include "exchange_gpu.hpp"
 #include "field_kernels_gpu.hpp"
+#include "gpu_real.hpp"
 #include "gpu_state.hpp"
 #include "material.hpp"
 #include "spin_torque_gpu.hpp"
@@ -83,18 +84,19 @@ private:
     bool        k1_valid_ = false;
 
     // ki slopes [3×N], owned by this integrator (not GPUMagState)
-    double* d_k1_ = nullptr;
-    double* d_k2_ = nullptr;
-    double* d_k3_ = nullptr;
-    double* d_k4_ = nullptr;
-    double* d_k5_ = nullptr;
-    double* d_k6_ = nullptr;
-    double* d_k7_ = nullptr;   // FSAL: f(m5) → k1 of next step
+    // P11: GReal* to match GPU buffer type (float or double per MICROMAG_FLOAT32).
+    GReal* d_k1_ = nullptr;
+    GReal* d_k2_ = nullptr;
+    GReal* d_k3_ = nullptr;
+    GReal* d_k4_ = nullptr;
+    GReal* d_k5_ = nullptr;
+    GReal* d_k6_ = nullptr;
+    GReal* d_k7_ = nullptr;   // FSAL: f(m5) → k1 of next step
 
-    double* d_m5_       = nullptr;   // 5th-order candidate solution [3×N]
-    double* d_err_      = nullptr;   // error estimate [3×N]
-    double* d_err_sum_  = nullptr;   // single double on device (error norm reduction)
-    double* d_m_stage_  = nullptr;   // intermediate m for stage evaluations [3×N]
+    GReal*  d_m5_      = nullptr;   // 5th-order candidate solution [3×N]
+    GReal*  d_err_     = nullptr;   // error estimate [3×N]
+    double* d_err_sum_ = nullptr;   // single double on device (error norm stays double)
+    GReal*  d_m_stage_ = nullptr;   // intermediate m for stage evaluations [3×N]
 
     int n_accepted_ = 0;
     int n_rejected_ = 0;
@@ -105,12 +107,12 @@ private:
     void eval_ki(const Material& mat,
                  IDemagGPU& demag, ExchangeFieldGPU& exch,
                  ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
-                 const double* d_m_in, double* d_ki_out);
+                 const GReal* d_m_in, GReal* d_ki_out);
 
     // Compute H_eff(d_m_in) + LLG torque → d_ki_out (FieldSumGPU overload).
     // Optional torques are added to d_ki_out after LLG torque.
     void eval_ki(const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields,
-                 const double* d_m_in, double* d_ki_out,
+                 const GReal* d_m_in, GReal* d_ki_out,
                  SpinTorqueSumGPU* torques = nullptr);
 };
 

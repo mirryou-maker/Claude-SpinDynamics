@@ -14,6 +14,7 @@
 #include "micromag/grid.hpp"
 #include "micromag/material.hpp"
 #include "micromag/zeeman.hpp"
+#include "gpu_test_tol.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -174,7 +175,7 @@ TEST_CASE("UniaxialAnisotropyFieldGPU: m along easy axis → max H", "[anisotrop
     for (Index i = 0; i < g.size(); ++i) {
         REQUIRE_THAT(H[i].x, WithinAbs(0.0,      expected_Hz * 1e-10));
         REQUIRE_THAT(H[i].y, WithinAbs(0.0,      expected_Hz * 1e-10));
-        REQUIRE_THAT(H[i].z, WithinRel(expected_Hz, 1e-10));
+        REQUIRE_THAT(H[i].z, WithinRel(expected_Hz, micromag::gtol(1e-10)));
     }
 }
 
@@ -226,7 +227,7 @@ TEST_CASE("UniaxialAnisotropyFieldGPU matches CPU: cobalt", "[anisotropy][gpu]")
     const double scale = 2.0*mat.K_uniaxial/(constants::mu_0*mat.Ms);
     const double err = max_rel_diff(H_cpu, H_gpu, scale * 1e-4);
     INFO("max_rel_err = " << err);
-    REQUIRE(err < 1e-8);
+    REQUIRE(err < micromag::gtol(1e-8));
 }
 
 TEST_CASE("UniaxialAnisotropyFieldGPU: additive", "[anisotropy][gpu]") {

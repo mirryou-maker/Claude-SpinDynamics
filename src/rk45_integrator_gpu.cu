@@ -1,4 +1,4 @@
-// rk45_integrator_gpu.cu — GPU DOPRI5 adaptive LLG integrator
+﻿// rk45_integrator_gpu.cu ??GPU DOPRI5 adaptive LLG integrator
 //
 // DOPRI5 Butcher tableau (Dormand-Prince, FSAL):
 //   k1 = f(m)
@@ -8,10 +8,10 @@
 //   k5 = f(m + h*(19372/6561*k1 - 25360/2187*k2 + 64448/6561*k3 - 212/729*k4))
 //   k6 = f(m + h*(9017/3168*k1 - 355/33*k2 + 46732/5247*k3 + 49/176*k4 - 5103/18656*k5))
 //   m5 = m + h*(35/384*k1 + 500/1113*k3 + 125/192*k4 - 2187/6784*k5 + 11/84*k6)
-//   k7 = f(m5)                            ← FSAL: reused as k1 of next step
+//   k7 = f(m5)                            ??FSAL: reused as k1 of next step
 //   err = h*(e1*k1 + e3*k3 + e4*k4 + e5*k5 + e6*k6 + e7*k7)
 //
-// Per-step D2H: one scalar double (error norm) — negligible vs. demag cost.
+// Per-step D2H: one scalar double (error norm) ??negligible vs. demag cost.
 
 #ifdef MICROMAG_CUDA
 
@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "micromag/gpu_real.hpp"
 #include "micromag/rk45_integrator_gpu.hpp"
 #include "micromag/rk4_gpu.hpp"
 
@@ -46,8 +47,8 @@ RK45IntegratorGPU::~RK45IntegratorGPU() {
 }
 
 void RK45IntegratorGPU::alloc_scratch(size_t N) {
-    const size_t bytes3N = 3 * N * sizeof(double);
-    auto alloc3N = [&](double*& ptr) {
+    const size_t bytes3N = 3 * N * sizeof(GReal);  // P11: GReal (float or double)
+    auto alloc3N = [&](GReal*& ptr) {
         CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&ptr), bytes3N));
     };
     alloc3N(d_k1_);  alloc3N(d_k2_);  alloc3N(d_k3_);  alloc3N(d_k4_);
@@ -57,16 +58,16 @@ void RK45IntegratorGPU::alloc_scratch(size_t N) {
 }
 
 // ---------------------------------------------------------------------------
-// eval_ki: compute H_eff(d_m_in) and LLG torque → d_ki_out
+// eval_ki: compute H_eff(d_m_in) and LLG torque ??d_ki_out
 // ---------------------------------------------------------------------------
 void RK45IntegratorGPU::eval_ki(
     const Material& mat,
     IDemagGPU& demag, ExchangeFieldGPU& exch,
     ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso,
-    const double* d_m_in, double* d_ki_out)
+    const GReal* d_m_in, GReal* d_ki_out)
 {
     void*  s  = state_.stream();
-    double* dH = state_.d_H();
+    GReal* dH = state_.d_H();
     const int N = static_cast<int>(state_.N());
 
     state_.zero_H();
@@ -83,7 +84,6 @@ void RK45IntegratorGPU::eval_ki(
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
-    // demag syncs internally
     demag.accumulate_gpu_ptr(d_m_in, mat, dH);
 
     launch_llg_torque(d_ki_out, d_m_in, dH, mat.alpha, N, s);
@@ -91,76 +91,72 @@ void RK45IntegratorGPU::eval_ki(
 }
 
 // ---------------------------------------------------------------------------
-// step — one DOPRI5 trial-accept loop; returns dt taken
+// step ??one DOPRI5 trial-accept loop; returns dt taken
 // ---------------------------------------------------------------------------
 Real RK45IntegratorGPU::step(
     const Material& mat,
     IDemagGPU& demag, ExchangeFieldGPU& exch,
     ZeemanFieldGPU& zeeman, UniaxialAnisotropyFieldGPU* aniso)
 {
-    const double* dm = state_.d_m();
+    const GReal* dm = state_.d_m();
     const int N = static_cast<int>(state_.N());
     void*  s = state_.stream();
 
-    // k1 = f(m)  — skip after an accepted step (FSAL: k1 = previous k7)
     if (!k1_valid_)
         eval_ki(mat, demag, exch, zeeman, aniso, dm, d_k1_);
 
     for (;;) {
         const double h = static_cast<double>(dt_);
 
-        // ----- Stage 2 -----
-        // m_stage = m + h/5 * k1  (reuse existing kernel)
+        // Stage 2
         launch_rk4_stage(d_m_stage_, dm, d_k1_, h/5.0, N, s);
         state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k2_);
 
-        // ----- Stage 3 -----
+        // Stage 3
         launch_dopri5_stage3(d_m_stage_, dm, h, d_k1_, d_k2_, N, s);
         state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k3_);
 
-        // ----- Stage 4 -----
+        // Stage 4
         launch_dopri5_stage4(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, N, s);
         state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k4_);
 
-        // ----- Stage 5 -----
+        // Stage 5
         launch_dopri5_stage5(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, N, s);
         state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k5_);
 
-        // ----- Stage 6 -----
+        // Stage 6
         launch_dopri5_stage6(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, d_k5_, N, s);
         state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k6_);
 
-        // ----- 5th-order solution -----
+        // 5th-order solution
         launch_dopri5_m5(d_m5_, dm, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, N, s);
         state_.sync();
 
-        // ----- Stage 7 (FSAL): k7 = f(m5) -----
+        // Stage 7 (FSAL): k7 = f(m5)
         eval_ki(mat, demag, exch, zeeman, aniso, d_m5_, d_k7_);
 
-        // ----- Error estimate and RMS norm -----
+        // Error estimate and RMS norm
         launch_dopri5_err(d_err_, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, d_k7_, N, s);
         const double err_norm = launch_dopri5_err_norm(
             d_err_sum_, d_err_, dm, d_m5_,
             static_cast<double>(opts_.rtol),
             static_cast<double>(opts_.atol), N, s);
 
-        // ----- Step-size factor (same formula as CPU RK45) -----
         const double fac_raw = opts_.safety * std::pow(1.0 / std::max(err_norm, 1e-20), 0.2);
 
         if (err_norm <= 1.0) {
-            // Accept step: m ← normalize(m5)
             CUDA_CHECK(cudaMemcpyAsync(
-                state_.d_m(), d_m5_, 3 * N * sizeof(double),
+                state_.d_m(), d_m5_, 3 * N * sizeof(GReal),
                 cudaMemcpyDeviceToDevice, static_cast<cudaStream_t>(s)));
             launch_normalize(state_.d_m(), N, s);
             state_.sync();
 
-            // FSAL: k7 → k1 for next step
+            // FSAL: k7 ??k1 for next step
             std::swap(d_k1_, d_k7_);
             k1_valid_ = true;
 
@@ -171,7 +167,7 @@ Real RK45IntegratorGPU::step(
             return static_cast<Real>(h);
         }
 
-        // Reject step: reduce dt, retry (k1 still valid — m unchanged)
+        // Reject step: reduce dt, retry (k1 still valid ??m unchanged)
         dt_ = static_cast<Real>(std::max(
             static_cast<double>(opts_.dt_min),
             dt_ * std::max(static_cast<double>(opts_.fac_min), fac_raw)));
@@ -180,20 +176,20 @@ Real RK45IntegratorGPU::step(
 
         if (dt_ <= opts_.dt_min)
             throw std::runtime_error(
-                "RK45IntegratorGPU: step size reached minimum — solution may be stiff");
+                "RK45IntegratorGPU: step size reached minimum ??solution may be stiff");
     }
 }
 
 // ---------------------------------------------------------------------------
-// eval_ki — FieldSumGPU overload (optional spin torques)
+// eval_ki ??FieldSumGPU overload (optional spin torques)
 // ---------------------------------------------------------------------------
 void RK45IntegratorGPU::eval_ki(
     const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields,
-    const double* d_m_in, double* d_ki_out,
+    const GReal* d_m_in, GReal* d_ki_out,
     SpinTorqueSumGPU* torques)
 {
     void*  s  = state_.stream();
-    double* dH = state_.d_H();
+    GReal* dH = state_.d_H();
     const int N = static_cast<int>(state_.N());
 
     state_.zero_H();
@@ -215,12 +211,12 @@ void RK45IntegratorGPU::eval_ki(
 }
 
 // ---------------------------------------------------------------------------
-// step — FieldSumGPU overload (no spin torques)
+// step ??FieldSumGPU overload (no spin torques)
 // ---------------------------------------------------------------------------
 Real RK45IntegratorGPU::step(
     const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields)
 {
-    const double* dm = state_.d_m();
+    const GReal* dm = state_.d_m();
     const int N = static_cast<int>(state_.N());
     void*  s = state_.stream();
 
@@ -265,7 +261,7 @@ Real RK45IntegratorGPU::step(
 
         if (err_norm <= 1.0) {
             CUDA_CHECK(cudaMemcpyAsync(
-                state_.d_m(), d_m5_, 3 * N * sizeof(double),
+                state_.d_m(), d_m5_, 3 * N * sizeof(GReal),
                 cudaMemcpyDeviceToDevice, static_cast<cudaStream_t>(s)));
             launch_normalize(state_.d_m(), N, s);
             state_.sync();
@@ -288,18 +284,18 @@ Real RK45IntegratorGPU::step(
 
         if (dt_ <= opts_.dt_min)
             throw std::runtime_error(
-                "RK45IntegratorGPU: step size reached minimum — solution may be stiff");
+                "RK45IntegratorGPU: step size reached minimum - solution may be stiff");
     }
 }
 
 // ---------------------------------------------------------------------------
-// step — FieldSumGPU + SpinTorqueSumGPU overload
+// step -- FieldSumGPU + SpinTorqueSumGPU overload
 // ---------------------------------------------------------------------------
 Real RK45IntegratorGPU::step(
     const Material& mat, IDemagGPU& demag,
     FieldSumGPU& extra_fields, SpinTorqueSumGPU& torques)
 {
-    const double* dm = state_.d_m();
+    const GReal* dm = state_.d_m();
     const int N = static_cast<int>(state_.N());
     void*  s = state_.stream();
 
@@ -344,7 +340,7 @@ Real RK45IntegratorGPU::step(
 
         if (err_norm <= 1.0) {
             CUDA_CHECK(cudaMemcpyAsync(
-                state_.d_m(), d_m5_, 3 * N * sizeof(double),
+                state_.d_m(), d_m5_, 3 * N * sizeof(GReal),
                 cudaMemcpyDeviceToDevice, static_cast<cudaStream_t>(s)));
             launch_normalize(state_.d_m(), N, s);
             state_.sync();
@@ -367,10 +363,11 @@ Real RK45IntegratorGPU::step(
 
         if (dt_ <= opts_.dt_min)
             throw std::runtime_error(
-                "RK45IntegratorGPU: step size reached minimum — solution may be stiff");
+                "RK45IntegratorGPU: step size reached minimum ??solution may be stiff");
     }
 }
 
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+

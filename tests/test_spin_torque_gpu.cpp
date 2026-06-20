@@ -26,6 +26,8 @@
 #include "micromag/spin_torque.hpp"
 #include "micromag/spin_torque_gpu.hpp"
 
+#include "gpu_test_tol.hpp"
+
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
@@ -49,21 +51,23 @@ static Vec3 run_stt_gpu(ISpinTorqueGPU& stt_gpu, Vec3 m_vec, const Material& mat
     const StructuredGrid g = single_cell_grid();
     const int N = 1;
 
-    // Upload m to device
-    double h_m[3] = {m_vec.x, m_vec.y, m_vec.z};
-    double* d_m;
-    cudaMalloc(&d_m, 3 * sizeof(double));
-    cudaMemcpy(d_m, h_m, 3 * sizeof(double), cudaMemcpyHostToDevice);
+    // Upload m to device (device buffers use GReal to match accumulate_gpu_ptr)
+    GReal h_m[3] = {static_cast<GReal>(m_vec.x),
+                    static_cast<GReal>(m_vec.y),
+                    static_cast<GReal>(m_vec.z)};
+    GReal* d_m;
+    cudaMalloc(&d_m, 3 * sizeof(GReal));
+    cudaMemcpy(d_m, h_m, 3 * sizeof(GReal), cudaMemcpyHostToDevice);
 
     // dm_out initialized to zero
-    double* d_dm;
-    cudaMalloc(&d_dm, 3 * sizeof(double));
-    cudaMemset(d_dm, 0, 3 * sizeof(double));
+    GReal* d_dm;
+    cudaMalloc(&d_dm, 3 * sizeof(GReal));
+    cudaMemset(d_dm, 0, 3 * sizeof(GReal));
 
     stt_gpu.accumulate_gpu_ptr(d_m, mat, d_dm);
 
-    double h_dm[3];
-    cudaMemcpy(h_dm, d_dm, 3 * sizeof(double), cudaMemcpyDeviceToHost);
+    GReal h_dm[3];
+    cudaMemcpy(h_dm, d_dm, 3 * sizeof(GReal), cudaMemcpyDeviceToHost);
 
     cudaFree(d_m);
     cudaFree(d_dm);
@@ -102,9 +106,9 @@ TEST_CASE("SlonczewskiSTTGPU: matches CPU reference", "[spin_torque_gpu][gpu]") 
     // GPU result
     const Vec3 dm_gpu = run_stt_gpu(stt_gpu, m, mat);
 
-    REQUIRE_THAT(dm_gpu.x, WithinRel(dm_cpu[0].x, 1e-10));
-    REQUIRE_THAT(dm_gpu.y, WithinRel(dm_cpu[0].y, 1e-10));
-    REQUIRE_THAT(dm_gpu.z, WithinRel(dm_cpu[0].z, 1e-10));
+    REQUIRE_THAT(dm_gpu.x, WithinRel(dm_cpu[0].x, micromag::gtol(1e-10)));
+    REQUIRE_THAT(dm_gpu.y, WithinRel(dm_cpu[0].y, micromag::gtol(1e-10)));
+    REQUIRE_THAT(dm_gpu.z, WithinRel(dm_cpu[0].z, micromag::gtol(1e-10)));
 }
 
 // ---------------------------------------------------------------------------
@@ -133,9 +137,9 @@ TEST_CASE("SpinOrbitTorqueGPU: matches CPU reference", "[spin_torque_gpu][gpu]")
 
     const Vec3 dm_gpu = run_stt_gpu(sot_gpu, m, mat);
 
-    REQUIRE_THAT(dm_gpu.x, WithinRel(dm_cpu[0].x, 1e-10));
-    REQUIRE_THAT(dm_gpu.y, WithinRel(dm_cpu[0].y, 1e-10));
-    REQUIRE_THAT(dm_gpu.z, WithinRel(dm_cpu[0].z, 1e-10));
+    REQUIRE_THAT(dm_gpu.x, WithinRel(dm_cpu[0].x, micromag::gtol(1e-10)));
+    REQUIRE_THAT(dm_gpu.y, WithinRel(dm_cpu[0].y, micromag::gtol(1e-10)));
+    REQUIRE_THAT(dm_gpu.z, WithinRel(dm_cpu[0].z, micromag::gtol(1e-10)));
 }
 
 // ---------------------------------------------------------------------------
@@ -161,25 +165,25 @@ TEST_CASE("ZhangLiSTTGPU: uniform m gives zero torque", "[spin_torque_gpu][gpu]"
 
     // GPU: upload m0, run, download dm
     const int N = static_cast<int>(g.size());
-    double* d_m;
-    double* d_dm;
-    cudaMalloc(&d_m,  3 * N * sizeof(double));
-    cudaMalloc(&d_dm, 3 * N * sizeof(double));
-    cudaMemset(d_dm, 0, 3 * N * sizeof(double));
+    GReal* d_m;
+    GReal* d_dm;
+    cudaMalloc(&d_m,  3 * N * sizeof(GReal));
+    cudaMalloc(&d_dm, 3 * N * sizeof(GReal));
+    cudaMemset(d_dm, 0, 3 * N * sizeof(GReal));
 
     // Pack m0 into component-major
-    std::vector<double> h_m(3 * N);
+    std::vector<GReal> h_m(3 * N);
     for (int i = 0; i < N; ++i) {
-        h_m[i]       = m0[i].x;
-        h_m[N + i]   = m0[i].y;
-        h_m[2*N + i] = m0[i].z;
+        h_m[i]       = static_cast<GReal>(m0[i].x);
+        h_m[N + i]   = static_cast<GReal>(m0[i].y);
+        h_m[2*N + i] = static_cast<GReal>(m0[i].z);
     }
-    cudaMemcpy(d_m, h_m.data(), 3 * N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_m, h_m.data(), 3 * N * sizeof(GReal), cudaMemcpyHostToDevice);
 
     zl_gpu.accumulate_gpu_ptr(d_m, mat, d_dm);
 
-    std::vector<double> h_dm(3 * N);
-    cudaMemcpy(h_dm.data(), d_dm, 3 * N * sizeof(double), cudaMemcpyDeviceToHost);
+    std::vector<GReal> h_dm(3 * N);
+    cudaMemcpy(h_dm.data(), d_dm, 3 * N * sizeof(GReal), cudaMemcpyDeviceToHost);
 
     cudaFree(d_m);
     cudaFree(d_dm);
@@ -218,25 +222,27 @@ TEST_CASE("SpinTorqueSumGPU: size tracking and composition", "[spin_torque_gpu][
     const Vec3 dm_sot = run_stt_gpu(sot, m, mat);
 
     // Run the compositor
-    double h_m[3] = {m.x, m.y, m.z};
-    double* d_m;
-    double* d_dm;
-    cudaMalloc(&d_m,  3 * sizeof(double));
-    cudaMalloc(&d_dm, 3 * sizeof(double));
-    cudaMemcpy(d_m, h_m, 3 * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemset(d_dm, 0,  3 * sizeof(double));
+    GReal h_m[3] = {static_cast<GReal>(m.x),
+                    static_cast<GReal>(m.y),
+                    static_cast<GReal>(m.z)};
+    GReal* d_m;
+    GReal* d_dm;
+    cudaMalloc(&d_m,  3 * sizeof(GReal));
+    cudaMalloc(&d_dm, 3 * sizeof(GReal));
+    cudaMemcpy(d_m, h_m, 3 * sizeof(GReal), cudaMemcpyHostToDevice);
+    cudaMemset(d_dm, 0,  3 * sizeof(GReal));
 
     torques.accumulate_gpu_ptr(d_m, mat, d_dm);
 
-    double h_dm[3];
-    cudaMemcpy(h_dm, d_dm, 3 * sizeof(double), cudaMemcpyDeviceToHost);
+    GReal h_dm[3];
+    cudaMemcpy(h_dm, d_dm, 3 * sizeof(GReal), cudaMemcpyDeviceToHost);
     cudaFree(d_m);
     cudaFree(d_dm);
 
     // Sum should equal stt + sot
-    REQUIRE_THAT(h_dm[0], WithinAbs(dm_stt.x + dm_sot.x, 1e-3));
-    REQUIRE_THAT(h_dm[1], WithinAbs(dm_stt.y + dm_sot.y, 1e-3));
-    REQUIRE_THAT(h_dm[2], WithinAbs(dm_stt.z + dm_sot.z, 1e-3));
+    REQUIRE_THAT(h_dm[0], WithinAbs(dm_stt.x + dm_sot.x, micromag::gtol(1e-3, 1e3)));
+    REQUIRE_THAT(h_dm[1], WithinAbs(dm_stt.y + dm_sot.y, micromag::gtol(1e-3, 1e3)));
+    REQUIRE_THAT(h_dm[2], WithinAbs(dm_stt.z + dm_sot.z, micromag::gtol(1e-3, 1e3)));
 
     torques.clear();
     REQUIRE(torques.size() == 0);
@@ -281,7 +287,7 @@ TEST_CASE("SpinTorqueSumGPU: RK4 step runs without crash", "[spin_torque_gpu][gp
     integ.download(m_out);
 
     for (Index i = 0; i < m_out.size(); ++i)
-        REQUIRE_THAT(m_out[i].norm(), WithinAbs(1.0, 1e-10));
+        REQUIRE_THAT(m_out[i].norm(), WithinAbs(1.0, micromag::gtol(1e-10)));
 }
 
 // ---------------------------------------------------------------------------

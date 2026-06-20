@@ -1,6 +1,6 @@
-// DemagFieldPeriodicGPU: cuFFT periodic-BC demag without zero-padding.
+﻿// DemagFieldPeriodicGPU: cuFFT periodic-BC demag without zero-padding.
 // Kernel precomputed on CPU (periodic Newell image sum), uploaded once.
-// Pipeline per step: pack → H2D → R2C batch → MAC → C2R batch → scale → D2H → unpack.
+// Pipeline per step: pack ??H2D ??R2C batch ??MAC ??C2R batch ??scale ??D2H ??unpack.
 
 #ifdef MICROMAG_CUDA
 
@@ -11,7 +11,7 @@
 #include <cmath>
 #include <vector>
 #include <complex>
-
+#include "micromag/gpu_real.hpp"
 #include "micromag/demag_periodic_gpu.hpp"
 #include "micromag/types.hpp"
 
@@ -48,34 +48,34 @@ static inline cufftHandle   handle(const int& h) { return *reinterpret_cast<cons
 //   HF_z = K_xz*MF_x + K_yz*MF_y + K_zz*MF_z
 // All arrays interleaved as [x-slice | y-slice | z-slice] of length cplx_sz.
 __global__ static void mac_periodic(
-    cufftDoubleComplex* __restrict__ HF_all,
-    const cufftDoubleComplex* __restrict__ Kxx,
-    const cufftDoubleComplex* __restrict__ Kxy,
-    const cufftDoubleComplex* __restrict__ Kxz,
-    const cufftDoubleComplex* __restrict__ Kyy,
-    const cufftDoubleComplex* __restrict__ Kyz,
-    const cufftDoubleComplex* __restrict__ Kzz,
-    const cufftDoubleComplex* __restrict__ MF_all,
+    GREAL_CUFFT_COMPLEX* __restrict__ HF_all,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kxx,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kxy,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kxz,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kyy,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kyz,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kzz,
+    const GREAL_CUFFT_COMPLEX* __restrict__ MF_all,
     size_t cplx_sz)
 {
     const size_t i = blockIdx.x * (size_t)blockDim.x + threadIdx.x;
     if (i >= cplx_sz) return;
     const auto Mx = MF_all[i], My = MF_all[i+cplx_sz], Mz = MF_all[i+2*cplx_sz];
-    HF_all[i]           = cuCadd(cuCadd(cuCmul(Kxx[i],Mx), cuCmul(Kxy[i],My)), cuCmul(Kxz[i],Mz));
-    HF_all[i+cplx_sz]   = cuCadd(cuCadd(cuCmul(Kxy[i],Mx), cuCmul(Kyy[i],My)), cuCmul(Kyz[i],Mz));
-    HF_all[i+2*cplx_sz] = cuCadd(cuCadd(cuCmul(Kxz[i],Mx), cuCmul(Kyz[i],My)), cuCmul(Kzz[i],Mz));
+    HF_all[i]           = GREAL_CUFFT_CADD(GREAL_CUFFT_CADD(GREAL_CUFFT_CMUL(Kxx[i],Mx), GREAL_CUFFT_CMUL(Kxy[i],My)), GREAL_CUFFT_CMUL(Kxz[i],Mz));
+    HF_all[i+cplx_sz]   = GREAL_CUFFT_CADD(GREAL_CUFFT_CADD(GREAL_CUFFT_CMUL(Kxy[i],Mx), GREAL_CUFFT_CMUL(Kyy[i],My)), GREAL_CUFFT_CMUL(Kyz[i],Mz));
+    HF_all[i+2*cplx_sz] = GREAL_CUFFT_CADD(GREAL_CUFFT_CADD(GREAL_CUFFT_CMUL(Kxz[i],Mx), GREAL_CUFFT_CMUL(Kyz[i],My)), GREAL_CUFFT_CMUL(Kzz[i],Mz));
 }
 
 // Scale in-place: dst[i] *= scale
-__global__ static void scale_all3(double* __restrict__ dst, double scale, size_t n3) {
+__global__ static void scale_all3(GReal* __restrict__ dst, double scale, size_t n3) {
     const size_t i = blockIdx.x * (size_t)blockDim.x + threadIdx.x;
-    if (i < n3) dst[i] *= scale;
+    if (i < n3) dst[i] = static_cast<GReal>(static_cast<double>(dst[i]) * scale);
 }
 
 // Add: dst[i] += src[i]
 __global__ static void add_all3(
-    double* __restrict__       dst,
-    const double* __restrict__ src,
+    GReal* __restrict__       dst,
+    const GReal* __restrict__ src,
     size_t n3)
 {
     const size_t i = blockIdx.x * (size_t)blockDim.x + threadIdx.x;
@@ -83,7 +83,7 @@ __global__ static void add_all3(
 }
 
 // ===========================================================================
-// CPU Newell helpers (periodic image sum — identical to demag_periodic.cpp)
+// CPU Newell helpers (periodic image sum ??identical to demag_periodic.cpp)
 // ===========================================================================
 static double nf(double x, double y, double z) {
     x=std::abs(x); y=std::abs(y); z=std::abs(z);
@@ -150,24 +150,24 @@ DemagFieldPeriodicGPU::DemagFieldPeriodicGPU(const StructuredGrid& grid, int n_r
     stream_ = s;
 
     // 3-component batch buffers
-    CUDA_CHECK(cudaMallocAsync(&d_M_all_,  3*real_sz_*sizeof(double),             s));
-    CUDA_CHECK(cudaMallocAsync(&d_MF_all_, 3*cplx_sz_*sizeof(cufftDoubleComplex), s));
-    CUDA_CHECK(cudaMallocAsync(&d_HF_all_, 3*cplx_sz_*sizeof(cufftDoubleComplex), s));
-    CUDA_CHECK(cudaMallocAsync(&d_H_all_,  3*real_sz_*sizeof(double),             s));
+    CUDA_CHECK(cudaMallocAsync(&d_M_all_,  3*real_sz_*sizeof(GReal),             s));
+    CUDA_CHECK(cudaMallocAsync(&d_MF_all_, 3*cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
+    CUDA_CHECK(cudaMallocAsync(&d_HF_all_, 3*cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
+    CUDA_CHECK(cudaMallocAsync(&d_H_all_,  3*real_sz_*sizeof(GReal),             s));
 
     // Kernel components (frequency-domain)
-    CUDA_CHECK(cudaMallocAsync(&d_K_xx_, cplx_sz_*sizeof(cufftDoubleComplex), s));
-    CUDA_CHECK(cudaMallocAsync(&d_K_yy_, cplx_sz_*sizeof(cufftDoubleComplex), s));
-    CUDA_CHECK(cudaMallocAsync(&d_K_zz_, cplx_sz_*sizeof(cufftDoubleComplex), s));
-    CUDA_CHECK(cudaMallocAsync(&d_K_xy_, cplx_sz_*sizeof(cufftDoubleComplex), s));
-    CUDA_CHECK(cudaMallocAsync(&d_K_xz_, cplx_sz_*sizeof(cufftDoubleComplex), s));
-    CUDA_CHECK(cudaMallocAsync(&d_K_yz_, cplx_sz_*sizeof(cufftDoubleComplex), s));
+    CUDA_CHECK(cudaMallocAsync(&d_K_xx_, cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
+    CUDA_CHECK(cudaMallocAsync(&d_K_yy_, cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
+    CUDA_CHECK(cudaMallocAsync(&d_K_zz_, cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
+    CUDA_CHECK(cudaMallocAsync(&d_K_xy_, cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
+    CUDA_CHECK(cudaMallocAsync(&d_K_xz_, cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
+    CUDA_CHECK(cudaMallocAsync(&d_K_yz_, cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
 
     // Pinned host staging
-    CUDA_CHECK(cudaMallocHost(&h_M_pinned_, 3*real_sz_*sizeof(double)));
-    CUDA_CHECK(cudaMallocHost(&h_H_pinned_, 3*real_sz_*sizeof(double)));
+    CUDA_CHECK(cudaMallocHost(&h_M_pinned_, 3*real_sz_*sizeof(GReal)));
+    CUDA_CHECK(cudaMallocHost(&h_H_pinned_, 3*real_sz_*sizeof(GReal)));
 
-    // cuFFT plans — (nz, ny, nx) in C row-major (x fastest after transpose)
+    // cuFFT plans ??(nz, ny, nx) in C row-major (x fastest after transpose)
     const int dims[3] = {(int)nz_, (int)ny_, (int)nx_};
 
     // Single-transform plan for kernel precompute
@@ -175,21 +175,21 @@ DemagFieldPeriodicGPU::DemagFieldPeriodicGPU(const StructuredGrid& grid, int n_r
     CUFFT_CHECK(cufftSetStream(handle(plan_fwd_single_), s));
     size_t ws1=0;
     CUFFT_CHECK(cufftMakePlanMany(handle(plan_fwd_single_),3,const_cast<int*>(dims),
-        nullptr,1,(int)real_sz_, nullptr,1,(int)cplx_sz_, CUFFT_D2Z,1,&ws1));
+        nullptr,1,(int)real_sz_, nullptr,1,(int)cplx_sz_, GREAL_CUFFT_TYPE,1,&ws1));
 
     // Batch=3 forward plan
     CUFFT_CHECK(cufftCreate(reinterpret_cast<cufftHandle*>(&plan_fwd_batch_)));
     CUFFT_CHECK(cufftSetStream(handle(plan_fwd_batch_), s));
     size_t wsf=0;
     CUFFT_CHECK(cufftMakePlanMany(handle(plan_fwd_batch_),3,const_cast<int*>(dims),
-        nullptr,1,(int)real_sz_, nullptr,1,(int)cplx_sz_, CUFFT_D2Z,3,&wsf));
+        nullptr,1,(int)real_sz_, nullptr,1,(int)cplx_sz_, GREAL_CUFFT_TYPE,3,&wsf));
 
     // Batch=3 inverse plan
     CUFFT_CHECK(cufftCreate(reinterpret_cast<cufftHandle*>(&plan_inv_batch_)));
     CUFFT_CHECK(cufftSetStream(handle(plan_inv_batch_), s));
     size_t wsi=0;
     CUFFT_CHECK(cufftMakePlanMany(handle(plan_inv_batch_),3,const_cast<int*>(dims),
-        nullptr,1,(int)cplx_sz_, nullptr,1,(int)real_sz_, CUFFT_Z2D,3,&wsi));
+        nullptr,1,(int)cplx_sz_, nullptr,1,(int)real_sz_, GREAL_CUFFT_ITYPE,3,&wsi));
 
     CUDA_CHECK(cudaStreamSynchronize(s));
     precompute_kernel();
@@ -222,21 +222,22 @@ DemagFieldPeriodicGPU::~DemagFieldPeriodicGPU() {
 }
 
 // ===========================================================================
-// precompute_kernel — CPU periodic Newell sum → H2D → cuFFT → zero k=0
+// precompute_kernel ??CPU periodic Newell sum ??H2D ??cuFFT ??zero k=0
 // ===========================================================================
 void DemagFieldPeriodicGPU::precompute_kernel() {
     auto s = static_cast<cudaStream_t>(stream_);
     const double Lx=nx_*dx_, Ly=ny_*dy_, Lz=nz_*dz_;
 
-    // Host staging for one kernel component at a time
-    std::vector<double> h_k(real_sz_);
+    // Host staging for one kernel component at a time (always double for accuracy)
+    std::vector<double> h_k_dbl(real_sz_);
+    std::vector<GReal>  h_k(real_sz_);
 
-    // Temp device buffer for one real kernel component
-    double* d_tmp = nullptr;
-    CUDA_CHECK(cudaMalloc(&d_tmp, real_sz_*sizeof(double)));
+    // Temp device buffer for one real kernel component (GReal for plan compatibility)
+    GReal* d_tmp = nullptr;
+    CUDA_CHECK(cudaMalloc(&d_tmp, real_sz_*sizeof(GReal)));
 
     auto fill_and_fft = [&](void* d_Kdest, auto kern) {
-        // Image-sum Newell kernel on CPU
+        // Image-sum Newell kernel on CPU in double, then cast to GReal
         for (Index kz=0; kz<nz_; ++kz)
         for (Index ky=0; ky<ny_; ++ky)
         for (Index kx=0; kx<nx_; ++kx) {
@@ -248,15 +249,15 @@ void DemagFieldPeriodicGPU::precompute_kernel() {
             for(int n2=-n_rep_;n2<=n_rep_;++n2)
             for(int n3=-n_rep_;n3<=n_rep_;++n3)
                 val += kern(x0+n1*Lx, y0+n2*Ly, z0+n3*Lz);
-            h_k[kx + nx_*(ky + ny_*kz)] = val;
+            h_k[kx + nx_*(ky + ny_*kz)] = static_cast<GReal>(val);
         }
-        CUDA_CHECK(cudaMemcpy(d_tmp, h_k.data(), real_sz_*sizeof(double), cudaMemcpyHostToDevice));
-        // FFT d_tmp → d_Kdest (using single-shot plan)
-        CUFFT_CHECK(cufftExecD2Z(handle(plan_fwd_single_),
-            d_tmp, static_cast<cufftDoubleComplex*>(d_Kdest)));
+        CUDA_CHECK(cudaMemcpy(d_tmp, h_k.data(), real_sz_*sizeof(GReal), cudaMemcpyHostToDevice));
+        // FFT d_tmp -> d_Kdest (using single-shot plan, type matches GREAL_CUFFT_TYPE)
+        CUFFT_CHECK(GREAL_CUFFT_EXEC_FWD(handle(plan_fwd_single_),
+            d_tmp, static_cast<GREAL_CUFFT_COMPLEX*>(d_Kdest)));
         CUDA_CHECK(cudaDeviceSynchronize());
-        // Zero k=0 mode (uniform M → no periodic demag field)
-        CUDA_CHECK(cudaMemset(d_Kdest, 0, sizeof(cufftDoubleComplex)));
+        // Zero k=0 mode (uniform M -> no periodic demag field)
+        CUDA_CHECK(cudaMemset(d_Kdest, 0, sizeof(GREAL_CUFFT_COMPLEX)));
     };
 
     fill_and_fft(d_K_xx_, [&](double x,double y,double z){ return nxx_p(x,y,z,dx_,dy_,dz_); });
@@ -271,59 +272,59 @@ void DemagFieldPeriodicGPU::precompute_kernel() {
 }
 
 // ===========================================================================
-// GPU-pointer path: d_m [3×N component-major, on-GPU] → d_H_out [3×N, on-GPU]
+// GPU-pointer path: d_m [3횞N component-major, on-GPU] ??d_H_out [3횞N, on-GPU]
 // ===========================================================================
-void DemagFieldPeriodicGPU::accumulate_gpu_ptr(const double* d_m,
+void DemagFieldPeriodicGPU::accumulate_gpu_ptr(const GReal* d_m,
                                                  const Material& mat,
-                                                 double* d_H_out) const {
+                                                 GReal* d_H_out) const {
     auto s = static_cast<cudaStream_t>(stream_);
     const size_t N3 = 3*real_sz_;
     constexpr int BLK = 256;
 
-    // 1. Copy d_m → d_M_all_ (both component-major 3×N)
-    CUDA_CHECK(cudaMemcpyAsync(d_M_all_, d_m, N3*sizeof(double), cudaMemcpyDeviceToDevice, s));
+    // 1. Copy d_m ??d_M_all_ (both component-major 3횞N)
+    CUDA_CHECK(cudaMemcpyAsync(d_M_all_, d_m, N3*sizeof(GReal), cudaMemcpyDeviceToDevice, s));
 
-    // 2. Batch R2C FFT: d_M_all_ → d_MF_all_
-    CUFFT_CHECK(cufftExecD2Z(handle(plan_fwd_batch_),
-        reinterpret_cast<cufftDoubleReal*>(d_M_all_),
-        reinterpret_cast<cufftDoubleComplex*>(d_MF_all_)));
+    // 2. Batch R2C FFT: d_M_all_ ??d_MF_all_
+    CUFFT_CHECK(GREAL_CUFFT_EXEC_FWD(handle(plan_fwd_batch_),
+        reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_)));
 
     // 3. Pointwise MAC
     const int gcx = (int)((cplx_sz_+BLK-1)/BLK);
     mac_periodic<<<gcx,BLK,0,s>>>(
-        reinterpret_cast<cufftDoubleComplex*>(d_HF_all_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_xx_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_xy_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_xz_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_yy_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_yz_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_zz_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_MF_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xx_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xy_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xz_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_yy_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_yz_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_zz_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         cplx_sz_);
     CUDA_CHECK(cudaGetLastError());
 
-    // 4. Batch C2R IFFT: d_HF_all_ → d_H_all_
-    CUFFT_CHECK(cufftExecZ2D(handle(plan_inv_batch_),
-        reinterpret_cast<cufftDoubleComplex*>(d_HF_all_),
-        reinterpret_cast<cufftDoubleReal*>(d_H_all_)));
+    // 4. Batch C2R IFFT: d_HF_all_ ??d_H_all_
+    CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(handle(plan_inv_batch_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
 
-    // 5. Scale: H_demag = -1/N * IFFT(K·MF)
+    // 5. Scale: H_demag = -1/N * IFFT(K쨌MF)
     // M was packed as Ms*m, so the factor is just -1/N (not -Ms/N).
     const double scale = -1.0 / static_cast<double>(real_sz_);
     scale_all3<<<(int)((N3+BLK-1)/BLK), BLK, 0, s>>>(
-        reinterpret_cast<double*>(d_H_all_), scale, N3);
+        reinterpret_cast<GReal*>(d_H_all_), scale, N3);
     CUDA_CHECK(cudaGetLastError());
 
     // 6. d_H_out += d_H_all_
     add_all3<<<(int)((N3+BLK-1)/BLK), BLK, 0, s>>>(
-        d_H_out, reinterpret_cast<const double*>(d_H_all_), N3);
+        d_H_out, reinterpret_cast<const GReal*>(d_H_all_), N3);
     CUDA_CHECK(cudaGetLastError());
 
     CUDA_CHECK(cudaStreamSynchronize(s));
 }
 
 // ===========================================================================
-// CPU-path: pack m → GPU → compute → download → unpack to H_out
+// CPU-path: pack m ??GPU ??compute ??download ??unpack to H_out
 // ===========================================================================
 void DemagFieldPeriodicGPU::accumulate(const VectorField3D& m,
                                          const Material& mat,
@@ -332,61 +333,61 @@ void DemagFieldPeriodicGPU::accumulate(const VectorField3D& m,
     const size_t N  = real_sz_;
     const size_t N3 = 3*N;
 
-    // Pack m → h_M_pinned_ (component-major: Mx|My|Mz, each N doubles)
+    // Pack m ??h_M_pinned_ (component-major: Mx|My|Mz, each N doubles)
     for (size_t i=0; i<N; ++i) {
         const Vec3& v = m[static_cast<Index>(i)];
-        h_M_pinned_[i]       = mat.Ms * v.x;
-        h_M_pinned_[i+N]     = mat.Ms * v.y;
-        h_M_pinned_[i+2*N]   = mat.Ms * v.z;
+        h_M_pinned_[i]       = static_cast<GReal>(mat.Ms * v.x);
+        h_M_pinned_[i+N]     = static_cast<GReal>(mat.Ms * v.y);
+        h_M_pinned_[i+2*N]   = static_cast<GReal>(mat.Ms * v.z);
     }
 
     // H2D
     CUDA_CHECK(cudaMemcpyAsync(d_M_all_, h_M_pinned_,
-        N3*sizeof(double), cudaMemcpyHostToDevice, s));
+        N3*sizeof(GReal), cudaMemcpyHostToDevice, s));
 
     // Prepare zero-initialised d_H_all_ (we accumulate fresh each call)
-    CUDA_CHECK(cudaMemsetAsync(d_H_all_, 0, N3*sizeof(double), s));
+    CUDA_CHECK(cudaMemsetAsync(d_H_all_, 0, N3*sizeof(GReal), s));
 
-    // GPU compute via ptr path (copies d_M_all_ to itself — no-op copy)
+    // GPU compute via ptr path (copies d_M_all_ to itself ??no-op copy)
     // Avoid double-copy: call the inner pipeline directly
     constexpr int BLK = 256;
     const int gcx = (int)((cplx_sz_+BLK-1)/BLK);
 
-    CUFFT_CHECK(cufftExecD2Z(handle(plan_fwd_batch_),
-        reinterpret_cast<cufftDoubleReal*>(d_M_all_),
-        reinterpret_cast<cufftDoubleComplex*>(d_MF_all_)));
+    CUFFT_CHECK(GREAL_CUFFT_EXEC_FWD(handle(plan_fwd_batch_),
+        reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_)));
 
     mac_periodic<<<gcx,BLK,0,s>>>(
-        reinterpret_cast<cufftDoubleComplex*>(d_HF_all_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_xx_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_xy_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_xz_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_yy_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_yz_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_K_zz_),
-        reinterpret_cast<const cufftDoubleComplex*>(d_MF_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xx_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xy_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xz_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_yy_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_yz_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_zz_),
+        reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         cplx_sz_);
     CUDA_CHECK(cudaGetLastError());
 
-    CUFFT_CHECK(cufftExecZ2D(handle(plan_inv_batch_),
-        reinterpret_cast<cufftDoubleComplex*>(d_HF_all_),
-        reinterpret_cast<cufftDoubleReal*>(d_H_all_)));
+    CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(handle(plan_inv_batch_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
 
     const double scale = -1.0 / static_cast<double>(N);
     scale_all3<<<(int)((N3+BLK-1)/BLK), BLK, 0, s>>>(
-        reinterpret_cast<double*>(d_H_all_), scale, N3);
+        reinterpret_cast<GReal*>(d_H_all_), scale, N3);
     CUDA_CHECK(cudaGetLastError());
 
     // D2H
     CUDA_CHECK(cudaMemcpyAsync(h_H_pinned_, d_H_all_,
-        N3*sizeof(double), cudaMemcpyDeviceToHost, s));
+        N3*sizeof(GReal), cudaMemcpyDeviceToHost, s));
     CUDA_CHECK(cudaStreamSynchronize(s));
 
-    // Unpack: add H_demag to H_out (component-major → Vec3 cell-major)
+    // Unpack: add H_demag to H_out (component-major ??Vec3 cell-major)
     for (size_t i=0; i<N; ++i) {
-        H_out[static_cast<Index>(i)].x += h_H_pinned_[i];
-        H_out[static_cast<Index>(i)].y += h_H_pinned_[i+N];
-        H_out[static_cast<Index>(i)].z += h_H_pinned_[i+2*N];
+        H_out[static_cast<Index>(i)].x += static_cast<double>(h_H_pinned_[i]);
+        H_out[static_cast<Index>(i)].y += static_cast<double>(h_H_pinned_[i+N]);
+        H_out[static_cast<Index>(i)].z += static_cast<double>(h_H_pinned_[i+2*N]);
     }
 }
 
@@ -419,3 +420,7 @@ ScalarField3D DemagFieldPeriodicGPU::energy_density(const VectorField3D& m,
 } // namespace micromag
 
 #endif // MICROMAG_CUDA
+
+
+
+

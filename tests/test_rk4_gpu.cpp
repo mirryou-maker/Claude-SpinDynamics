@@ -19,6 +19,8 @@
 #include "micromag/types.hpp"
 #include "micromag/zeeman.hpp"
 
+#include "gpu_test_tol.hpp"
+
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
@@ -83,9 +85,9 @@ TEST_CASE("LLG torque GPU matches CPU: single cell", "[llg][gpu]") {
 
     INFO("CPU ki = (" << ki_cpu.x << ", " << ki_cpu.y << ", " << ki_cpu.z << ")");
     INFO("GPU ki = (" << ki[0].x  << ", " << ki[0].y  << ", " << ki[0].z  << ")");
-    REQUIRE_THAT(ki[0].x, WithinRel(ki_cpu.x, 1e-8));
-    REQUIRE_THAT(ki[0].y, WithinRel(ki_cpu.y, 1e-8));
-    REQUIRE_THAT(ki[0].z, WithinAbs(ki_cpu.z, std::abs(ki_cpu.y)*1e-8 + 1.0));
+    REQUIRE_THAT(ki[0].x, WithinRel(ki_cpu.x, micromag::gtol(1e-8)));
+    REQUIRE_THAT(ki[0].y, WithinRel(ki_cpu.y, micromag::gtol(1e-8)));
+    REQUIRE_THAT(ki[0].z, WithinAbs(ki_cpu.z, std::abs(ki_cpu.y)*micromag::gtol(1e-8) + 1.0));
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +134,7 @@ TEST_CASE("LLG torque GPU matches CPU: 8×6×4 grid", "[llg][gpu]") {
         max_rel = std::max(max_rel, std::abs(ref-got) / std::max(std::abs(ref), 1.0));
     }
     INFO("max relative err = " << max_rel);
-    REQUIRE(max_rel < 1e-8);
+    REQUIRE(max_rel < micromag::gtol(1e-8, 5e-2));
 }
 
 // ============================================================================
@@ -171,9 +173,9 @@ TEST_CASE("RK4 stage kernel: m_out = m0 + scale*ki", "[rk4][gpu]") {
     const double expected_x = 0.0 + (dt*0.5) * 1e11;
     const double expected_z = 1.0 + (dt*0.5) * (-1e11);
     for (Index i=0; i<g.size(); ++i) {
-        REQUIRE_THAT(m_stage[i].x, WithinRel(expected_x, 1e-10));
+        REQUIRE_THAT(m_stage[i].x, WithinRel(expected_x, micromag::gtol(1e-10)));
         REQUIRE_THAT(m_stage[i].y, WithinAbs(0.0, 1e-20));
-        REQUIRE_THAT(m_stage[i].z, WithinRel(expected_z, 1e-10));
+        REQUIRE_THAT(m_stage[i].z, WithinRel(expected_z, micromag::gtol(1e-10)));
     }
 }
 
@@ -204,9 +206,9 @@ TEST_CASE("RK4 accumulate kernel: k_acc += weight*ki", "[rk4][gpu]") {
 
     // Expected: k_acc[i] = 1/6 * (2, -1, 3) * 1e11
     for (Index i=0; i<g.size(); ++i) {
-        REQUIRE_THAT(k_acc[i].x, WithinRel(w * 2e11, 1e-12));
-        REQUIRE_THAT(k_acc[i].y, WithinRel(w * (-1e11), 1e-12));
-        REQUIRE_THAT(k_acc[i].z, WithinRel(w * 3e11, 1e-12));
+        REQUIRE_THAT(k_acc[i].x, WithinRel(w * 2e11, micromag::gtol(1e-12)));
+        REQUIRE_THAT(k_acc[i].y, WithinRel(w * (-1e11), micromag::gtol(1e-12)));
+        REQUIRE_THAT(k_acc[i].z, WithinRel(w * 3e11, micromag::gtol(1e-12)));
     }
 
     // Accumulate again with weight = 2/6 → total = (1/6 + 2/6)*ki
@@ -216,7 +218,7 @@ TEST_CASE("RK4 accumulate kernel: k_acc += weight*ki", "[rk4][gpu]") {
     state.sync();
     state.download_k_acc(k_acc);
 
-    REQUIRE_THAT(k_acc[0].x, WithinRel((w+w2) * 2e11, 1e-12));
+    REQUIRE_THAT(k_acc[0].x, WithinRel((w+w2) * 2e11, micromag::gtol(1e-12)));
 }
 
 // ---------------------------------------------------------------------------
@@ -251,8 +253,8 @@ TEST_CASE("RK4 finalize kernel: m_new = m0 + dt*k_acc", "[rk4][gpu]") {
     const double ex = 0.6 + dt * 1e11;
     const double ey = 0.8 + dt * (-1e11);
     for (Index i=0; i<g.size(); ++i) {
-        REQUIRE_THAT(m_new[i].x, WithinRel(ex, 1e-12));
-        REQUIRE_THAT(m_new[i].y, WithinRel(ey, 1e-12));
+        REQUIRE_THAT(m_new[i].x, WithinRel(ex, micromag::gtol(1e-12)));
+        REQUIRE_THAT(m_new[i].y, WithinRel(ey, micromag::gtol(1e-12)));
         REQUIRE_THAT(m_new[i].z, WithinAbs(0.0, 1e-25));
     }
 }
@@ -279,10 +281,10 @@ TEST_CASE("Normalize kernel: unit sphere clamp", "[rk4][gpu]") {
         const double len = std::sqrt(m_out[i].x*m_out[i].x +
                                      m_out[i].y*m_out[i].y +
                                      m_out[i].z*m_out[i].z);
-        REQUIRE_THAT(len, WithinAbs(1.0, 1e-14));
+        REQUIRE_THAT(len, WithinAbs(1.0, micromag::gtol(1e-14)));
         // Direction preserved: (3,4,0)/5 = (0.6, 0.8, 0)
-        REQUIRE_THAT(m_out[i].x, WithinAbs(0.6, 1e-14));
-        REQUIRE_THAT(m_out[i].y, WithinAbs(0.8, 1e-14));
+        REQUIRE_THAT(m_out[i].x, WithinAbs(0.6, micromag::gtol(1e-14)));
+        REQUIRE_THAT(m_out[i].y, WithinAbs(0.8, micromag::gtol(1e-14)));
     }
 }
 
@@ -390,7 +392,7 @@ TEST_CASE("G4+G5 integration: one RK4 step vs CPU (Zeeman only)", "[rk4][gpu][ll
     INFO("max |GPU - CPU| = " << max_err);
     INFO("GPU[0] = (" << m_gpu[0].x << ", " << m_gpu[0].y << ", " << m_gpu[0].z << ")");
     INFO("CPU[0] = (" << m_cpu[0].x << ", " << m_cpu[0].y << ", " << m_cpu[0].z << ")");
-    REQUIRE(max_err < 1e-12);
+    REQUIRE(max_err < micromag::gtol(1e-12, 5e-2));
 }
 
 #endif // MICROMAG_CUDA

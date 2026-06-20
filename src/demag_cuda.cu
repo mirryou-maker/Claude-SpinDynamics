@@ -1,23 +1,29 @@
-// demag_cuda.cu — Phase 3 Step 6c: CUDA stream (async pipeline)
+﻿// demag_cuda.cu ??Phase 3 Step 6c: CUDA stream (async pipeline)
 //
 // Key changes over Step 5:
 //   - cufftPlanMany (batch=3) replaces 3 separate forward / 3 separate inverse plans.
 //   - pointwise_mac_all3 kernel: one launch computes all 3 H components simultaneously.
 //   - extract_all3 kernel: one launch extracts all 3 unpadded H components.
-//   - Single cudaMemcpy H2D (3×real_sz) + single D2H (3×unpad_sz) per step.
+//   - Single cudaMemcpy H2D (3횞real_sz) + single D2H (3횞unpad_sz) per step.
 //
-// cuFFT exec count:  Step5 = 6  →  Step6a = 2   (1 forward + 1 inverse)
-// CUDA kernel count: Step5 = 6  →  Step6a = 2   (mac_all3 + extract_all3)
-// PCIe downloads:    Step5 = 3  →  Step6a = 1
+// cuFFT exec count:  Step5 = 6  ?? Step6a = 2   (1 forward + 1 inverse)
+// CUDA kernel count: Step5 = 6  ?? Step6a = 2   (mac_all3 + extract_all3)
+// PCIe downloads:    Step5 = 3  ?? Step6a = 1
 
 #ifdef MICROMAG_CUDA
 
 #include <cufft.h>
+#include "micromag/gpu_real.hpp"
 #include <cuda_runtime.h>
 #include <stdexcept>
 #include <string>
 
 #include "micromag/demag_gpu.hpp"
+
+// Bring GReal into global scope: the kernels below are defined before the
+// `namespace micromag {` block opens (line ~315), so they cannot see the
+// namespace-scoped alias otherwise.
+using micromag::GReal;
 
 // ---------------------------------------------------------------------------
 #define CUDA_CHECK(call)                                                \
@@ -35,20 +41,20 @@
                                      std::to_string((int)_r));         \
     } while (0)
 
-static inline cufftDoubleComplex* as_cx(void* p) {
-    return reinterpret_cast<cufftDoubleComplex*>(p);
+static inline GREAL_CUFFT_COMPLEX* as_cx(void* p) {
+    return reinterpret_cast<GREAL_CUFFT_COMPLEX*>(p);
 }
-static inline const cufftDoubleComplex* as_cxc(const void* p) {
-    return reinterpret_cast<const cufftDoubleComplex*>(p);
+static inline const GREAL_CUFFT_COMPLEX* as_cxc(const void* p) {
+    return reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(p);
 }
 
 // ===========================================================================
-// GPU Newell tensor — device functions
+// GPU Newell tensor ??device functions
 //
 // Implement the same 64-term alternating double-cell sums as demag.cpp,
 // but entirely on the GPU so precompute_kernel() needs no CPU loops.
 // Each thread handles one (kx,ky,kz) lattice position; all 2.5M threads
-// run in parallel, reducing 500×500×10 precompute from ~35s → <1s.
+// run in parallel, reducing 500횞500횞10 precompute from ~35s ??<1s.
 // ===========================================================================
 
 __device__ static double gpu_newell_f(double x, double y, double z) {
@@ -67,7 +73,7 @@ __device__ static double gpu_newell_f(double x, double y, double z) {
 }
 
 __device__ static double gpu_newell_g(double x, double y, double z) {
-    z = fabs(z);   // abs(z) only — x,y keep their sign
+    z = fabs(z);   // abs(z) only ??x,y keep their sign
     const double x2 = x*x, y2 = y*y, z2 = z*z;
     const double r = sqrt(x2+y2+z2);
     if (r == 0.0) return 0.0;
@@ -121,13 +127,13 @@ __device__ static double gpu_nxy(int kx, int ky, int kz,
 }
 
 // Inline write to padded buffer with negative-index wrap.
-// Each (kx,ky,kz) thread writes to disjoint positions — no atomics needed.
+// Each (kx,ky,kz) thread writes to disjoint positions ??no atomics needed.
 #define GPU_PUT(r, px, py, pz, padX, padY, padZ, v) \
     (r)[((px)<0?(px)+(padX):(px)) + (padX)*(((py)<0?(py)+(padY):(py)) + (padY)*((pz)<0?(pz)+(padZ):(pz)))] = (v)
 
 // ---------------------------------------------------------------------------
 // GPU kernel: fill padded buffer with DIAGONAL Newell component (even symmetry).
-// perm 0 → N_xx, 1 → N_yy (swap x↔y), 2 → N_zz (swap x↔z).
+// perm 0 ??N_xx, 1 ??N_yy (swap x?봸), 2 ??N_zz (swap x?봹).
 // ---------------------------------------------------------------------------
 __global__ static void fill_diag_gpu(
     double* __restrict__ r_buf,
@@ -158,7 +164,7 @@ __global__ static void fill_diag_gpu(
 
 // ---------------------------------------------------------------------------
 // GPU kernel: fill padded buffer with OFF-DIAGONAL Newell component (mixed parity).
-// perm 0 → N_xy, 1 → N_xz (swap y↔z), 2 → N_yz (rotate).
+// perm 0 ??N_xy, 1 ??N_xz (swap y?봹), 2 ??N_yz (rotate).
 // sx/sy/sz are the parity signs applied to negative-index copies.
 // ---------------------------------------------------------------------------
 __global__ static void fill_offdiag_gpu(
@@ -196,33 +202,49 @@ __global__ static void fill_offdiag_gpu(
 #undef GPU_PUT
 
 // ===========================================================================
+// P11: float32 helper — convert cufftDoubleComplex[] to cufftComplex[] in-place.
+// Used only during precompute_kernel() to downcast the D2Z FFT output to
+// the GReal-typed kernel storage buffers (d_K_xx_ etc.).
+// No-op in double mode (sizes match, plain memcpy suffices).
+#ifdef MICROMAG_FLOAT32
+__global__ static void dc_to_fc(cufftComplex* __restrict__ dst,
+                                  const cufftDoubleComplex* __restrict__ src,
+                                  size_t N) {
+    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N) return;
+    dst[i].x = static_cast<float>(src[i].x);
+    dst[i].y = static_cast<float>(src[i].y);
+}
+#endif
+
+// ===========================================================================
 // CUDA kernel: combined H = Ka*Ma + Kb*Mb + Kc*Mc for all 3 output components
 //
 // MF_all layout: [Mx_f (N bins) | My_f (N bins) | Mz_f (N bins)]
 // HF_all layout: [Hx_f (N bins) | Hy_f (N bins) | Hz_f (N bins)]
 // ===========================================================================
 __global__ static void pointwise_mac_all3(
-    cufftDoubleComplex* __restrict__ HF_all,
-    const cufftDoubleComplex* __restrict__ Kxx,
-    const cufftDoubleComplex* __restrict__ Kxy,
-    const cufftDoubleComplex* __restrict__ Kxz,
-    const cufftDoubleComplex* __restrict__ Kyy,
-    const cufftDoubleComplex* __restrict__ Kyz,
-    const cufftDoubleComplex* __restrict__ Kzz,
-    const cufftDoubleComplex* __restrict__ MF_all,
+    GREAL_CUFFT_COMPLEX* __restrict__ HF_all,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kxx,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kxy,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kxz,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kyy,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kyz,
+    const GREAL_CUFFT_COMPLEX* __restrict__ Kzz,
+    const GREAL_CUFFT_COMPLEX* __restrict__ MF_all,
     size_t N)
 {
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     // Load M components (one load per component from contiguous regions)
-    const cufftDoubleComplex Mx = MF_all[i];
-    const cufftDoubleComplex My = MF_all[N + i];
-    const cufftDoubleComplex Mz = MF_all[2*N + i];
+    const GREAL_CUFFT_COMPLEX Mx = MF_all[i];
+    const GREAL_CUFFT_COMPLEX My = MF_all[N + i];
+    const GREAL_CUFFT_COMPLEX Mz = MF_all[2*N + i];
 
-    auto re = [](const cufftDoubleComplex& a, const cufftDoubleComplex& b)
+    auto re = [](const GREAL_CUFFT_COMPLEX& a, const GREAL_CUFFT_COMPLEX& b)
         { return a.x*b.x - a.y*b.y; };
-    auto im = [](const cufftDoubleComplex& a, const cufftDoubleComplex& b)
+    auto im = [](const GREAL_CUFFT_COMPLEX& a, const GREAL_CUFFT_COMPLEX& b)
         { return a.x*b.y + a.y*b.x; };
 
     // Hx = Kxx*Mx + Kxy*My + Kxz*Mz
@@ -245,8 +267,8 @@ __global__ static void pointwise_mac_all3(
 // H_unpad_all layout:[Hx_unpad (unpad_sz) | Hy_unpad  | Hz_unpad ]
 // ===========================================================================
 __global__ static void extract_all3(
-    double* __restrict__       H_unpad_all,
-    const double* __restrict__ H_all,
+    GReal* __restrict__        H_unpad_all,
+    const GReal* __restrict__  H_all,
     size_t nx, size_t ny, size_t nz,
     size_t pad_nx, size_t pad_ny,
     size_t real_sz, size_t unpad_sz,
@@ -260,9 +282,9 @@ __global__ static void extract_all3(
     const size_t src = ix + pad_nx * (iy + pad_ny * iz);
     const size_t dst = ix + nx    * (iy + ny    * iz);
 
-    H_unpad_all[dst]             = H_all[src]             * norm;
-    H_unpad_all[unpad_sz + dst]  = H_all[real_sz  + src]  * norm;
-    H_unpad_all[2*unpad_sz + dst] = H_all[2*real_sz + src] * norm;
+    H_unpad_all[dst]              = static_cast<GReal>(static_cast<double>(H_all[src])             * norm);
+    H_unpad_all[unpad_sz + dst]   = static_cast<GReal>(static_cast<double>(H_all[real_sz  + src])  * norm);
+    H_unpad_all[2*unpad_sz + dst] = static_cast<GReal>(static_cast<double>(H_all[2*real_sz + src]) * norm);
 }
 
 // ===========================================================================
@@ -273,8 +295,8 @@ __global__ static void extract_all3(
 // M_all layout:     [Mx_padded  (real_sz)  | My_padded  | Mz_padded ]
 // ===========================================================================
 __global__ static void scatter_m_all3(
-    double* __restrict__       M_all,      // output: [3 × real_sz] (pre-zeroed)
-    const double* __restrict__ M_compact,  // input:  [3 × unpad_sz]
+    GReal* __restrict__        M_all,      // output: [3 x real_sz] (pre-zeroed)
+    const GReal* __restrict__  M_compact,  // input:  [3 x unpad_sz]
     size_t nx, size_t ny, size_t nz,
     size_t pad_nx, size_t pad_ny,
     size_t real_sz, size_t unpad_sz)
@@ -310,7 +332,7 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
     real_sz_  = static_cast<size_t>(pad_nx_ * pad_ny_ * pad_nz_);
     cplx_sz_  = static_cast<size_t>(fft_nx_ * pad_ny_ * pad_nz_);
 
-    // Single-use forward D2Z — for kernel precomputation only
+    // Precompute-only buffers: always double (plan_fwd_ is always CUFFT_D2Z)
     CUDA_CHECK(cudaMalloc(&d_r_buf_, real_sz_ * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_c_buf_, cplx_sz_ * sizeof(cufftDoubleComplex)));
     CUFFT_CHECK(cufftPlan3d(&plan_fwd_,
@@ -318,26 +340,26 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
                              CUFFT_D2Z));
 
     // Kernel frequency-domain storage (6 components)
-    CUDA_CHECK(cudaMalloc(&d_K_xx_, cplx_sz_ * sizeof(cufftDoubleComplex)));
-    CUDA_CHECK(cudaMalloc(&d_K_yy_, cplx_sz_ * sizeof(cufftDoubleComplex)));
-    CUDA_CHECK(cudaMalloc(&d_K_zz_, cplx_sz_ * sizeof(cufftDoubleComplex)));
-    CUDA_CHECK(cudaMalloc(&d_K_xy_, cplx_sz_ * sizeof(cufftDoubleComplex)));
-    CUDA_CHECK(cudaMalloc(&d_K_xz_, cplx_sz_ * sizeof(cufftDoubleComplex)));
-    CUDA_CHECK(cudaMalloc(&d_K_yz_, cplx_sz_ * sizeof(cufftDoubleComplex)));
+    CUDA_CHECK(cudaMalloc(&d_K_xx_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
+    CUDA_CHECK(cudaMalloc(&d_K_yy_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
+    CUDA_CHECK(cudaMalloc(&d_K_zz_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
+    CUDA_CHECK(cudaMalloc(&d_K_xy_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
+    CUDA_CHECK(cudaMalloc(&d_K_xz_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
+    CUDA_CHECK(cudaMalloc(&d_K_yz_, cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX)));
 
-    // Step 6a: batch buffers — all 3 components contiguous
-    CUDA_CHECK(cudaMalloc(&d_M_all_,      3 * real_sz_  * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_MF_all_,     3 * cplx_sz_  * sizeof(cufftDoubleComplex)));
-    CUDA_CHECK(cudaMalloc(&d_HF_all_,     3 * cplx_sz_  * sizeof(cufftDoubleComplex)));
-    CUDA_CHECK(cudaMalloc(&d_H_all_,      3 * real_sz_  * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_Hunpad_all_, 3 * unpad_sz_ * sizeof(double)));
+    // Step 6a: batch buffers ??all 3 components contiguous
+    CUDA_CHECK(cudaMalloc(&d_M_all_,      3 * real_sz_ * sizeof(GReal)));
+    CUDA_CHECK(cudaMalloc(&d_MF_all_,     3 * cplx_sz_  * sizeof(GREAL_CUFFT_COMPLEX)));
+    CUDA_CHECK(cudaMalloc(&d_HF_all_,     3 * cplx_sz_  * sizeof(GREAL_CUFFT_COMPLEX)));
+    CUDA_CHECK(cudaMalloc(&d_H_all_,      3 * real_sz_ * sizeof(GReal)));
+    CUDA_CHECK(cudaMalloc(&d_Hunpad_all_, 3 * unpad_sz_ * sizeof(GReal)));
 
-    // Step 6b: compact GPU buffer + pinned host (8× smaller than full padded)
-    CUDA_CHECK(cudaMalloc(&d_M_compact_, 3 * unpad_sz_ * sizeof(double)));
+    // Step 6b: compact GPU buffer + pinned host (8횞 smaller than full padded)
+    CUDA_CHECK(cudaMalloc(&d_M_compact_, 3 * unpad_sz_ * sizeof(GReal)));
 
-    // Pinned host: compact upload (3×80KB) + H download (3×80KB)
-    CUDA_CHECK(cudaMallocHost(&h_M_compact_pinned_,  3 * unpad_sz_ * sizeof(double)));
-    CUDA_CHECK(cudaMallocHost(&h_Hunpad_all_pinned_, 3 * unpad_sz_ * sizeof(double)));
+    // Pinned host: compact upload (3횞80KB) + H download (3횞80KB)
+    CUDA_CHECK(cudaMallocHost(&h_M_compact_pinned_,  3 * unpad_sz_ * sizeof(GReal)));
+    CUDA_CHECK(cudaMallocHost(&h_Hunpad_all_pinned_, 3 * unpad_sz_ * sizeof(GReal)));
 
     // Batch cuFFT plans (cufftPlanMany with batch=3)
     int n[3] = {(int)pad_nz_, (int)pad_ny_, (int)pad_nx_};
@@ -345,12 +367,12 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
         &plan_fwd_batch_, 3, n,
         nullptr, 1, (int)real_sz_,   // input: stride=1, dist=real_sz per batch
         nullptr, 1, (int)cplx_sz_,   // output: stride=1, dist=cplx_sz per batch
-        CUFFT_D2Z, 3));
+        GREAL_CUFFT_TYPE, 3));
     CUFFT_CHECK(cufftPlanMany(
         &plan_inv_batch_, 3, n,
         nullptr, 1, (int)cplx_sz_,   // input
         nullptr, 1, (int)real_sz_,   // output
-        CUFFT_Z2D, 3));
+        GREAL_CUFFT_ITYPE, 3));
 
     // Step 6c: create dedicated stream; associate plans with it
     cudaStream_t s;
@@ -389,30 +411,48 @@ DemagFieldGPU::~DemagFieldGPU() {
 }
 
 // ===========================================================================
-// precompute_kernel — GPU version (replaces CPU loops)
+// precompute_kernel ??GPU version (replaces CPU loops)
 //
-// Before: CPU computed 6D Newell sums in 3 nested loops → ~35s for 2.5M cells
+// Before: CPU computed 6D Newell sums in 3 nested loops ??~35s for 2.5M cells
 // After:  fill_diag_gpu / fill_offdiag_gpu kernels launch 2.5M GPU threads
-//         that compute their cell in parallel → <1s for 2.5M cells
+//         that compute their cell in parallel ??<1s for 2.5M cells
 //
 // Per-component pipeline (6 iterations):
 //   1. cudaMemsetAsync d_r_buf_ = 0          (GPU, async)
-//   2. fill_diag_gpu or fill_offdiag_gpu      (GPU, parallel — all on stream_)
+//   2. fill_diag_gpu or fill_offdiag_gpu      (GPU, parallel ??all on stream_)
 //   3. cufftExecD2Z                           (GPU, uses stream_ via SetStream)
-//   4. cudaMemcpyAsync D2D → d_K_xxx         (GPU, async D2D)
+//   4. cudaMemcpyAsync D2D ??d_K_xxx         (GPU, async D2D)
 // ===========================================================================
 void DemagFieldGPU::precompute_kernel() {
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
 
-    // Thread block: 16×16×1 = 256 threads.  Grid covers (nx, ny, nz) cells.
+    // Thread block: 16횞16횞1 = 256 threads.  Grid covers (nx, ny, nz) cells.
     const dim3 blk(16, 16, 1);
     const dim3 grd(
         static_cast<unsigned>((nx_ + 15) / 16),
         static_cast<unsigned>((ny_ + 15) / 16),
         static_cast<unsigned>(nz_));
 
-    // Helper: zero padded buffer, run fill kernel, FFT, copy to destination.
-    // 'perm' selects which axis permutation to use (see kernel comments).
+    // Helper: zero padded buffer, run fill kernel, FFT (always D2Z = double),
+    // then copy/convert to destination d_K_dest (GREAL_CUFFT_COMPLEX typed).
+    // In double mode: plain memcpy (sizes match).
+    // In float32 mode: dc_to_fc conversion kernel (cufftDoubleComplex → cufftComplex).
+    constexpr int BLK_PRE = 256;
+    auto copy_or_convert = [&](void* d_K_dest) {
+#ifdef MICROMAG_FLOAT32
+        const int gcx = static_cast<int>((cplx_sz_ + BLK_PRE - 1) / BLK_PRE);
+        dc_to_fc<<<gcx, BLK_PRE, 0, s>>>(
+            reinterpret_cast<cufftComplex*>(d_K_dest),
+            reinterpret_cast<const cufftDoubleComplex*>(d_c_buf_),
+            cplx_sz_);
+        CUDA_CHECK(cudaGetLastError());
+#else
+        CUDA_CHECK(cudaMemcpyAsync(d_K_dest, d_c_buf_,
+            cplx_sz_ * sizeof(cufftDoubleComplex),
+            cudaMemcpyDeviceToDevice, s));
+#endif
+    };
+
     auto fill_fft_diag = [&](void* d_K_dest, int perm) {
         CUDA_CHECK(cudaMemsetAsync(d_r_buf_, 0, real_sz_ * sizeof(double), s));
         fill_diag_gpu<<<grd, blk, 0, s>>>(
@@ -424,9 +464,7 @@ void DemagFieldGPU::precompute_kernel() {
         CUFFT_CHECK(cufftExecD2Z(plan_fwd_,
             reinterpret_cast<cufftDoubleReal*>(d_r_buf_),
             reinterpret_cast<cufftDoubleComplex*>(d_c_buf_)));
-        CUDA_CHECK(cudaMemcpyAsync(d_K_dest, d_c_buf_,
-            cplx_sz_ * sizeof(cufftDoubleComplex),
-            cudaMemcpyDeviceToDevice, s));
+        copy_or_convert(d_K_dest);
     };
 
     auto fill_fft_offdiag = [&](void* d_K_dest, int sx, int sy, int sz, int perm) {
@@ -440,35 +478,33 @@ void DemagFieldGPU::precompute_kernel() {
         CUFFT_CHECK(cufftExecD2Z(plan_fwd_,
             reinterpret_cast<cufftDoubleReal*>(d_r_buf_),
             reinterpret_cast<cufftDoubleComplex*>(d_c_buf_)));
-        CUDA_CHECK(cudaMemcpyAsync(d_K_dest, d_c_buf_,
-            cplx_sz_ * sizeof(cufftDoubleComplex),
-            cudaMemcpyDeviceToDevice, s));
+        copy_or_convert(d_K_dest);
     };
 
-    // Diagonal: K_xx (perm=0), K_yy (perm=1: swap x↔y), K_zz (perm=2: swap x↔z)
+    // Diagonal: K_xx (perm=0), K_yy (perm=1: swap x?봸), K_zz (perm=2: swap x?봹)
     fill_fft_diag(d_K_xx_, 0);
     fill_fft_diag(d_K_yy_, 1);
     fill_fft_diag(d_K_zz_, 2);
 
     // Off-diagonal: parity (sx,sy,sz) as in CPU code, perm selects axis mapping
     fill_fft_offdiag(d_K_xy_, -1, -1, +1, 0);  // N_xy(x,y,z)
-    fill_fft_offdiag(d_K_xz_, -1, +1, -1, 1);  // N_xz ≡ N_xy(x,z,y)
-    fill_fft_offdiag(d_K_yz_, +1, -1, -1, 2);  // N_yz ≡ N_xy(y,z,x)
+    fill_fft_offdiag(d_K_xz_, -1, +1, -1, 1);  // N_xz ??N_xy(x,z,y)
+    fill_fft_offdiag(d_K_yz_, +1, -1, -1, 2);  // N_yz ??N_xy(y,z,x)
     // (cudaStreamSynchronize called by constructor after precompute_kernel)
 }
 
 // ===========================================================================
-// accumulate — batch FFT pipeline (Step 6a)
+// accumulate ??batch FFT pipeline (Step 6a)
 //
 // Pipeline (2 cuFFT calls, 2 CUDA kernels, 1 upload, 1 download):
-//   1. Fill h_M_all_pinned_ [3 × real_sz] with padded Mx,My,Mz (CPU)
-//   2. cudaMemcpy H2D: h_M_all → d_M_all (1 call, 3×640KB)
-//   3. cufftExecD2Z BATCH=3: d_M_all → d_MF_all (1 call)
-//   4. pointwise_mac_all3: d_MF_all → d_HF_all (1 kernel)
-//   5. cufftExecZ2D BATCH=3: d_HF_all → d_H_all (1 call)
-//   6. extract_all3: d_H_all → d_Hunpad_all (1 kernel)
-//   7. cudaMemcpy D2H: d_Hunpad_all → h_Hunpad_all (1 call, 3×80KB)
-//   8. Accumulate h_Hunpad_all → H_out (1 CPU loop)
+//   1. Fill h_M_all_pinned_ [3 횞 real_sz] with padded Mx,My,Mz (CPU)
+//   2. cudaMemcpy H2D: h_M_all ??d_M_all (1 call, 3횞640KB)
+//   3. cufftExecD2Z BATCH=3: d_M_all ??d_MF_all (1 call)
+//   4. pointwise_mac_all3: d_MF_all ??d_HF_all (1 kernel)
+//   5. cufftExecZ2D BATCH=3: d_HF_all ??d_H_all (1 call)
+//   6. extract_all3: d_H_all ??d_Hunpad_all (1 kernel)
+//   7. cudaMemcpy D2H: d_Hunpad_all ??h_Hunpad_all (1 call, 3횞80KB)
+//   8. Accumulate h_Hunpad_all ??H_out (1 CPU loop)
 // ===========================================================================
 void DemagFieldGPU::accumulate(const VectorField3D& m,
                                 const Material& mat,
@@ -485,39 +521,39 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     //   1a. Fill compact host buffer                     [CPU, ~0.01ms]
     //   1b. cudaMemcpyAsync H2D compact 0.24MB           [async, PCIe]
     //   1c. cudaMemsetAsync d_M_all_ zero (1.92MB)       [async, GPU]
-    //       → Overlaps with 1b: PCIe and GPU memset run in parallel
+    //       ??Overlaps with 1b: PCIe and GPU memset run in parallel
     //       (possible because they access different buffers in same stream;
     //        the stream serializes them, but the HW can overlap DMA + GPU)
     //   1d. scatter_m_all3 kernel                        [GPU]
     // ------------------------------------------------------------------
 
-    // 1a. Compact fill (CPU — free to run while GPU processes previous step)
-    double* hMx = h_M_compact_pinned_;
-    double* hMy = hMx + unpad_sz_;
-    double* hMz = hMy + unpad_sz_;
+    // 1a. Compact fill (CPU ??free to run while GPU processes previous step)
+    GReal* hMx = h_M_compact_pinned_;
+    GReal* hMy = hMx + unpad_sz_;
+    GReal* hMz = hMy + unpad_sz_;
     for (Index i = 0; i < static_cast<Index>(unpad_sz_); ++i) {
         hMx[i] = Ms * m[i].x;
         hMy[i] = Ms * m[i].y;
         hMz[i] = Ms * m[i].z;
     }
 
-    // 1b. Async upload (pinned → GPU, returns immediately)
+    // 1b. Async upload (pinned ??GPU, returns immediately)
     CUDA_CHECK(cudaMemcpyAsync(d_M_compact_, h_M_compact_pinned_,
-                               3 * unpad_sz_ * sizeof(double),
+                               3 * unpad_sz_ * sizeof(GReal),
                                cudaMemcpyHostToDevice, s));
 
     // 1c. Async zero padded buffer (runs on GPU after memcpy in stream order)
-    CUDA_CHECK(cudaMemsetAsync(d_M_all_, 0, 3 * real_sz_ * sizeof(double), s));
+    CUDA_CHECK(cudaMemsetAsync(d_M_all_, 0, 3 * real_sz_ * sizeof(GReal), s));
 
-    // 1d. Scatter (depends on both 1b and 1c — stream ensures ordering)
+    // 1d. Scatter (depends on both 1b and 1c ??stream ensures ordering)
     dim3 blk_sc(16, 16, 1);
     dim3 grd_sc(
         static_cast<unsigned>((nx_ + blk_sc.x - 1) / blk_sc.x),
         static_cast<unsigned>((ny_ + blk_sc.y - 1) / blk_sc.y),
         static_cast<unsigned>(nz_));
     scatter_m_all3<<<grd_sc, blk_sc, 0, s>>>(
-        reinterpret_cast<double*>(d_M_all_),
-        reinterpret_cast<const double*>(d_M_compact_),
+        reinterpret_cast<GReal*>(d_M_all_),
+        reinterpret_cast<const GReal*>(d_M_compact_),
         static_cast<size_t>(nx_), static_cast<size_t>(ny_),
         static_cast<size_t>(nz_),
         static_cast<size_t>(pad_nx_), static_cast<size_t>(pad_ny_),
@@ -525,11 +561,11 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
-    // 3. Batch forward FFT — uses stream_ (set via cufftSetStream in ctor)
+    // 3. Batch forward FFT ??uses stream_ (set via cufftSetStream in ctor)
     // ------------------------------------------------------------------
-    CUFFT_CHECK(cufftExecD2Z(plan_fwd_batch_,
-                              reinterpret_cast<cufftDoubleReal*>(d_M_all_),
-                              reinterpret_cast<cufftDoubleComplex*>(d_MF_all_)));
+    CUFFT_CHECK(GREAL_CUFFT_EXEC_FWD(plan_fwd_batch_,
+                              reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_),
+                              reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_)));
 
     // ------------------------------------------------------------------
     // 4. Combined pointwise MAC (stream_)
@@ -546,11 +582,11 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
-    // 5. Batch inverse FFT — uses stream_
+    // 5. Batch inverse FFT ??uses stream_
     // ------------------------------------------------------------------
-    CUFFT_CHECK(cufftExecZ2D(plan_inv_batch_,
-                              reinterpret_cast<cufftDoubleComplex*>(d_HF_all_),
-                              reinterpret_cast<cufftDoubleReal*>(d_H_all_)));
+    CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(plan_inv_batch_,
+                              reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+                              reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
 
     // ------------------------------------------------------------------
     // 6. Extract all 3 unpadded H components (stream_)
@@ -562,8 +598,8 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
         static_cast<unsigned>(nz_));
 
     extract_all3<<<grd_ext, blk_ext, 0, s>>>(
-        reinterpret_cast<double*>(d_Hunpad_all_),
-        reinterpret_cast<const double*>(d_H_all_),
+        reinterpret_cast<GReal*>(d_Hunpad_all_),
+        reinterpret_cast<const GReal*>(d_H_all_),
         static_cast<size_t>(nx_), static_cast<size_t>(ny_),
         static_cast<size_t>(nz_),
         static_cast<size_t>(pad_nx_), static_cast<size_t>(pad_ny_),
@@ -571,23 +607,23 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
-    // 7. Async download (pinned buffer — returns immediately)
+    // 7. Async download (pinned buffer ??returns immediately)
     // ------------------------------------------------------------------
     CUDA_CHECK(cudaMemcpyAsync(h_Hunpad_all_pinned_, d_Hunpad_all_,
-                               3 * unpad_sz_ * sizeof(double),
+                               3 * unpad_sz_ * sizeof(GReal),
                                cudaMemcpyDeviceToHost, s));
 
     // ------------------------------------------------------------------
-    // Step 6c: ONE sync point — CPU waits here for the full pipeline
+    // Step 6c: ONE sync point ??CPU waits here for the full pipeline
     // ------------------------------------------------------------------
     CUDA_CHECK(cudaStreamSynchronize(s));
 
     // ------------------------------------------------------------------
     // 8. Accumulate into H_out (single loop, all 3 components)
     // ------------------------------------------------------------------
-    const double* hx = h_Hunpad_all_pinned_;
-    const double* hy = hx + unpad_sz_;
-    const double* hz = hy + unpad_sz_;
+    const GReal* hx = h_Hunpad_all_pinned_;
+    const GReal* hy = hx + unpad_sz_;
+    const GReal* hz = hy + unpad_sz_;
     for (Index i = 0; i < static_cast<Index>(unpad_sz_); ++i) {
         H_out[i].x += hx[i];
         H_out[i].y += hy[i];
@@ -599,80 +635,80 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
 // G6 helper kernels
 // ===========================================================================
 
-// Scale src by 'scale' and write to dst  (flat 3N op, for Ms-scaling d_m → d_M_compact)
+// Scale src by 'scale' and write to dst  (flat 3N op, for Ms-scaling d_m ??d_M_compact)
 __global__ static void scale_copy_kernel(
-    double* __restrict__       dst,
-    const double* __restrict__ src,
+    GReal* __restrict__        dst,
+    const GReal* __restrict__  src,
     double scale, int N3)
 {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N3) return;
-    dst[i] = scale * src[i];
+    dst[i] = static_cast<GReal>(scale * static_cast<double>(src[i]));
 }
 
 // dst[i] += src[i]  (flat 3N op, used to add d_Hunpad_all_ to d_H_out)
 __global__ static void add_3N_kernel(
-    double* __restrict__       dst,
-    const double* __restrict__ src,
+    GReal* __restrict__        dst,
+    const GReal* __restrict__  src,
     int N3)
 {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N3) return;
-    dst[i] += src[i];
+    dst[i] = static_cast<GReal>(static_cast<double>(dst[i]) + static_cast<double>(src[i]));
 }
 
 // ===========================================================================
-// accumulate_gpu_ptr — GPU-pointer path for G6 full-LLG pipeline
+// accumulate_gpu_ptr ??GPU-pointer path for G6 full-LLG pipeline
 //
-// d_m:    [3×N] component-major (unit magnetization from GPUMagState::d_m_)
-// d_H_out:[3×N] component-major (adds H_demag in-place, same layout)
+// d_m:    [3횞N] component-major (unit magnetization from GPUMagState::d_m_)
+// d_H_out:[3횞N] component-major (adds H_demag in-place, same layout)
 //
 // Pipeline (entirely on stream_; no PCIe):
 //   scale_copy:    d_M_compact_ = Ms * d_m   (D2D, no PCIe)
 //   memset:        d_M_all_ = 0
-//   scatter:       d_M_compact_ → d_M_all_ (padded)
-//   FFT batch:     d_M_all_ → d_MF_all_
-//   pointwise MAC: d_MF_all_ → d_HF_all_
-//   IFFT batch:    d_HF_all_ → d_H_all_
-//   extract:       d_H_all_ → d_Hunpad_all_ (with IFFT normalisation)
+//   scatter:       d_M_compact_ ??d_M_all_ (padded)
+//   FFT batch:     d_M_all_ ??d_MF_all_
+//   pointwise MAC: d_MF_all_ ??d_HF_all_
+//   IFFT batch:    d_HF_all_ ??d_H_all_
+//   extract:       d_H_all_ ??d_Hunpad_all_ (with IFFT normalisation)
 //   add:           d_H_out += d_Hunpad_all_
 // ===========================================================================
-void DemagFieldGPU::accumulate_gpu_ptr(const double* d_m,
+void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
                                          const Material& mat,
-                                         double* d_H_out) const {
+                                         GReal* d_H_out) const {
     const cudaStream_t s    = static_cast<cudaStream_t>(stream_);
     const double Ms         = mat.Ms;
     const double norm       = -1.0 / static_cast<double>(pad_nx_ * pad_ny_ * pad_nz_);
     constexpr int BLK       = 256;
 
-    // 1. Ms-scale d_m → d_M_compact_  (D2D, no PCIe)
+    // 1. Ms-scale d_m ??d_M_compact_  (D2D, no PCIe)
     {
         const int N3  = static_cast<int>(3 * unpad_sz_);
         const int grd = (N3 + BLK - 1) / BLK;
         scale_copy_kernel<<<grd, BLK, 0, s>>>(
-            reinterpret_cast<double*>(d_M_compact_), d_m, Ms, N3);
+            reinterpret_cast<GReal*>(d_M_compact_), d_m, Ms, N3);
         CUDA_CHECK(cudaGetLastError());
     }
 
     // 2. Zero padded M buffer
-    CUDA_CHECK(cudaMemsetAsync(d_M_all_, 0, 3 * real_sz_ * sizeof(double), s));
+    CUDA_CHECK(cudaMemsetAsync(d_M_all_, 0, 3 * real_sz_ * sizeof(GReal), s));
 
-    // 3. Scatter compact → padded
+    // 3. Scatter compact ??padded
     {
         dim3 blk_sc(16, 16, 1);
         dim3 grd_sc((unsigned)((nx_+15)/16), (unsigned)((ny_+15)/16), (unsigned)nz_);
         scatter_m_all3<<<grd_sc, blk_sc, 0, s>>>(
-            reinterpret_cast<double*>(d_M_all_),
-            reinterpret_cast<const double*>(d_M_compact_),
+            reinterpret_cast<GReal*>(d_M_all_),
+            reinterpret_cast<const GReal*>(d_M_compact_),
             (size_t)nx_, (size_t)ny_, (size_t)nz_,
             (size_t)pad_nx_, (size_t)pad_ny_, real_sz_, unpad_sz_);
         CUDA_CHECK(cudaGetLastError());
     }
 
     // 4. Batch forward FFT
-    CUFFT_CHECK(cufftExecD2Z(plan_fwd_batch_,
-        reinterpret_cast<cufftDoubleReal*>(d_M_all_),
-        reinterpret_cast<cufftDoubleComplex*>(d_MF_all_)));
+    CUFFT_CHECK(GREAL_CUFFT_EXEC_FWD(plan_fwd_batch_,
+        reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_)));
 
     // 5. Pointwise MAC
     {
@@ -686,17 +722,17 @@ void DemagFieldGPU::accumulate_gpu_ptr(const double* d_m,
     }
 
     // 6. Batch inverse FFT
-    CUFFT_CHECK(cufftExecZ2D(plan_inv_batch_,
-        reinterpret_cast<cufftDoubleComplex*>(d_HF_all_),
-        reinterpret_cast<cufftDoubleReal*>(d_H_all_)));
+    CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(plan_inv_batch_,
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
 
-    // 7. Extract unpadded + normalise → d_Hunpad_all_
+    // 7. Extract unpadded + normalise ??d_Hunpad_all_
     {
         dim3 blk_ext(16, 16, 1);
         dim3 grd_ext((unsigned)((nx_+15)/16), (unsigned)((ny_+15)/16), (unsigned)nz_);
         extract_all3<<<grd_ext, blk_ext, 0, s>>>(
-            reinterpret_cast<double*>(d_Hunpad_all_),
-            reinterpret_cast<const double*>(d_H_all_),
+            reinterpret_cast<GReal*>(d_Hunpad_all_),
+            reinterpret_cast<const GReal*>(d_H_all_),
             (size_t)nx_, (size_t)ny_, (size_t)nz_,
             (size_t)pad_nx_, (size_t)pad_ny_,
             real_sz_, unpad_sz_, norm);
@@ -709,7 +745,7 @@ void DemagFieldGPU::accumulate_gpu_ptr(const double* d_m,
         const int grd = (N3 + BLK - 1) / BLK;
         add_3N_kernel<<<grd, BLK, 0, s>>>(
             d_H_out,
-            reinterpret_cast<const double*>(d_Hunpad_all_),
+            reinterpret_cast<const GReal*>(d_Hunpad_all_),
             N3);
         CUDA_CHECK(cudaGetLastError());
     }
@@ -737,7 +773,7 @@ ScalarField3D DemagFieldGPU::energy_density(const VectorField3D& m,
     const StructuredGrid& g = m.grid();
     VectorField3D H(g);
     for (Index i = 0; i < H.size(); ++i) H[i] = {0,0,0};
-    accumulate(m, mat, H);  // GPU compute → downloads to CPU H
+    accumulate(m, mat, H);  // GPU compute ??downloads to CPU H
     ScalarField3D edens(g);
     const Real prefac = -0.5 * constants::mu_0 * mat.Ms;
     for (Index i = 0; i < m.size(); ++i)
@@ -748,3 +784,7 @@ ScalarField3D DemagFieldGPU::energy_density(const VectorField3D& m,
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+
+
+
+

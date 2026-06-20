@@ -33,6 +33,8 @@
 #include "micromag/topological_charge.hpp"
 #include "micromag/skyrmion_tools.hpp"
 
+#include "micromag/gpu_real.hpp"
+
 #ifdef MICROMAG_CUDA
 #include "micromag/demag_gpu_iface.hpp"
 #include "micromag/demag_gpu.hpp"
@@ -979,6 +981,13 @@ PYBIND11_MODULE(_micromag, m) {
 #else
     m.def("cuda_available", []() { return false; },
           "True when the module was compiled with CUDA support.");
+#endif
+#ifdef MICROMAG_FLOAT32
+    m.def("gpu_float32", []() { return true; },
+          "True when GPU kernels use float32 (P11 MICROMAG_FLOAT32=ON).");
+#else
+    m.def("gpu_float32", []() { return false; },
+          "True when GPU kernels use float32 (P11 MICROMAG_FLOAT32=ON).");
 #endif
 
 #ifdef MICROMAG_CUDA

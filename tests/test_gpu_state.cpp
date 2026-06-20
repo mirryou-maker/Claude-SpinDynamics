@@ -10,6 +10,7 @@
 #include "micromag/field.hpp"
 #include "micromag/grid.hpp"
 #include "micromag/gpu_state.hpp"
+#include "gpu_test_tol.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -55,9 +56,9 @@ TEST_CASE("GPUMagState: upload/download roundtrip", "[gpu_state][gpu]") {
 
     // Should recover exactly (no computation, pure data transfer)
     for (Index i = 0; i < g.size(); ++i) {
-        REQUIRE_THAT(m_out[i].x, WithinAbs(m_in[i].x, 1e-15));
-        REQUIRE_THAT(m_out[i].y, WithinAbs(m_in[i].y, 1e-15));
-        REQUIRE_THAT(m_out[i].z, WithinAbs(m_in[i].z, 1e-15));
+        REQUIRE_THAT(m_out[i].x, WithinAbs(m_in[i].x, micromag::gtol(1e-15)));
+        REQUIRE_THAT(m_out[i].y, WithinAbs(m_in[i].y, micromag::gtol(1e-15)));
+        REQUIRE_THAT(m_out[i].z, WithinAbs(m_in[i].z, micromag::gtol(1e-15)));
     }
 }
 
@@ -174,9 +175,9 @@ TEST_CASE("GPUMagState: 200×200×5 large grid", "[gpu_state][gpu]") {
     VectorField3D m2(g);
     state.download(m2);
 
-    REQUIRE_THAT(m2[0].x, WithinAbs(0.6, 1e-15));
-    REQUIRE_THAT(m2[0].y, WithinAbs(0.8, 1e-15));
-    REQUIRE_THAT(m2[0].z, WithinAbs(0.0, 1e-15));
+    REQUIRE_THAT(m2[0].x, WithinAbs(0.6, micromag::gtol(1e-15)));
+    REQUIRE_THAT(m2[0].y, WithinAbs(0.8, micromag::gtol(1e-15)));
+    REQUIRE_THAT(m2[0].z, WithinAbs(0.0, micromag::gtol(1e-15)));
 }
 
 #endif // MICROMAG_CUDA

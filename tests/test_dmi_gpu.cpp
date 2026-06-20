@@ -13,6 +13,7 @@
 #include "micromag/field.hpp"
 #include "micromag/grid.hpp"
 #include "micromag/material.hpp"
+#include "gpu_test_tol.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -102,7 +103,7 @@ TEST_CASE("BulkDMIFieldGPU: matches CPU (3-D vortex)", "[dmi][gpu]") {
     cpu.accumulate(m, mat, Hc);
     gpu.accumulate(m, mat, Hg);
 
-    REQUIRE_THAT(max_rel_diff(Hc, Hg, mat.Ms*1e-4), WithinAbs(0.0, 1e-6));
+    REQUIRE_THAT(max_rel_diff(Hc, Hg, mat.Ms*1e-4), WithinAbs(0.0, micromag::gtol(1e-6, 5e-2)));
 }
 
 TEST_CASE("BulkDMIFieldGPU: D=0 -> no accumulation", "[dmi][gpu]") {
@@ -162,7 +163,7 @@ TEST_CASE("InterfacialDMIFieldGPU: matches CPU (thin film Neel spiral)", "[dmi][
     cpu.accumulate(m, mat, Hc);
     gpu.accumulate(m, mat, Hg);
 
-    REQUIRE_THAT(max_rel_diff(Hc, Hg, mat.Ms*1e-4), WithinAbs(0.0, 1e-6));
+    REQUIRE_THAT(max_rel_diff(Hc, Hg, mat.Ms*1e-4), WithinAbs(0.0, micromag::gtol(1e-6, 5e-2)));
 }
 
 TEST_CASE("InterfacialDMIFieldGPU: matches CPU (3D body, z-gradient ignored)", "[dmi][gpu]") {
@@ -186,7 +187,7 @@ TEST_CASE("InterfacialDMIFieldGPU: matches CPU (3D body, z-gradient ignored)", "
     cpu.accumulate(m, mat, Hc);
     gpu.accumulate(m, mat, Hg);
 
-    REQUIRE_THAT(max_rel_diff(Hc, Hg, mat.Ms*1e-4), WithinAbs(0.0, 1e-6));
+    REQUIRE_THAT(max_rel_diff(Hc, Hg, mat.Ms*1e-4), WithinAbs(0.0, micromag::gtol(1e-6, 5e-2)));
 }
 
 TEST_CASE("InterfacialDMIFieldGPU: additivity", "[dmi][gpu]") {

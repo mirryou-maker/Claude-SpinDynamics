@@ -17,6 +17,7 @@
 #include "micromag/material.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
 #include "micromag/relax_gpu.hpp"
+#include "gpu_test_tol.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -107,7 +108,7 @@ TEST_CASE("FieldSumGPU: RK4 step with FieldSumGPU runs", "[field_sum][gpu]") {
     // m should still be unit vectors
     for (Index i = 0; i < m_out.size(); ++i) {
         const double norm = m_out[i].norm();
-        REQUIRE_THAT(norm, WithinAbs(1.0, 1e-10));
+        REQUIRE_THAT(norm, WithinAbs(1.0, micromag::gtol(1e-10)));
     }
 }
 

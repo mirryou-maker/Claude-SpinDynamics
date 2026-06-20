@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <stdexcept>
+#include <thread>
 
 #include <fftw3.h>
 
@@ -137,6 +138,12 @@ DemagField::DemagField(const StructuredGrid& grid)
     // Batch buffers for 3-component accumulate (all 3 M/H components at once).
     r_buf_3_.resize(3 * real_size, 0.0);
     c_buf_3_.resize(3 * complex_size);
+
+    // Multi-threaded FFTW: init once; set thread count before every plan call.
+    // Thread count matches logical CPUs — fftw_execute() uses a thread pool.
+    { static bool s_inited = false;
+      if (!s_inited) { fftw_init_threads(); s_inited = true; }
+      fftw_plan_with_nthreads(static_cast<int>(std::thread::hardware_concurrency())); }
 
     // Import FFTW wisdom from a previous run (eliminates re-measurement overhead
     // on repeat runs; FFTW silently ignores invalid/missing files).

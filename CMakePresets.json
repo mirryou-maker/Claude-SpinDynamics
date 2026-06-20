@@ -40,6 +40,17 @@
             "cacheVariables": {
                 "MICROMAG_USE_CUDA": "ON"
             }
+        },
+        {
+            "name": "windows-msvc-cuda-f32",
+            "inherits": "windows-msvc-cuda",
+            "displayName": "Windows MSVC + CUDA GPU (float32)",
+            "description": "GPU float32 mode: R2C/C2R cuFFT, ~1.5x memory bandwidth",
+            "binaryDir": "${sourceDir}/build/windows-msvc-cuda-f32",
+            "cacheVariables": {
+                "MICROMAG_USE_CUDA": "ON",
+                "MICROMAG_FLOAT32": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -56,6 +67,11 @@
         {
             "name": "windows-msvc-cuda",
             "configurePreset": "windows-msvc-cuda",
+            "configuration": "Release"
+        },
+        {
+            "name": "windows-msvc-cuda-f32",
+            "configurePreset": "windows-msvc-cuda-f32",
             "configuration": "Release"
         }
     ],

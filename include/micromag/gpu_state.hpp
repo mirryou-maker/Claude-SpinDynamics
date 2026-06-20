@@ -22,6 +22,7 @@
 #ifdef MICROMAG_CUDA
 
 #include "field.hpp"
+#include "gpu_real.hpp"
 #include "grid.hpp"
 #include "types.hpp"
 
@@ -68,13 +69,14 @@ public:
 
     // ------------------------------------------------------------------
     // Raw GPU pointer accessors (passed to CUDA kernels in G4/G5/G6)
+    // P11: returns GReal* — float when MICROMAG_FLOAT32=ON, else double.
     // ------------------------------------------------------------------
-    double*       d_m()     { return reinterpret_cast<double*>(d_m_);     }
-    const double* d_m()     const { return reinterpret_cast<const double*>(d_m_); }
-    double*       d_H()     { return reinterpret_cast<double*>(d_H_);     }
-    double*       d_m0()    { return reinterpret_cast<double*>(d_m0_);    }
-    double*       d_ki()    { return reinterpret_cast<double*>(d_ki_);    }
-    double*       d_k_acc() { return reinterpret_cast<double*>(d_k_acc_); }
+    GReal*       d_m()     { return reinterpret_cast<GReal*>(d_m_);     }
+    const GReal* d_m()     const { return reinterpret_cast<const GReal*>(d_m_); }
+    GReal*       d_H()     { return reinterpret_cast<GReal*>(d_H_);     }
+    GReal*       d_m0()    { return reinterpret_cast<GReal*>(d_m0_);    }
+    GReal*       d_ki()    { return reinterpret_cast<GReal*>(d_ki_);    }
+    GReal*       d_k_acc() { return reinterpret_cast<GReal*>(d_k_acc_); }
 
     // Compute maximum misalignment angle between adjacent spins (degrees).
     // Runs entirely on GPU; only 1 double transferred D2H per call.
@@ -97,15 +99,17 @@ private:
     void* d_ki_    = nullptr;   // double[3×N]
     void* d_k_acc_ = nullptr;   // double[3×N]
 
-    // Pinned host staging buffer — avoids intermediate host copy on DMA
-    double* h_staging_ = nullptr;   // double[3×N]
+    // Pinned host staging buffer — avoids intermediate host copy on DMA.
+    // P11: GReal* — same type as GPU buffers; upload/download converts double↔GReal.
+    GReal* h_staging_ = nullptr;   // GReal[3×N]
 
     // Scratch for max_angle_gpu() — lazily allocated on first call.
-    // Two-stage reduction: per-cell kernel → block mins → CPU final reduce.
-    mutable void*   d_angle_buf_   = nullptr;   // double[N]: per-cell min dot
-    mutable void*   d_block_min_   = nullptr;   // double[n_blocks]: block minimums
-    mutable double* h_block_min_   = nullptr;   // pinned host: n_blocks doubles
-    mutable size_t  n_angle_blocks_ = 0;
+    // Stage 1: per-cell min-dot kernel → d_angle_buf_  (double[N])
+    // Stage 2: CUB DeviceReduce::Min → d_angle_result_ (double[1], D2H 8 bytes)
+    mutable void*   d_angle_buf_    = nullptr;   // double[N]: per-cell min dot
+    mutable void*   d_angle_result_ = nullptr;   // double[1]: CUB output scalar
+    mutable void*   d_cub_tmp_      = nullptr;   // CUB temp storage
+    mutable size_t  n_cub_tmp_bytes_ = 0;        // size of d_cub_tmp_
 
     void* stream_ = nullptr;
 };

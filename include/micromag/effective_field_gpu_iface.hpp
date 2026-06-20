@@ -16,6 +16,7 @@
 
 #ifdef MICROMAG_CUDA
 
+#include "gpu_real.hpp"
 #include "material.hpp"
 #include <vector>
 
@@ -26,14 +27,16 @@ namespace micromag {
 // Implemented by: ExchangeFieldGPU, ZeemanFieldGPU, UniaxialAnisotropyFieldGPU,
 //   CubicAnisotropyFieldGPU, BulkDMIFieldGPU, InterfacialDMIFieldGPU,
 //   MagnetoelasticFieldGPU, SurfaceAnisotropyFieldGPU.
+//
+// P11: pointer type uses GReal (float when MICROMAG_FLOAT32=ON, else double).
 // ---------------------------------------------------------------------------
 class IEffectiveFieldGPU {
 public:
     virtual ~IEffectiveFieldGPU() = default;
 
     // Add H_field to d_H_out in-place (both [3×N] component-major, on device).
-    virtual void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                                     double* d_H_out) const = 0;
+    virtual void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
+                                     GReal* d_H_out) const = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -51,8 +54,8 @@ public:
     std::size_t size() const { return fields_.size(); }
 
     // Accumulate all fields into d_H_out (must be pre-zeroed by caller).
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const {
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
+                             GReal* d_H_out) const {
         for (auto* f : fields_)
             f->accumulate_gpu_ptr(d_m, mat, d_H_out);
     }

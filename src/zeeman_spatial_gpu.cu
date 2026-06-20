@@ -1,7 +1,7 @@
-// zeeman_spatial_gpu.cu — ZeemanFieldSpatialGPU: per-cell Zeeman on GPU.
+﻿// zeeman_spatial_gpu.cu ??ZeemanFieldSpatialGPU: per-cell Zeeman on GPU.
 //
 // Kernel: H_out[c*N+idx] += H_field[c*N+idx]  (direct device-buffer add)
-// Memory layout: [3×N] component-major (same as all other GPU fields).
+// Memory layout: [3횞N] component-major (same as all other GPU fields).
 
 #ifdef MICROMAG_CUDA
 
@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "micromag/gpu_real.hpp"
 #include "micromag/zeeman_spatial_gpu.hpp"
 #include "micromag/field.hpp"
 #include "micromag/material.hpp"
@@ -25,11 +26,11 @@
 namespace micromag {
 
 // ---------------------------------------------------------------------------
-// CUDA kernel — per-cell add (d_H_field not function of m)
+// CUDA kernel ??per-cell add (d_H_field not function of m)
 // ---------------------------------------------------------------------------
 __global__ static void zeeman_spatial_kernel(
-    double* __restrict__       H_out,
-    const double* __restrict__ H_field,
+    GReal* __restrict__       H_out,
+    const double* __restrict__ H_field,   // spatial field kept in double (shared with CPU fallback)
     int N)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -61,7 +62,7 @@ ZeemanFieldSpatialGPU::~ZeemanFieldSpatialGPU() {
 }
 
 // ---------------------------------------------------------------------------
-// set_field — host->device upload (interleaved VectorField3D -> component-major)
+// set_field ??host->device upload (interleaved VectorField3D -> component-major)
 // ---------------------------------------------------------------------------
 void ZeemanFieldSpatialGPU::set_field(const VectorField3D& H_field) {
     // Cache a CPU copy for the fallback accumulate() path.
@@ -110,17 +111,20 @@ Real ZeemanFieldSpatialGPU::energy(const VectorField3D& m,
 // ---------------------------------------------------------------------------
 // Full-GPU path (IEffectiveFieldGPU)
 // ---------------------------------------------------------------------------
-void ZeemanFieldSpatialGPU::accumulate_gpu_ptr(const double* /*d_m*/,
+void ZeemanFieldSpatialGPU::accumulate_gpu_ptr(const GReal* /*d_m*/,
                                                 const Material& /*mat*/,
-                                                double* d_H_out) const {
+                                                GReal* d_H_out) const {
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
     zeeman_spatial_kernel<<<grd, blk, 0, s>>>(
-        d_H_out, d_H_field_, static_cast<int>(N_));
+        d_H_out,
+        d_H_field_,
+        static_cast<int>(N_));
     CUDA_CHECK(cudaGetLastError());
 }
 
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+

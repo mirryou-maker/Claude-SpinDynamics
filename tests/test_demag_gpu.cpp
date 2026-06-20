@@ -17,6 +17,7 @@
 #include "micromag/material.hpp"
 #include "micromag/demag.hpp"
 #include "micromag/demag_gpu.hpp"
+#include "gpu_test_tol.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -135,7 +136,7 @@ TEST_CASE("DemagFieldGPU matches CPU: 1x1x16 long rod", "[demag][gpu]") {
 
     const double rel_err = max_rel_diff(H_cpu, H_gpu, 1.0);
     INFO("max relative error = " << rel_err);
-    REQUIRE(rel_err < 1e-5);
+    REQUIRE(rel_err < micromag::gtol(1e-5, 3e-2));
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +150,7 @@ TEST_CASE("DemagFieldGPU matches CPU: 5x5x5 no transverse H", "[demag][gpu]") {
 
     const double rel_err = max_rel_diff(H_cpu, H_gpu, 1.0);
     INFO("max relative error = " << rel_err);
-    REQUIRE(rel_err < 1e-5);
+    REQUIRE(rel_err < micromag::gtol(1e-5, 3e-2));
 
     // Symmetric centre: H_x and H_y must vanish (same check as CPU test)
     REQUIRE_THAT(H_gpu.at(2,2,2).x, WithinAbs(0.0, mat.Ms * 0.001));

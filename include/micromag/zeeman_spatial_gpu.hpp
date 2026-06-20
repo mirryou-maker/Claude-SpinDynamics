@@ -45,8 +45,8 @@ public:
     const char* name() const override { return "ZeemanSpatialGPU"; }
 
     // IEffectiveFieldGPU (full-GPU path).
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const override;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
+                             GReal* d_H_out) const override;
 
     void set_stream(void* s) { stream_ = s; }
 

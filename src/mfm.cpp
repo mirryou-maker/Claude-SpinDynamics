@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <stdexcept>
+#include <thread>
 
 #include <fftw3.h>
 
@@ -25,6 +26,10 @@ MFMImage::MFMImage(const StructuredGrid& grid, Real lift_m, TipMode tip)
     kernel_.resize(complex_size, Real{0});
     r_buf_.resize(real_size, 0.0);
     c_buf_.resize(complex_size);
+
+    { static bool s_inited = false;
+      if (!s_inited) { fftw_init_threads(); s_inited = true; }
+      fftw_plan_with_nthreads(static_cast<int>(std::thread::hardware_concurrency())); }
 
     fftw_import_wisdom_from_filename("fftw_wisdom.dat");
 

@@ -1,7 +1,7 @@
-// spin_torque_gpu.cu — GPU spin torque CUDA kernels.
+﻿// spin_torque_gpu.cu ??GPU spin torque CUDA kernels.
 //
-// All buffers: component-major [3×N] on device.
-// Kernel conventions: idx ∈ [0, N), x-comp at [idx], y at [N+idx], z at [2N+idx].
+// All buffers: component-major [3횞N] on device.
+// Kernel conventions: idx ??[0, N), x-comp at [idx], y at [N+idx], z at [2N+idx].
 //
 // Each kernel adds to d_dm_out (uses +=) so it can be called after LLG torque.
 
@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "micromag/gpu_real.hpp"
 #include "micromag/spin_torque_gpu.hpp"
 
 #define CUDA_CHECK(call) do { \
@@ -25,10 +26,10 @@ namespace micromag {
 // ---------------------------------------------------------------------------
 // SlonczewskiSTT kernel
 //
-// τ = a_J [m×(m×p̂)] + b_J [m×p̂]
+// ? = a_J [m횞(m횞p?)] + b_J [m횞p?]
 // ---------------------------------------------------------------------------
 __global__ static void kernel_slonczewski(
-    double* dm_out, const double* m, int N,
+    GReal* dm_out, const GReal* m, int N,
     double aJ, double bJ, double px, double py, double pz)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -52,10 +53,10 @@ __global__ static void kernel_slonczewski(
 // ---------------------------------------------------------------------------
 // SOT kernel
 //
-// τ = a_SOT [η_DL m×(m×σ̂) + η_FL (m×σ̂)]
+// ? = a_SOT [管_DL m횞(m횞??) + 管_FL (m횞??)]
 // ---------------------------------------------------------------------------
 __global__ static void kernel_sot(
-    double* dm_out, const double* m, int N,
+    GReal* dm_out, const GReal* m, int N,
     double a_etaDL, double a_etaFL,
     double sx, double sy, double sz)
 {
@@ -80,11 +81,11 @@ __global__ static void kernel_sot(
 // ---------------------------------------------------------------------------
 // Zhang-Li STT kernel
 //
-// τ = u [(ĵ·∇)m − ξ m×(ĵ·∇)m]
+// ? = u [(캔쨌??m ??刮 m횞(캔쨌??m]
 // Finite differences: one-sided at boundaries (same as CPU).
 // ---------------------------------------------------------------------------
 __global__ static void kernel_zhangli(
-    double* dm_out, const double* m,
+    GReal* dm_out, const GReal* m,
     int nx, int ny, int nz, int N,
     double dx, double dy, double dz,
     double u_val, double xi,
@@ -139,7 +140,7 @@ __global__ static void kernel_zhangli(
         gz += c * (m[2*N+zp] - m[2*N+zm]);
     }
 
-    // τ = u [(ĵ·∇)m − ξ m×(ĵ·∇)m]
+    // ? = u [(캔쨌??m ??刮 m횞(캔쨌??m]
     const double mx = m[idx], my_v = m[N+idx], mz_v = m[2*N+idx];
 
     const double cross_x = my_v*gz - mz_v*gy;
@@ -176,7 +177,7 @@ double SlonczewskiSTTGPU::a_J(double Ms) const {
 }
 
 void SlonczewskiSTTGPU::accumulate_gpu_ptr(
-    const double* d_m, const Material& mat, double* d_dm_out) const
+    const GReal* d_m, const Material& mat, GReal* d_dm_out) const
 {
     const int N = static_cast<int>(N_);
     const double aJ = a_J(mat.Ms);
@@ -185,7 +186,9 @@ void SlonczewskiSTTGPU::accumulate_gpu_ptr(
     const int threads = 256;
     const int blocks  = (N + threads - 1) / threads;
     kernel_slonczewski<<<blocks, threads, 0, s>>>(
-        d_dm_out, d_m, N, aJ, bJ, p_.x, p_.y, p_.z);
+        d_dm_out,
+        d_m,
+        N, aJ, bJ, p_.x, p_.y, p_.z);
     CUDA_CHECK(cudaStreamSynchronize(s));
 }
 
@@ -217,7 +220,7 @@ double SpinOrbitTorqueGPU::a_SOT(double Ms) const {
 }
 
 void SpinOrbitTorqueGPU::accumulate_gpu_ptr(
-    const double* d_m, const Material& mat, double* d_dm_out) const
+    const GReal* d_m, const Material& mat, GReal* d_dm_out) const
 {
     const int N = static_cast<int>(N_);
     const double a = a_SOT(mat.Ms);
@@ -225,8 +228,9 @@ void SpinOrbitTorqueGPU::accumulate_gpu_ptr(
     const int threads = 256;
     const int blocks  = (N + threads - 1) / threads;
     kernel_sot<<<blocks, threads, 0, s>>>(
-        d_dm_out, d_m, N,
-        a * eta_DL_, a * eta_FL_,
+        d_dm_out,
+        d_m,
+        N, a * eta_DL_, a * eta_FL_,
         sigma_.x, sigma_.y, sigma_.z);
     CUDA_CHECK(cudaStreamSynchronize(s));
 }
@@ -256,7 +260,7 @@ double ZhangLiSTTGPU::u(double Ms) const {
 }
 
 void ZhangLiSTTGPU::accumulate_gpu_ptr(
-    const double* d_m, const Material& mat, double* d_dm_out) const
+    const GReal* d_m, const Material& mat, GReal* d_dm_out) const
 {
     const double u_val = u(mat.Ms);
     if (u_val == 0.0 || J_.norm() < 1e-30) return;
@@ -272,7 +276,8 @@ void ZhangLiSTTGPU::accumulate_gpu_ptr(
     const int blocks  = (N + threads - 1) / threads;
 
     kernel_zhangli<<<blocks, threads, 0, s>>>(
-        d_dm_out, d_m,
+        d_dm_out,
+        d_m,
         static_cast<int>(nx_), static_cast<int>(ny_), static_cast<int>(nz_), N,
         dx_, dy_, dz_, u_val, xi_,
         jhatx, jhaty, jhatz);
@@ -282,3 +287,5 @@ void ZhangLiSTTGPU::accumulate_gpu_ptr(
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+
+

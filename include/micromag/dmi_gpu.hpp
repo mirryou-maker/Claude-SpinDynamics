@@ -35,8 +35,8 @@ public:
     const char* name() const override { return "BulkDMIGPU"; }
 
     // G-path: add H_DMI to d_H_out (both [3×N] component-major, on GPU).
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
+                             GReal* d_H_out) const;
 
     Real D() const       { return D_; }
     void set_D(Real D)   { D_ = D;   }
@@ -81,8 +81,8 @@ public:
                                   const Material& mat) const override;
     const char* name() const override { return "InterfacialDMIGPU"; }
 
-    void accumulate_gpu_ptr(const double* d_m, const Material& mat,
-                             double* d_H_out) const;
+    void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
+                             GReal* d_H_out) const;
 
     Real D() const       { return D_; }
     void set_D(Real D)   { D_ = D;   }

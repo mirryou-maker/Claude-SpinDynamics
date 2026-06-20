@@ -35,6 +35,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 option(MICROMAG_BUILD_PYTHON "Build Python bindings"     ON)
 option(MICROMAG_BUILD_TESTS  "Build unit tests"          ON)
 option(MICROMAG_USE_CUDA     "Enable CUDA/cuFFT GPU demag backend" OFF)
+option(MICROMAG_FLOAT32      "Use float32 on GPU (reduces VRAM, ~1.5x bandwidth)" OFF)
 
 # FFTW3 (required for demagnetisation field) --------------------------------
 find_package(FFTW3 CONFIG REQUIRED)
@@ -168,14 +169,25 @@ if(MICROMAG_USE_CUDA)
         CUDA_SEPARABLE_COMPILATION OFF
         CUDA_RUNTIME_LIBRARY Shared        # dynamic CUDA RT — avoids LNK4098
     )
-    # Suppress C4819 (unicode) warnings in CUDA host compilation on Korean Windows
+    # Suppress C4819 (unicode) warnings in CUDA host compilation on Korean Windows.
+    # /Zc:preprocessor enables MSVC's conformant preprocessor (required for CUB/Thrust
+    # CCCL headers — without it, 100+ template errors occur in cub/device/device_reduce.cuh).
     if(MSVC)
         target_compile_options(micromag_cuda PRIVATE
-            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>)
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>)
     endif()
     # Propagate the MICROMAG_CUDA flag so headers can guard GPU code
     target_compile_definitions(micromag_cuda PUBLIC MICROMAG_CUDA=1)
     target_compile_definitions(micromag_core PUBLIC MICROMAG_CUDA=1)
+    # P11: optional float32 GPU mode.
+    # PUBLIC on micromag_core/micromag_cuda propagates MICROMAG_FLOAT32 to every
+    # consumer that links them (including the _micromag Python module created
+    # later), so no per-target definition is needed below.
+    if(MICROMAG_FLOAT32)
+        target_compile_definitions(micromag_cuda PUBLIC MICROMAG_FLOAT32=1)
+        target_compile_definitions(micromag_core PUBLIC MICROMAG_FLOAT32=1)
+    endif()
 
     # SP#4 GPU benchmark app
     add_executable(sp4_gpu apps/sp4_gpu.cpp)

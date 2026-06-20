@@ -21,6 +21,7 @@
 #include "micromag/thermal_field.hpp"
 #include "micromag/zeeman.hpp"
 #include "micromag/demag.hpp"
+#include "gpu_test_tol.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -85,7 +86,7 @@ TEST_CASE("HeunIntegratorGPU T=0: matches CPU Heun", "[heun][gpu]") {
     INFO("max |GPU - CPU| = " << err);
     INFO("CPU[0] = (" << m_cpu[0].x << ", " << m_cpu[0].y << ", " << m_cpu[0].z << ")");
     INFO("GPU[0] = (" << m_gpu[0].x << ", " << m_gpu[0].y << ", " << m_gpu[0].z << ")");
-    REQUIRE(err < 1e-12);
+    REQUIRE(err < micromag::gtol(1e-12));
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ TEST_CASE("HeunIntegratorGPU 10 steps T=0 vs CPU", "[heun][gpu]") {
 
     const double err = max_abs_diff(m_cpu, m_gpu);
     INFO("10-step max |GPU - CPU| = " << err);
-    REQUIRE(err < 1e-10);
+    REQUIRE(err < micromag::gtol(1e-10));
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +168,7 @@ TEST_CASE("HeunIntegratorGPU T=300K: thermal noise active", "[heun][gpu]") {
     // All cells still on unit sphere
     for (Index i=0; i<g.size(); ++i) {
         double len = std::sqrt(m1[i].x*m1[i].x + m1[i].y*m1[i].y + m1[i].z*m1[i].z);
-        REQUIRE_THAT(len, WithinAbs(1.0, 1e-10));
+        REQUIRE_THAT(len, WithinAbs(1.0, micromag::gtol(1e-10)));
     }
 }
 
@@ -197,7 +198,7 @@ TEST_CASE("HeunIntegratorGPU T=300K: |m|=1 after 20 steps", "[heun][gpu]") {
     // Every cell must remain on the unit sphere after normalize()
     for (Index i=0; i<g.size(); ++i) {
         const double len = std::sqrt(m[i].x*m[i].x + m[i].y*m[i].y + m[i].z*m[i].z);
-        REQUIRE_THAT(len, WithinAbs(1.0, 1e-10));
+        REQUIRE_THAT(len, WithinAbs(1.0, micromag::gtol(1e-10)));
     }
 
     // Magnetization should have moved from initial +x due to field + noise

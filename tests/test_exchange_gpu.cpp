@@ -14,6 +14,8 @@
 #include "micromag/grid.hpp"
 #include "micromag/material.hpp"
 
+#include "gpu_test_tol.hpp"
+
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
@@ -108,7 +110,7 @@ TEST_CASE("ExchangeFieldGPU matches CPU: spin-wave along x", "[exchange][gpu]") 
 
     const double err = max_rel_diff(H_cpu, H_gpu, mat.Ms * 1e-4);
     INFO("max_rel_err = " << err);
-    REQUIRE(err < 1e-8);
+    REQUIRE(err < micromag::gtol(1e-8, 5e-2));
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +138,7 @@ TEST_CASE("ExchangeFieldGPU matches CPU: spiral along z", "[exchange][gpu]") {
 
     const double err = max_rel_diff(H_cpu, H_gpu, mat.Ms * 1e-4);
     INFO("max_rel_err = " << err);
-    REQUIRE(err < 1e-8);
+    REQUIRE(err < micromag::gtol(1e-8, 5e-2));
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +165,7 @@ TEST_CASE("ExchangeFieldGPU matches CPU: 16×16×1 thin film", "[exchange][gpu]"
 
     const double err = max_rel_diff(H_cpu, H_gpu, mat.Ms * 1e-4);
     INFO("max_rel_err = " << err);
-    REQUIRE(err < 1e-8);
+    REQUIRE(err < micromag::gtol(1e-8, 5e-2));
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +191,7 @@ TEST_CASE("ExchangeFieldGPU matches CPU: 1×1×8 rod along z", "[exchange][gpu]"
 
     const double err = max_rel_diff(H_cpu, H_gpu, mat.Ms * 1e-4);
     INFO("max_rel_err = " << err);
-    REQUIRE(err < 1e-8);
+    REQUIRE(err < micromag::gtol(1e-8, 5e-2));
 
     // Neumann BC: ends (iz=0 and iz=7) should have only one-sided exchange
     // Verify by checking CPU == GPU (not by hardcoding the value)
@@ -278,7 +280,7 @@ TEST_CASE("ExchangeFieldGPU: periodic BC matches CPU", "[exchange][gpu]") {
     ExchangeFieldGPU gpu(g, BoundaryCondition::Periodic);
     gpu.accumulate(m, mat, Hg);
 
-    REQUIRE_THAT(max_rel_diff(Hc, Hg, 1.0), WithinAbs(0.0, 1e-6));
+    REQUIRE_THAT(max_rel_diff(Hc, Hg, 1.0), WithinAbs(0.0, micromag::gtol(1e-6, 5e-2)));
 }
 
 TEST_CASE("ExchangeFieldGPU: uniform m → zero exchange (periodic BC)", "[exchange][gpu]") {

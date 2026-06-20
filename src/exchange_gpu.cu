@@ -1,13 +1,13 @@
-// exchange_gpu.cu — GPU exchange field (Phase G, Step G1)
+﻿// exchange_gpu.cu ??GPU exchange field (Phase G, Step G1)
 //
 // Implements the same 6-point Laplacian as ExchangeField (CPU):
-//   H_exch[cell] += (2A / μ₀Ms) × Σ_±x,±y,±z  (m_neigh − m_self) / d²
+//   H_exch[cell] += (2A / 關?Ms) 횞 誇_짹x,짹y,짹z  (m_neigh ??m_self) / d짼
 //
-// Memory layout: [3 × N] component-major
+// Memory layout: [3 횞 N] component-major
 //   buf[c*N + idx],  idx = ix + nx*(iy + ny*iz)  (x-fastest)
-//   c = 0 → Mx,  1 → My,  2 → Mz
+//   c = 0 ??Mx,  1 ??My,  2 ??Mz
 //
-// Neumann BC: out-of-bounds neighbor → use self → contribution = 0.
+// Neumann BC: out-of-bounds neighbor ??use self ??contribution = 0.
 // This exactly matches CPU ExchangeField with BoundaryCondition::Neumann.
 
 #ifdef MICROMAG_CUDA
@@ -19,6 +19,7 @@
 
 #include "micromag/exchange.hpp"
 #include "micromag/exchange_gpu.hpp"
+#include "micromag/gpu_real.hpp"
 #include "micromag/material_field.hpp"
 #include "micromag/types.hpp"
 
@@ -36,27 +37,27 @@ namespace micromag {
 // ===========================================================================
 // CUDA kernel: 6-point Laplacian exchange field
 //
-// One thread per cell (1-D launch, idx ∈ [0, N)).
-// Neumann BC: when idx_neigh == idx (boundary cell), m_neigh − m_self = 0.
+// One thread per cell (1-D launch, idx ??[0, N)).
+// Neumann BC: when idx_neigh == idx (boundary cell), m_neigh ??m_self = 0.
 // ===========================================================================
 __global__ static void exchange_kernel(
-    double* __restrict__       H_out,   // [3×N] add into (never zeros)
-    const double* __restrict__ m,       // [3×N] magnetization
+    GReal* __restrict__       H_out,   // [3횞N] add into (never zeros)
+    const GReal* __restrict__ m,       // [3횞N] magnetization
     int nx, int ny, int nz,
-    double fx,                          // 2A/(μ₀ Ms dx²)
-    double fy,                          // 2A/(μ₀ Ms dy²)
-    double fz)                          // 2A/(μ₀ Ms dz²)
+    double fx,                          // 2A/(關? Ms dx짼)
+    double fy,                          // 2A/(關? Ms dy짼)
+    double fz)                          // 2A/(關? Ms dz짼)
 {
     const int N   = nx * ny * nz;
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
 
-    // Decompose linear index → (ix, iy, iz)
+    // Decompose linear index ??(ix, iy, iz)
     const int ix = idx % nx;
     const int iy = (idx / nx) % ny;
     const int iz = idx / (nx * ny);
 
-    // Neighbor linear indices; Neumann BC: clamp to self (→ zero contribution)
+    // Neighbor linear indices; Neumann BC: clamp to self (??zero contribution)
     const int idx_xm = (ix > 0)    ? idx - 1      : idx;
     const int idx_xp = (ix < nx-1) ? idx + 1      : idx;
     const int idx_ym = (iy > 0)    ? idx - nx      : idx;
@@ -80,24 +81,23 @@ __global__ static void exchange_kernel(
 }
 
 // ===========================================================================
-// CUDA kernel: 6-point Laplacian — Neumann BC, 2D shared-memory tile.
+// CUDA kernel: 6-point Laplacian ??Neumann BC, 2D shared-memory tile.
 //
-// Block: EXCH_BX×EXCH_BY = 32×8 = 256 threads.
-// Shared tile: (BX+2)×(BY+2) per component = 34×10 = 340 doubles per comp.
-// Total shared mem: 3 × 340 × 8 = 8160 bytes (well within 48KB limit).
+// Block: EXCH_BX횞EXCH_BY = 32횞8 = 256 threads.
+// Shared tile: (BX+2)횞(BY+2) per component = 34횞10 = 340 doubles per comp.
+// Total shared mem: 3 횞 340 횞 8 = 8160 bytes (well within 48KB limit).
 //
 // x,y neighbors are served from the tile; z-neighbors from global memory.
 // Neumann BC: boundary clamping happens via block-level halo indices
 // (halo_ixL/R, halo_iyB/T) that clamp to [0, n-1].  OOB threads load the
 // clamped Neumann extension into their tile slot; in-bounds threads read
-// adjacent slots → zero contribution at the boundary.  ✓
-// ===========================================================================
+// adjacent slots ??zero contribution at the boundary.  ??// ===========================================================================
 #define EXCH_BX 32
 #define EXCH_BY 8
 
 __global__ static void exchange_kernel_smem(
-    double* __restrict__       H_out,
-    const double* __restrict__ m,
+    GReal* __restrict__       H_out,
+    const GReal* __restrict__ m,
     int nx, int ny, int nz,
     double fx, double fy, double fz)
 {
@@ -125,7 +125,7 @@ __global__ static void exchange_kernel_smem(
     for (int c = 0; c < 3; ++c) {
         const int base = c * N;
 
-        // Center: clamped index → OOB threads load Neumann extension
+        // Center: clamped index ??OOB threads load Neumann extension
         tile[c][ty + 1][tx + 1] = m[base + cix + nx * (ciy + iz_off)];
 
         // Left halo (tx == 0 loads for entire column)
@@ -169,11 +169,11 @@ __global__ static void exchange_kernel_smem(
 #undef EXCH_BY
 
 // ===========================================================================
-// CUDA kernel: 6-point Laplacian — periodic BC (wrap-around indices)
+// CUDA kernel: 6-point Laplacian ??periodic BC (wrap-around indices)
 // ===========================================================================
 __global__ static void exchange_kernel_periodic(
-    double* __restrict__       H_out,
-    const double* __restrict__ m,
+    GReal* __restrict__       H_out,
+    const GReal* __restrict__ m,
     int nx, int ny, int nz,
     double fx, double fy, double fz)
 {
@@ -208,11 +208,11 @@ __global__ static void exchange_kernel_periodic(
 }
 
 // ===========================================================================
-// CUDA kernel: 6-point Laplacian — per-cell A and Ms (Neumann BC)
+// CUDA kernel: 6-point Laplacian ??per-cell A and Ms (Neumann BC)
 // ===========================================================================
 __global__ static void exchange_kernel_percell(
-    double* __restrict__       H_out,
-    const double* __restrict__ m,
+    GReal* __restrict__       H_out,
+    const GReal* __restrict__ m,
     const double* __restrict__ d_A,    // [N] A_exchange per cell
     const double* __restrict__ d_Ms,   // [N] Ms per cell
     int nx, int ny, int nz,
@@ -232,7 +232,7 @@ __global__ static void exchange_kernel_percell(
     const int iy = (idx / nx) % ny;
     const int iz = idx / (nx * ny);
 
-    // Neighbor indices (Neumann: clamp to self → zero contribution)
+    // Neighbor indices (Neumann: clamp to self ??zero contribution)
     const int idx_xm = (ix > 0)    ? idx - 1      : idx;
     const int idx_xp = (ix < nx-1) ? idx + 1      : idx;
     const int idx_ym = (iy > 0)    ? idx - nx      : idx;
@@ -268,8 +268,8 @@ __global__ static void exchange_kernel_percell(
 
 // Per-cell periodic BC version
 __global__ static void exchange_kernel_percell_periodic(
-    double* __restrict__       H_out,
-    const double* __restrict__ m,
+    GReal* __restrict__       H_out,
+    const GReal* __restrict__ m,
     const double* __restrict__ d_A,
     const double* __restrict__ d_Ms,
     int nx, int ny, int nz,
@@ -332,8 +332,8 @@ ExchangeFieldGPU::ExchangeFieldGPU(const StructuredGrid& grid, BoundaryCondition
          static_cast<size_t>(grid.nz())),
       bc_(bc)
 {
-    CUDA_CHECK(cudaMalloc(&d_m_scratch_, 3 * N_ * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_H_scratch_, 3 * N_ * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&d_m_scratch_, 3 * N_ * sizeof(GReal)));
+    CUDA_CHECK(cudaMalloc(&d_H_scratch_, 3 * N_ * sizeof(GReal)));
 
     cudaStream_t s;
     CUDA_CHECK(cudaStreamCreate(&s));
@@ -349,7 +349,7 @@ ExchangeFieldGPU::~ExchangeFieldGPU() {
 }
 
 // ===========================================================================
-// accumulate — upload m, run kernel, download H and add to H_out
+// accumulate ??upload m, run kernel, download H and add to H_out
 // ===========================================================================
 void ExchangeFieldGPU::accumulate(const VectorField3D& m,
                                    const Material& mat,
@@ -363,24 +363,24 @@ void ExchangeFieldGPU::accumulate(const VectorField3D& m,
     const double fz  = pre / (dz_ * dz_);
 
     // ------------------------------------------------------------------
-    // 1. Pack VectorField3D → compact host buffer [Mx|My|Mz]
+    // 1. Pack VectorField3D ??compact host buffer [Mx|My|Mz]
     // ------------------------------------------------------------------
-    std::vector<double> h_m(3 * N_);
+    std::vector<GReal> h_m(3 * N_);
     for (Index i = 0; i < static_cast<Index>(N_); ++i) {
-        h_m[i]           = m[i].x;
-        h_m[N_  + i]     = m[i].y;
-        h_m[2*N_ + i]    = m[i].z;
+        h_m[i]           = static_cast<GReal>(m[i].x);
+        h_m[N_  + i]     = static_cast<GReal>(m[i].y);
+        h_m[2*N_ + i]    = static_cast<GReal>(m[i].z);
     }
 
-    auto* dm = static_cast<double*>(d_m_scratch_);
-    auto* dH = static_cast<double*>(d_H_scratch_);
+    auto* dm = static_cast<GReal*>(d_m_scratch_);
+    auto* dH = static_cast<GReal*>(d_H_scratch_);
 
     // ------------------------------------------------------------------
     // 2. Upload m, zero H scratch
     // ------------------------------------------------------------------
-    CUDA_CHECK(cudaMemcpy(dm, h_m.data(), 3*N_*sizeof(double),
+    CUDA_CHECK(cudaMemcpy(dm, h_m.data(), 3*N_*sizeof(GReal),
                           cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(double)));
+    CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(GReal)));
 
     // ------------------------------------------------------------------
     // 3. Launch exchange kernel (Neumann or Periodic BC)
@@ -389,22 +389,24 @@ void ExchangeFieldGPU::accumulate(const VectorField3D& m,
         const int blk = 256;
         const int grd = static_cast<int>((N_ + blk - 1) / blk);
         exchange_kernel_periodic<<<grd, blk, 0, s>>>(
-            dH, dm, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
+            reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
+            (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
     } else {
         // 2D shared-memory kernel: better cache locality for x/y neighbors
         const dim3 blk2(32, 8, 1);
         const dim3 grd2(((int)nx_ + 31) / 32, ((int)ny_ + 7) / 8, (int)nz_);
         exchange_kernel_smem<<<grd2, blk2, 0, s>>>(
-            dH, dm, (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
+            reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
+            (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
     }
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
     // 4. Download H result and accumulate into H_out
     // ------------------------------------------------------------------
-    std::vector<double> h_H(3 * N_);
+    std::vector<GReal> h_H(3 * N_);
     CUDA_CHECK(cudaStreamSynchronize(s));
-    CUDA_CHECK(cudaMemcpy(h_H.data(), dH, 3*N_*sizeof(double),
+    CUDA_CHECK(cudaMemcpy(h_H.data(), dH, 3*N_*sizeof(GReal),
                           cudaMemcpyDeviceToHost));
 
     for (Index i = 0; i < static_cast<Index>(N_); ++i) {
@@ -415,14 +417,14 @@ void ExchangeFieldGPU::accumulate(const VectorField3D& m,
 }
 
 // ===========================================================================
-// accumulate_gpu_ptr — direct GPU-pointer path (no PCIe; used in G6 pipeline)
+// accumulate_gpu_ptr ??direct GPU-pointer path (no PCIe; used in G6 pipeline)
 //
 // Caller is responsible for zeroing d_H_out before this call (or relying on
 // prior accumulation order). Uses the same stream_ as accumulate().
 // ===========================================================================
-void ExchangeFieldGPU::accumulate_gpu_ptr(const double* d_m,
+void ExchangeFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
                                             const Material& mat,
-                                            double* d_H_out) const {
+                                            GReal* d_H_out) const {
     const cudaStream_t s   = static_cast<cudaStream_t>(stream_);
     const int blk = 256;
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
@@ -430,16 +432,19 @@ void ExchangeFieldGPU::accumulate_gpu_ptr(const double* d_m,
     const double idy2 = 1.0 / (dy_ * dy_);
     const double idz2 = 1.0 / (dz_ * dz_);
 
+    auto* gm  = reinterpret_cast<const GReal*>(d_m);
+    auto* gH  = reinterpret_cast<GReal*>(d_H_out);
+
     if (d_A_field_) {
         // Per-cell mode
         const double mu0_inv2 = 2.0 / constants::mu_0;
         if (bc_ == BoundaryCondition::Periodic)
             exchange_kernel_percell_periodic<<<grd, blk, 0, s>>>(
-                d_H_out, d_m, d_A_field_, d_Ms_field_,
+                gH, gm, d_A_field_, d_Ms_field_,
                 (int)nx_, (int)ny_, (int)nz_, mu0_inv2, idx2, idy2, idz2);
         else
             exchange_kernel_percell<<<grd, blk, 0, s>>>(
-                d_H_out, d_m, d_A_field_, d_Ms_field_,
+                gH, gm, d_A_field_, d_Ms_field_,
                 (int)nx_, (int)ny_, (int)nz_, mu0_inv2, idx2, idy2, idz2);
     } else {
         // Uniform mode
@@ -447,13 +452,13 @@ void ExchangeFieldGPU::accumulate_gpu_ptr(const double* d_m,
         const double pre = 2.0 * mat.A_exchange / (constants::mu_0 * mat.Ms);
         if (bc_ == BoundaryCondition::Periodic)
             exchange_kernel_periodic<<<grd, blk, 0, s>>>(
-                d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_,
+                gH, gm, (int)nx_, (int)ny_, (int)nz_,
                 pre * idx2, pre * idy2, pre * idz2);
         else {
             const dim3 blk2(32, 8, 1);
             const dim3 grd2(((int)nx_ + 31) / 32, ((int)ny_ + 7) / 8, (int)nz_);
             exchange_kernel_smem<<<grd2, blk2, 0, s>>>(
-                d_H_out, d_m, (int)nx_, (int)ny_, (int)nz_,
+                gH, gm, (int)nx_, (int)ny_, (int)nz_,
                 pre * idx2, pre * idy2, pre * idz2);
         }
     }
@@ -487,7 +492,7 @@ void ExchangeFieldGPU::clear_material_field() {
 }
 
 // ===========================================================================
-// energy — delegates to CPU ExchangeField (G3+ will add GPU reduction)
+// energy ??delegates to CPU ExchangeField (G3+ will add GPU reduction)
 // ===========================================================================
 Real ExchangeFieldGPU::energy(const VectorField3D& m, const Material& mat) const {
     ExchangeField cpu;
@@ -503,3 +508,4 @@ ScalarField3D ExchangeFieldGPU::energy_density(const VectorField3D& m,
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
+
