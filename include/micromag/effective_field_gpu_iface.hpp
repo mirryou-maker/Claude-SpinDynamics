@@ -38,6 +38,10 @@ public:
     // Add H_field to d_H_out in-place (both [3×N] component-major, on device).
     virtual void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                                      GReal* d_H_out) const = 0;
+
+    // Redirect GPU kernels to an external stream (P2: single-stream refactor).
+    // Default no-op; concrete classes override to redirect their private stream.
+    virtual void set_stream(void* /*s*/) {}
 };
 
 // ---------------------------------------------------------------------------
@@ -54,24 +58,34 @@ public:
 
     std::size_t size() const { return fields_.size(); }
 
+    // Route all registered fields (and future calls) to a shared CUDA stream.
+    // When set, accumulate_gpu_ptr omits cudaDeviceSynchronize() between fields
+    // because stream ordering guarantees serial execution.
+    // Call from the integrator at the start of each step() to enable single-stream mode.
+    void set_stream(void* s) {
+        stream_ = s;
+        for (auto* f : fields_) f->set_stream(s);
+    }
+
     // Accumulate all fields into d_H_out (must be pre-zeroed by caller).
     //
-    // Each field runs on its OWN CUDA stream and accumulates in-place
-    // (d_H_out += H_field).  Without a barrier between fields the read-
-    // modify-write of d_H_out races across the independent streams, so some
-    // cells silently lose a field's contribution — worst at high-field
-    // boundary cells, which injects spurious energy dissipation into the LLG
-    // dynamics.  Serialise with a device sync after each field.
+    // Single-stream mode (set_stream was called): all fields run on stream_,
+    // stream ordering serialises them — no cudaDeviceSynchronize needed.
+    //
+    // Multi-stream mode (default, stream_==nullptr): each field uses its own
+    // private stream; cudaDeviceSynchronize serialises after each field to
+    // prevent read-modify-write races on d_H_out.
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const {
         for (auto* f : fields_) {
             f->accumulate_gpu_ptr(d_m, mat, d_H_out);
-            cudaDeviceSynchronize();
+            if (!stream_) cudaDeviceSynchronize();
         }
     }
 
 private:
     std::vector<IEffectiveFieldGPU*> fields_;
+    void* stream_ = nullptr;  // null = each field on its own stream
 };
 
 }  // namespace micromag

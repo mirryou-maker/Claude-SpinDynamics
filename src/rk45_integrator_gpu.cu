@@ -70,24 +70,14 @@ void RK45IntegratorGPU::eval_ki(
     GReal* dH = state_.d_H();
     const int N = static_cast<int>(state_.N());
 
+    // All fields run on state_.stream() (set by step()); stream ordering suffices.
     state_.zero_H();
-    state_.sync();
-
     exch.accumulate_gpu_ptr(d_m_in, mat, dH);
-    CUDA_CHECK(cudaDeviceSynchronize());
-
     zeeman.accumulate_gpu_ptr(d_m_in, mat, dH);
-    CUDA_CHECK(cudaDeviceSynchronize());
-
-    if (aniso) {
+    if (aniso)
         aniso->accumulate_gpu_ptr(d_m_in, mat, dH);
-        CUDA_CHECK(cudaDeviceSynchronize());
-    }
-
     demag.accumulate_gpu_ptr(d_m_in, mat, dH);
-
     launch_llg_torque(d_ki_out, d_m_in, dH, mat.alpha, N, s);
-    state_.sync();
 }
 
 // ---------------------------------------------------------------------------
@@ -102,45 +92,38 @@ Real RK45IntegratorGPU::step(
     const int N = static_cast<int>(state_.N());
     void*  s = state_.stream();
 
+    // Route all fields to the integrator's stream (single-stream mode).
+    demag.set_stream(s);
+    exch.set_stream(s);
+    zeeman.set_stream(s);
+    if (aniso) aniso->set_stream(s);
+
     if (!k1_valid_)
         eval_ki(mat, demag, exch, zeeman, aniso, dm, d_k1_);
 
     for (;;) {
         const double h = static_cast<double>(dt_);
 
-        // Stage 2
+        // Stream ordering on state_.stream() serialises all stage/eval_ki kernels.
         launch_rk4_stage(d_m_stage_, dm, d_k1_, h/5.0, N, s);
-        state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k2_);
 
-        // Stage 3
         launch_dopri5_stage3(d_m_stage_, dm, h, d_k1_, d_k2_, N, s);
-        state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k3_);
 
-        // Stage 4
         launch_dopri5_stage4(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, N, s);
-        state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k4_);
 
-        // Stage 5
         launch_dopri5_stage5(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, N, s);
-        state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k5_);
 
-        // Stage 6
         launch_dopri5_stage6(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, d_k5_, N, s);
-        state_.sync();
         eval_ki(mat, demag, exch, zeeman, aniso, d_m_stage_, d_k6_);
 
-        // 5th-order solution
         launch_dopri5_m5(d_m5_, dm, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, N, s);
-        state_.sync();
-
-        // Stage 7 (FSAL): k7 = f(m5)
         eval_ki(mat, demag, exch, zeeman, aniso, d_m5_, d_k7_);
 
-        // Error estimate and RMS norm
+        // Error estimate + D2H scalar (launch_dopri5_err_norm syncs internally).
         launch_dopri5_err(d_err_, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, d_k7_, N, s);
         const double err_norm = launch_dopri5_err_norm(
             d_err_sum_, d_err_, dm, d_m5_,
@@ -192,22 +175,13 @@ void RK45IntegratorGPU::eval_ki(
     GReal* dH = state_.d_H();
     const int N = static_cast<int>(state_.N());
 
+    // All on state_.stream() (set by step()); stream ordering suffices.
     state_.zero_H();
-    state_.sync();
-
     extra_fields.accumulate_gpu_ptr(d_m_in, mat, dH);
-    CUDA_CHECK(cudaDeviceSynchronize());
-
     demag.accumulate_gpu_ptr(d_m_in, mat, dH);
-
     launch_llg_torque(d_ki_out, d_m_in, dH, mat.alpha, N, s);
-
-    if (torques && torques->size() > 0) {
+    if (torques && torques->size() > 0)
         torques->accumulate_gpu_ptr(d_m_in, mat, d_ki_out);
-        CUDA_CHECK(cudaDeviceSynchronize());
-    }
-
-    state_.sync();
 }
 
 // ---------------------------------------------------------------------------
@@ -220,35 +194,32 @@ Real RK45IntegratorGPU::step(
     const int N = static_cast<int>(state_.N());
     void*  s = state_.stream();
 
+    demag.set_stream(s);
+    extra_fields.set_stream(s);
+
     if (!k1_valid_)
         eval_ki(mat, demag, extra_fields, dm, d_k1_);
 
     for (;;) {
         const double h = static_cast<double>(dt_);
 
+        // Single-stream: no state_.sync() between stages.
         launch_rk4_stage(d_m_stage_, dm, d_k1_, h/5.0, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k2_);
 
         launch_dopri5_stage3(d_m_stage_, dm, h, d_k1_, d_k2_, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k3_);
 
         launch_dopri5_stage4(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k4_);
 
         launch_dopri5_stage5(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k5_);
 
         launch_dopri5_stage6(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, d_k5_, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k6_);
 
         launch_dopri5_m5(d_m5_, dm, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, N, s);
-        state_.sync();
-
         eval_ki(mat, demag, extra_fields, d_m5_, d_k7_);
 
         launch_dopri5_err(d_err_, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, d_k7_, N, s);
@@ -299,35 +270,33 @@ Real RK45IntegratorGPU::step(
     const int N = static_cast<int>(state_.N());
     void*  s = state_.stream();
 
+    demag.set_stream(s);
+    extra_fields.set_stream(s);
+    torques.set_stream(s);
+
     if (!k1_valid_)
         eval_ki(mat, demag, extra_fields, dm, d_k1_, &torques);
 
     for (;;) {
         const double h = static_cast<double>(dt_);
 
+        // Single-stream: stream ordering on state_.stream() serialises everything.
         launch_rk4_stage(d_m_stage_, dm, d_k1_, h/5.0, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k2_, &torques);
 
         launch_dopri5_stage3(d_m_stage_, dm, h, d_k1_, d_k2_, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k3_, &torques);
 
         launch_dopri5_stage4(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k4_, &torques);
 
         launch_dopri5_stage5(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k5_, &torques);
 
         launch_dopri5_stage6(d_m_stage_, dm, h, d_k1_, d_k2_, d_k3_, d_k4_, d_k5_, N, s);
-        state_.sync();
         eval_ki(mat, demag, extra_fields, d_m_stage_, d_k6_, &torques);
 
         launch_dopri5_m5(d_m5_, dm, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, N, s);
-        state_.sync();
-
         eval_ki(mat, demag, extra_fields, d_m5_, d_k7_, &torques);
 
         launch_dopri5_err(d_err_, h, d_k1_, d_k3_, d_k4_, d_k5_, d_k6_, d_k7_, N, s);

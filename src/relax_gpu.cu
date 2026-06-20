@@ -239,22 +239,18 @@ void RelaxGPU::compute_H_eff(const Material& mat,
                                ZeemanFieldGPU& zeeman,
                                UniaxialAnisotropyFieldGPU* aniso) {
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
-    // Each field runs on its OWN stream and accumulates in place (d_H_ += H).
-    // Serialise the zero + every field, otherwise the memset and the
-    // independent field streams race on d_H_ (some cells lose a contribution,
-    // worst at high-field boundary cells) and the relax drives toward the
-    // wrong, higher-energy equilibrium.  Mirror of the FieldSumGPU fix.
+    // Single-stream: redirect all fields to RelaxGPU's own stream so stream
+    // ordering serialises the memset and every field kernel without barriers.
+    demag.set_stream(stream_);
+    exch.set_stream(stream_);
+    zeeman.set_stream(stream_);
+    if (aniso) aniso->set_stream(stream_);
     CUDA_CHECK(cudaMemsetAsync(d_H_, 0, 3*N_*sizeof(GReal), s));
-    CUDA_CHECK(cudaStreamSynchronize(s));
-    demag.accumulate_gpu_ptr(d_m_, mat, d_H_);   // self-syncs internally
+    demag.accumulate_gpu_ptr(d_m_, mat, d_H_);
     exch.accumulate_gpu_ptr(d_m_, mat, d_H_);
-    CUDA_CHECK(cudaDeviceSynchronize());
     zeeman.accumulate_gpu_ptr(d_m_, mat, d_H_);
-    CUDA_CHECK(cudaDeviceSynchronize());
-    if (aniso) {
+    if (aniso)
         aniso->accumulate_gpu_ptr(d_m_, mat, d_H_);
-        CUDA_CHECK(cudaDeviceSynchronize());
-    }
 }
 
 double RelaxGPU::max_torque_now(const Material& mat,
@@ -366,19 +362,16 @@ void MinimizeGPU::compute_H_eff_for(GReal* d_m_src,
                                      ZeemanFieldGPU& zeeman,
                                      UniaxialAnisotropyFieldGPU* aniso) {
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
-    // Serialise zero + each field: independent field streams otherwise race on
-    // d_H_ (see RelaxGPU::compute_H_eff / FieldSumGPU for the full rationale).
+    demag.set_stream(stream_);
+    exch.set_stream(stream_);
+    zeeman.set_stream(stream_);
+    if (aniso) aniso->set_stream(stream_);
     CUDA_CHECK(cudaMemsetAsync(d_H_, 0, 3*N_*sizeof(GReal), s));
-    CUDA_CHECK(cudaStreamSynchronize(s));
-    demag.accumulate_gpu_ptr(d_m_src, mat, d_H_);   // self-syncs internally
+    demag.accumulate_gpu_ptr(d_m_src, mat, d_H_);
     exch.accumulate_gpu_ptr(d_m_src, mat, d_H_);
-    CUDA_CHECK(cudaDeviceSynchronize());
     zeeman.accumulate_gpu_ptr(d_m_src, mat, d_H_);
-    CUDA_CHECK(cudaDeviceSynchronize());
-    if (aniso) {
+    if (aniso)
         aniso->accumulate_gpu_ptr(d_m_src, mat, d_H_);
-        CUDA_CHECK(cudaDeviceSynchronize());
-    }
 }
 
 double MinimizeGPU::compute_energy(const Material& mat,
@@ -471,10 +464,10 @@ int MinimizeGPU::run(const Material& mat,
 void RelaxGPU::compute_H_eff(const Material& mat, IDemagGPU& demag,
                                FieldSumGPU& extra_fields) {
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    demag.set_stream(stream_);
+    extra_fields.set_stream(stream_);
     CUDA_CHECK(cudaMemsetAsync(d_H_, 0, 3*N_*sizeof(GReal), s));
-    CUDA_CHECK(cudaStreamSynchronize(s));   // zero d_H_ before any field stream adds
     extra_fields.accumulate_gpu_ptr(d_m_, mat, d_H_);
-    CUDA_CHECK(cudaDeviceSynchronize());
     demag.accumulate_gpu_ptr(d_m_, mat, d_H_);
 }
 
@@ -523,10 +516,10 @@ int RelaxGPU::run(const Material& mat, IDemagGPU& demag,
 void MinimizeGPU::compute_H_eff_for(GReal* d_m_src, const Material& mat,
                                      IDemagGPU& demag, FieldSumGPU& extra_fields) {
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    demag.set_stream(stream_);
+    extra_fields.set_stream(stream_);
     CUDA_CHECK(cudaMemsetAsync(d_H_, 0, 3*N_*sizeof(GReal), s));
-    CUDA_CHECK(cudaStreamSynchronize(s));   // zero d_H_ before any field stream adds
     extra_fields.accumulate_gpu_ptr(d_m_src, mat, d_H_);
-    CUDA_CHECK(cudaDeviceSynchronize());
     demag.accumulate_gpu_ptr(d_m_src, mat, d_H_);
 }
 

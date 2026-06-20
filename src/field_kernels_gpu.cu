@@ -82,7 +82,7 @@ ZeemanFieldGPU::ZeemanFieldGPU(const StructuredGrid& grid, const Vec3& H_ext)
 }
 
 ZeemanFieldGPU::~ZeemanFieldGPU() {
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 // Standalone path: H_ext is uniform ??direct CPU add, no PCIe needed
@@ -139,7 +139,7 @@ UniaxialAnisotropyFieldGPU::~UniaxialAnisotropyFieldGPU() {
     if (d_K_field_)    cudaFree(d_K_field_);
     if (d_axis_field_) cudaFree(d_axis_field_);
     if (d_Ms_field_)   cudaFree(d_Ms_field_);
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 void UniaxialAnisotropyFieldGPU::accumulate(const VectorField3D& m,
@@ -395,7 +395,7 @@ CubicAnisotropyFieldGPU::~CubicAnisotropyFieldGPU() {
     if (d_c2_field_)  cudaFree(d_c2_field_);
     if (d_c3_field_)  cudaFree(d_c3_field_);
     if (d_Ms_field_)  cudaFree(d_Ms_field_);
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 void CubicAnisotropyFieldGPU::accumulate(const VectorField3D& m,

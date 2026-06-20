@@ -67,7 +67,7 @@ MagnetoelasticFieldGPU::MagnetoelasticFieldGPU(Real B1, Real B2,
 MagnetoelasticFieldGPU::~MagnetoelasticFieldGPU() {
     cudaFree(d_m_scratch_);
     cudaFree(d_H_scratch_);
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 void MagnetoelasticFieldGPU::set_strain(Real exx, Real eyy, Real ezz,

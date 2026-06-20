@@ -38,6 +38,9 @@ public:
     virtual ~ISpinTorqueGPU() = default;
 
     virtual void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const = 0;
+
+    // P2: redirect to a shared stream (same pattern as IEffectiveFieldGPU).
+    virtual void set_stream(void* /*s*/) {}
 };
 
 // ---------------------------------------------------------------------------
@@ -51,13 +54,21 @@ public:
     void clear()                { terms_.clear(); }
     std::size_t size() const    { return terms_.size(); }
 
+    // P2: redirect all torque kernels to a shared stream.
+    void set_stream(void* s) {
+        stream_ = s;
+        for (auto* t : terms_) t->set_stream(s);
+    }
+
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const {
         for (auto* t : terms_)
             t->accumulate_gpu_ptr(d_m, mat, d_dm_out);
+        // In single-stream mode: all torques ordered on stream_; caller needs no sync.
     }
 
 private:
     std::vector<ISpinTorqueGPU*> terms_;
+    void* stream_ = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -83,6 +94,7 @@ public:
     SlonczewskiSTTGPU& operator=(const SlonczewskiSTTGPU&) = delete;
 
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const override;
+    void set_stream(void* s) override { stream_ = s; stream_owned_ = false; }
 
     Real J()    const { return J_; }
     Real P()    const { return P_; }
@@ -100,7 +112,8 @@ private:
     Index N_;
     Real J_, P_, d_, beta_;
     Vec3 p_;
-    void* stream_ = nullptr;
+    void* stream_       = nullptr;
+    bool  stream_owned_ = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -127,6 +140,7 @@ public:
     SpinOrbitTorqueGPU& operator=(const SpinOrbitTorqueGPU&) = delete;
 
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const override;
+    void set_stream(void* s) override { stream_ = s; stream_owned_ = false; }
 
     Real J_c()      const { return J_c_; }
     Real theta_SH() const { return theta_SH_; }
@@ -146,7 +160,8 @@ private:
     Index N_;
     Real J_c_, theta_SH_, d_fm_, eta_DL_, eta_FL_;
     Vec3 sigma_;
-    void* stream_ = nullptr;
+    void* stream_       = nullptr;
+    bool  stream_owned_ = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -169,6 +184,7 @@ public:
     ZhangLiSTTGPU& operator=(const ZhangLiSTTGPU&) = delete;
 
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const override;
+    void set_stream(void* s) override { stream_ = s; stream_owned_ = false; }
 
     Vec3 J()   const { return J_; }
     Real P()   const { return P_; }
@@ -185,7 +201,8 @@ private:
     Real  dx_, dy_, dz_;
     Vec3  J_;
     Real  P_, xi_;
-    void* stream_ = nullptr;
+    void* stream_       = nullptr;
+    bool  stream_owned_ = true;
 };
 
 }  // namespace micromag

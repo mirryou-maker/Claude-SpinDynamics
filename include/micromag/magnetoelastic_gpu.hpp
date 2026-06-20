@@ -61,7 +61,7 @@ public:
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const override;
 
-    void set_stream(void* s) { stream_ = s; }
+    void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
 
 private:
     Real   B1_, B2_;
@@ -72,6 +72,7 @@ private:
     void*  d_m_scratch_ = nullptr;
     void*  d_H_scratch_ = nullptr;
     void*  stream_       = nullptr;
+    bool   stream_owned_ = true;
 };
 
 }  // namespace micromag

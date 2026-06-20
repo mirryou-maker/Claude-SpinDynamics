@@ -51,6 +51,18 @@
                 "MICROMAG_USE_CUDA": "ON",
                 "MICROMAG_FLOAT32": "ON"
             }
+        },
+        {
+            "name": "windows-msvc-cuda-vkfft",
+            "inherits": "windows-msvc-cuda",
+            "displayName": "Windows MSVC + CUDA GPU (VkFFT batch)",
+            "description": "GPU with VkFFT replacing cuFFT batch plans; faster for non-pow2 sizes",
+            "binaryDir": "${sourceDir}/build/windows-msvc-cuda-vkfft",
+            "cacheVariables": {
+                "MICROMAG_USE_CUDA": "ON",
+                "MICROMAG_VKFFT": "ON",
+                "MICROMAG_VKFFT_PATH": "C:/vkfft"
+            }
         }
     ],
     "buildPresets": [
@@ -72,6 +84,11 @@
         {
             "name": "windows-msvc-cuda-f32",
             "configurePreset": "windows-msvc-cuda-f32",
+            "configuration": "Release"
+        },
+        {
+            "name": "windows-msvc-cuda-vkfft",
+            "configurePreset": "windows-msvc-cuda-vkfft",
             "configuration": "Release"
         }
     ],

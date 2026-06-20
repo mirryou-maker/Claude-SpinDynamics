@@ -214,7 +214,26 @@ DemagFieldPeriodicGPU::~DemagFieldPeriodicGPU() {
     if (d_K_yz_)   { cudaFreeAsync(d_K_yz_, s); d_K_yz_=nullptr; }
     if (h_M_pinned_) { cudaFreeHost(h_M_pinned_); h_M_pinned_=nullptr; }
     if (h_H_pinned_) { cudaFreeHost(h_H_pinned_); h_H_pinned_=nullptr; }
-    if (s) { cudaStreamSynchronize(s); cudaStreamDestroy(s); stream_=nullptr; }
+    if (stream_owned_ && stream_) {
+        cudaStreamSynchronize(static_cast<cudaStream_t>(stream_));
+        cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+        stream_ = nullptr;
+    }
+}
+
+// ===========================================================================
+// set_stream -- P2: redirect batch FFT plans to a shared integrator stream.
+// ===========================================================================
+void DemagFieldPeriodicGPU::set_stream(void* s) {
+    if (stream_ == s) return;
+    if (stream_owned_ && stream_) {
+        cudaStreamSynchronize(static_cast<cudaStream_t>(stream_));
+        cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    }
+    stream_ = s;
+    stream_owned_ = false;
+    cufftSetStream(handle(plan_fwd_batch_),  static_cast<cudaStream_t>(s));
+    cufftSetStream(handle(plan_inv_batch_),  static_cast<cudaStream_t>(s));
 }
 
 // ===========================================================================
@@ -316,7 +335,9 @@ void DemagFieldPeriodicGPU::accumulate_gpu_ptr(const GReal* d_m,
         d_H_out, reinterpret_cast<const GReal*>(d_M_all_), N3);
     CUDA_CHECK(cudaGetLastError());
 
-    CUDA_CHECK(cudaStreamSynchronize(s));
+    // Standalone mode: sync so caller on a different stream sees the writes.
+    // Shared-stream mode: stream ordering on the integrator stream suffices.
+    if (stream_owned_) { CUDA_CHECK(cudaStreamSynchronize(s)); }
 }
 
 // ===========================================================================

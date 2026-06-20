@@ -46,8 +46,15 @@ public:
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const;
 
-    // Redirect all kernels to an external stream (used by G6 to run on one stream)
-    void set_stream(void* s) { stream_ = s; }
+    // Redirect all kernels to an external stream (P2 single-stream).
+    // Sets stream_owned_=false so the destructor does not destroy the external stream.
+    void set_stream(void* s) {
+        if (s == stream_) return;
+        if (stream_owned_ && stream_)
+            cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+        stream_       = s;
+        stream_owned_ = false;
+    }
 
     // Per-cell material: uploads A_exchange and Ms from MaterialField3D to device.
     // Once set, per-cell mode is active; call clear_material_field() to revert.
@@ -69,7 +76,8 @@ private:
     double* d_Ms_field_ = nullptr;  // double[N] — Ms per cell
 
     // CUDA stream — all GPU work serialised here
-    void* stream_ = nullptr;
+    void* stream_       = nullptr;
+    bool  stream_owned_ = true;
 
     BoundaryCondition bc_;
 };

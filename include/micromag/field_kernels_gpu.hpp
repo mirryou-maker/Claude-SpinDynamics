@@ -48,12 +48,13 @@ public:
 
     Vec3 H_ext() const            { return H_ext_; }
     void set_H_ext(const Vec3& H) { H_ext_ = H; }
-    void set_stream(void* s)      { stream_ = s; }
+    void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
 
 private:
     size_t N_;
     Vec3   H_ext_;
-    void*  stream_ = nullptr;
+    void*  stream_       = nullptr;
+    bool   stream_owned_ = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ public:
 
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const;
-    void set_stream(void* s) { stream_ = s; }
+    void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
 
     // Per-cell material: uploads K_uniaxial, easy_axis, Ms from MaterialField3D.
     // Once set, per-cell mode is active; call clear_material_field() to revert.
@@ -88,7 +89,8 @@ private:
     size_t N_;
     void*   d_m_scratch_ = nullptr;
     void*   d_H_scratch_ = nullptr;
-    void*   stream_ = nullptr;
+    void*   stream_       = nullptr;
+    bool    stream_owned_ = true;
 
     // Per-cell buffers (null = uniform mode)
     double* d_K_field_    = nullptr;  // double[N]   — K_uniaxial per cell
@@ -122,7 +124,7 @@ public:
 
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const;
-    void set_stream(void* s) { stream_ = s; }
+    void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
 
     Real Kc1() const { return Kc1_; }
     Real Kc2() const { return Kc2_; }
@@ -150,7 +152,8 @@ private:
     Vec3   c1_, c2_, c3_;
     void*  d_m_scratch_ = nullptr;
     void*  d_H_scratch_ = nullptr;
-    void*  stream_ = nullptr;
+    void*  stream_       = nullptr;
+    bool   stream_owned_ = true;
 
     // Per-cell buffers (null = uniform mode)
     double* d_Kc1_field_ = nullptr;  // [N]

@@ -54,7 +54,7 @@ public:
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const override;
 
-    void   set_stream(void* s) { stream_ = s; }
+    void   set_stream(void* s) { stream_ = s; stream_owned_ = false; }
     Real   J()        const    { return J_RKKY_; }
     Real   d()        const    { return d_spacer_; }
     void   set_J(Real J)       { J_RKKY_ = J; }
@@ -64,7 +64,8 @@ private:
     Real   J_RKKY_;
     Real   d_spacer_;
     double* d_ref_ = nullptr;   // [3×N] component-major reference layer on device
-    void*   stream_ = nullptr;
+    void*   stream_       = nullptr;
+    bool    stream_owned_ = true;
 };
 
 }  // namespace micromag

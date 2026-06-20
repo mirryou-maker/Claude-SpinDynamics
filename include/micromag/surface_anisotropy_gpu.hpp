@@ -45,7 +45,7 @@ public:
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const override;
 
-    void set_stream(void* s) { stream_ = s; }
+    void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
 
     // Per-cell Ks: upload Ks [J/m²] and Ms [A/m] per cell to GPU.
     // Only surface cells (as determined by the mask) receive the field.
@@ -67,6 +67,7 @@ private:
     void*   d_m_scratch_  = nullptr;
     void*   d_H_scratch_  = nullptr;
     void*   stream_        = nullptr;
+    bool    stream_owned_  = true;
 
     // Per-cell buffers (null = uniform mode)
     double* d_Ks_field_  = nullptr;  // [N]

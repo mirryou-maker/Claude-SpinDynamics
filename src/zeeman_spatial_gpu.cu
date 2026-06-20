@@ -58,7 +58,7 @@ ZeemanFieldSpatialGPU::ZeemanFieldSpatialGPU(const StructuredGrid& grid)
 
 ZeemanFieldSpatialGPU::~ZeemanFieldSpatialGPU() {
     cudaFree(d_H_field_);
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 // ---------------------------------------------------------------------------

@@ -72,10 +72,17 @@ private:
     cufftHandle plan_fwd_batch_   = 0;  // batch=3 R2C or D2Z
     cufftHandle plan_inv_batch_   = 0;  // batch=3 C2R or Z2D
 
-    // CUDA stream
-    void* stream_ = nullptr;
+    // CUDA stream.
+    // stream_owned_=true  → stream_ was created in constructor; destructor destroys it.
+    // stream_owned_=false → stream_ is an external (integrator-owned) stream.
+    void* stream_       = nullptr;
+    bool  stream_owned_ = true;
 
     void precompute_kernel();
+
+public:
+    // P2: redirect batch FFT plans to an external (integrator-owned) stream.
+    void set_stream(void* s) override;
 };
 
 }  // namespace micromag

@@ -345,7 +345,7 @@ ExchangeFieldGPU::~ExchangeFieldGPU() {
     cudaFree(d_H_scratch_);
     if (d_A_field_)  cudaFree(d_A_field_);
     if (d_Ms_field_) cudaFree(d_Ms_field_);
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 // ===========================================================================

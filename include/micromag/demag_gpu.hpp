@@ -53,11 +53,14 @@ private:
     size_t unpad_sz_ = 0;   // nx_ * ny_ * nz_
     size_t real_sz_  = 0;   // pad_nx_ * pad_ny_ * pad_nz_
     size_t cplx_sz_  = 0;   // fft_nx_ * pad_ny_ * pad_nz_
+    size_t symm_sz_  = 0;   // fft_nx_ * symm_ny_ * symm_nz_  (Y+Z first-quadrant)
+    size_t symm_ny_  = 0;   // pad_ny_ / 2 + 1
+    size_t symm_nz_  = 0;   // (pad_nz_ == 1) ? 1 : pad_nz_ / 2 + 1
 
     // GPU device pointers (void* here; cast to proper types in .cu)
-    void* d_r_buf_  = nullptr;   // double[real_sz_]            real scratch
+    void* d_r_buf_  = nullptr;   // double[real_sz_]           real scratch
     void* d_c_buf_  = nullptr;   // cufftDoubleComplex[cplx_sz_] complex scratch
-    void* d_K_xx_   = nullptr;   // cufftDoubleComplex[cplx_sz_] kernel components
+    void* d_K_xx_   = nullptr;   // GREAL_CUFFT_REAL[symm_sz_] kernel components (first quadrant)
     void* d_K_yy_   = nullptr;
     void* d_K_zz_   = nullptr;
     void* d_K_xy_   = nullptr;
@@ -82,17 +85,28 @@ private:
     cufftHandle plan_fwd_batch_ = 0;  // batch=3 D2Z — used by accumulate
     cufftHandle plan_inv_batch_ = 0;  // batch=3 Z2D — used by accumulate
 
-    // Step 6c: dedicated CUDA stream — all GPU ops submitted to this stream.
-    void* stream_ = nullptr;
+    // P3: optional VkFFT batch applications (heap-allocated; null when cuFFT is used)
+    void* vkfft_state_ = nullptr;
+
+    // Step 6c: CUDA stream for all GPU ops.
+    // stream_owned_=true  → stream_ was created in constructor; destructor destroys it.
+    // stream_owned_=false → stream_ is an external (integrator-owned) stream;
+    //                       destructor does NOT destroy it.
+    void* stream_       = nullptr;
+    bool  stream_owned_ = true;
 
     void precompute_kernel();
 
 public:
     // G6: GPU-pointer path (d_m [3×N] component-major → adds H_demag to d_H_out).
-    // Runs on internal stream_ and syncs before returning, so caller can safely
-    // continue on a different stream after this call.
+    // standalone mode (stream_owned_=true): syncs on stream_ before returning.
+    // shared-stream mode (after set_stream()): no internal sync.
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const override;
+
+    // P2: redirect batch FFT plans and all GPU work to an external stream.
+    // Destroys the internal stream (precompute is already complete at call time).
+    void set_stream(void* s) override;
 };
 
 }  // namespace micromag

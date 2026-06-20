@@ -168,7 +168,7 @@ SlonczewskiSTTGPU::SlonczewskiSTTGPU(
 }
 
 SlonczewskiSTTGPU::~SlonczewskiSTTGPU() {
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 double SlonczewskiSTTGPU::a_J(double Ms) const {
@@ -211,7 +211,7 @@ SpinOrbitTorqueGPU::SpinOrbitTorqueGPU(
 }
 
 SpinOrbitTorqueGPU::~SpinOrbitTorqueGPU() {
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 double SpinOrbitTorqueGPU::a_SOT(double Ms) const {
@@ -251,7 +251,7 @@ ZhangLiSTTGPU::ZhangLiSTTGPU(
 }
 
 ZhangLiSTTGPU::~ZhangLiSTTGPU() {
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 double ZhangLiSTTGPU::u(double Ms) const {

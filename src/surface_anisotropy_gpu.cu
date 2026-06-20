@@ -165,7 +165,7 @@ SurfaceAnisotropyFieldGPU::~SurfaceAnisotropyFieldGPU()
     cudaFree(d_H_scratch_);
     if (d_Ks_field_) cudaFree(d_Ks_field_);
     if (d_Ms_field_) cudaFree(d_Ms_field_);
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 void SurfaceAnisotropyFieldGPU::set_n_hat(Vec3 n)

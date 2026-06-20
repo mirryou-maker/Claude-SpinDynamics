@@ -20,6 +20,13 @@
 
 #include "micromag/demag_gpu.hpp"
 
+// P3: VkFFT optional batch FFT backend
+#ifdef MICROMAG_VKFFT
+#include <cuda.h>
+#define VKFFT_BACKEND 1
+#include "VkFFT/vkFFT.h"
+#endif
+
 // Bring GReal into global scope: the kernels below are defined before the
 // `namespace micromag {` block opens (line ~315), so they cannot see the
 // namespace-scoped alias otherwise.
@@ -211,12 +218,153 @@ __global__ static void fill_offdiag_gpu(
 // the off-diagonals are odd-odd-even (i*i -> real), so the imaginary parts are
 // zero and dropping them is exact.  Storing real (not complex) kernels halves
 // both the kernel VRAM and the pointwise-MAC read bandwidth.
+// KEPT for reference — superseded by dc_to_real_quadrant below.
 __global__ static void dc_to_real(GREAL_CUFFT_REAL* __restrict__ dst,
                                   const cufftDoubleComplex* __restrict__ src,
                                   size_t N) {
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
     dst[i] = static_cast<GREAL_CUFFT_REAL>(src[i].x);
+}
+
+// ===========================================================================
+// Extract first quadrant of complex FFT output into real compressed kernel.
+// Exploits Y+Z mirror symmetry: only iy∈[0..symm_ny-1], iz∈[0..symm_nz-1]
+// are stored; the MAC kernel reconstructs the remaining quadrants at runtime.
+//
+// src: full fft_nx × pad_ny × pad_nz complex array (d_c_buf_), x-fastest
+// dst: compressed fft_nx × symm_ny × symm_nz real array (d_K_xxx_), x-fastest
+// Layout: linear index = ix + fft_nx*(iy2 + symm_ny*iz2)
+__global__ static void dc_to_real_quadrant(
+    GREAL_CUFFT_REAL* __restrict__        dst,
+    const cufftDoubleComplex* __restrict__ src,
+    size_t fft_nx, size_t symm_ny, size_t symm_nz,
+    size_t pad_ny)
+{
+    const size_t flat  = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t total = fft_nx * symm_ny * symm_nz;
+    if (flat >= total) return;
+
+    // Decode flat → (ix, iy2, iz2) in compressed layout (x-fastest)
+    const size_t ix  = flat % fft_nx;
+    const size_t iy2 = (flat / fft_nx) % symm_ny;
+    const size_t iz2 = flat / (fft_nx * symm_ny);
+
+    // Source index in full FFT output — iy2 and iz2 are already in first quadrant
+    const size_t src_i = ix + fft_nx * (iy2 + pad_ny * iz2);
+    dst[flat] = static_cast<GREAL_CUFFT_REAL>(src[src_i].x);
+}
+
+// ===========================================================================
+// Symmetric MAC for 3D grids: compressed kernel lookup with Y+Z sign reconstruction.
+// Kernel stored at (ix, iy2, iz2) with iy2∈[0..symm_ny-1], iz2∈[0..symm_nz-1].
+// Sign conventions (from Newell symmetry of the demag tensor):
+//   Kxx,Kyy,Kzz: even in ky AND kz → no sign flip
+//   Kxy: odd in ky → sign flips when iy is mirrored
+//   Kxz: odd in kz → sign flips when iz is mirrored
+//   Kyz: odd in ky AND kz → sign flips when exactly one of iy,iz is mirrored (XOR)
+__global__ static void mac_symm_3d(
+    GREAL_CUFFT_COMPLEX* __restrict__       HF_all,
+    const GREAL_CUFFT_REAL* __restrict__    Kxx,
+    const GREAL_CUFFT_REAL* __restrict__    Kxy,
+    const GREAL_CUFFT_REAL* __restrict__    Kxz,
+    const GREAL_CUFFT_REAL* __restrict__    Kyy,
+    const GREAL_CUFFT_REAL* __restrict__    Kyz,
+    const GREAL_CUFFT_REAL* __restrict__    Kzz,
+    const GREAL_CUFFT_COMPLEX* __restrict__ MF_all,
+    size_t fft_nx, size_t pad_ny, size_t pad_nz,
+    size_t symm_ny, size_t symm_nz,
+    size_t N)   // cplx_sz_ = fft_nx * pad_ny * pad_nz
+{
+    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N) return;
+
+    const size_t ix = i % fft_nx;
+    const size_t iy = (i / fft_nx) % pad_ny;
+    const size_t iz = i / (fft_nx * pad_ny);
+
+    // Determine if this (iy, iz) bin is in the mirrored half
+    const bool iy_m = (iy > pad_ny / 2);
+    const bool iz_m = (iz > pad_nz / 2);
+    // Map to first-quadrant index
+    const size_t iy2 = iy_m ? (pad_ny - iy) : iy;
+    const size_t iz2 = iz_m ? (pad_nz - iz) : iz;
+
+    // Off-diagonal sign reconstruction
+    const GREAL_CUFFT_REAL sxy = iy_m ? GREAL_CUFFT_REAL(-1) : GREAL_CUFFT_REAL(1);
+    const GREAL_CUFFT_REAL sxz = iz_m ? GREAL_CUFFT_REAL(-1) : GREAL_CUFFT_REAL(1);
+    const GREAL_CUFFT_REAL syz = (iy_m != iz_m) ? GREAL_CUFFT_REAL(-1) : GREAL_CUFFT_REAL(1);
+
+    const size_t Ki = ix + fft_nx * (iy2 + symm_ny * iz2);
+
+    const GREAL_CUFFT_REAL kxx = Kxx[Ki];
+    const GREAL_CUFFT_REAL kxy = Kxy[Ki] * sxy;
+    const GREAL_CUFFT_REAL kxz = Kxz[Ki] * sxz;
+    const GREAL_CUFFT_REAL kyy = Kyy[Ki];
+    const GREAL_CUFFT_REAL kyz = Kyz[Ki] * syz;
+    const GREAL_CUFFT_REAL kzz = Kzz[Ki];
+
+    const GREAL_CUFFT_COMPLEX Mx = MF_all[i];
+    const GREAL_CUFFT_COMPLEX My = MF_all[N + i];
+    const GREAL_CUFFT_COMPLEX Mz = MF_all[2*N + i];
+
+    // Hx = Kxx*Mx + Kxy*My + Kxz*Mz
+    HF_all[i].x     = kxx*Mx.x + kxy*My.x + kxz*Mz.x;
+    HF_all[i].y     = kxx*Mx.y + kxy*My.y + kxz*Mz.y;
+    // Hy = Kxy*Mx + Kyy*My + Kyz*Mz
+    HF_all[N+i].x   = kxy*Mx.x + kyy*My.x + kyz*Mz.x;
+    HF_all[N+i].y   = kxy*Mx.y + kyy*My.y + kyz*Mz.y;
+    // Hz = Kxz*Mx + Kyz*My + Kzz*Mz
+    HF_all[2*N+i].x = kxz*Mx.x + kyz*My.x + kzz*Mz.x;
+    HF_all[2*N+i].y = kxz*Mx.y + kyz*My.y + kzz*Mz.y;
+}
+
+// ===========================================================================
+// Symmetric MAC for 2D thin-film (pad_nz==1): Kxz=Kyz=0, half Y threads.
+// Launch grid: (fft_nx/16+1) × (symm_ny/16+1) × 1 with 16×16 blocks.
+// Each thread handles its own row (iy) AND its Y-mirror row (pad_ny - iy).
+// This halves the number of launched threads compared to the 3D kernel.
+__global__ static void mac_symm_2d(
+    GREAL_CUFFT_COMPLEX* __restrict__       HF_all,
+    const GREAL_CUFFT_REAL* __restrict__    Kxx,
+    const GREAL_CUFFT_REAL* __restrict__    Kxy,
+    const GREAL_CUFFT_REAL* __restrict__    Kyy,
+    const GREAL_CUFFT_REAL* __restrict__    Kzz,
+    const GREAL_CUFFT_COMPLEX* __restrict__ MF_all,
+    size_t fft_nx, size_t pad_ny, size_t symm_ny,
+    size_t N)   // cplx_sz_ = fft_nx * pad_ny (pad_nz==1)
+{
+    const size_t ix = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t iy = blockIdx.y * blockDim.y + threadIdx.y;
+    if (ix >= fft_nx || iy >= symm_ny) return;
+
+    const size_t Ki  = ix + fft_nx * iy;
+    const GREAL_CUFFT_REAL kxx = Kxx[Ki];
+    const GREAL_CUFFT_REAL kxy = Kxy[Ki];
+    const GREAL_CUFFT_REAL kyy = Kyy[Ki];
+    const GREAL_CUFFT_REAL kzz = Kzz[Ki];
+
+    // Write row `row` with off-diagonal sign kxy_s (Kxz=Kyz=0 for single layer)
+    auto do_row = [&](size_t row, GREAL_CUFFT_REAL kxy_s) {
+        const size_t i = ix + fft_nx * row;
+        const GREAL_CUFFT_COMPLEX Mx = MF_all[i];
+        const GREAL_CUFFT_COMPLEX My = MF_all[N + i];
+        const GREAL_CUFFT_COMPLEX Mz = MF_all[2*N + i];
+        // Hx = Kxx*Mx + Kxy*My  (Kxz=0)
+        HF_all[i].x     = kxx*Mx.x + kxy_s*My.x;
+        HF_all[i].y     = kxx*Mx.y + kxy_s*My.y;
+        // Hy = Kxy*Mx + Kyy*My  (Kyz=0)
+        HF_all[N+i].x   = kxy_s*Mx.x + kyy*My.x;
+        HF_all[N+i].y   = kxy_s*Mx.y + kyy*My.y;
+        // Hz = Kzz*Mz  (Kxz=Kyz=0)
+        HF_all[2*N+i].x = kzz*Mz.x;
+        HF_all[2*N+i].y = kzz*Mz.y;
+    };
+
+    do_row(iy, kxy);
+    // Mirror row: Kxy is odd in y → negate sign
+    if (iy > 0 && 2 * iy != pad_ny)
+        do_row(pad_ny - iy, -kxy);
 }
 
 // ===========================================================================
@@ -363,6 +511,11 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
     real_sz_  = static_cast<size_t>(pad_nx_ * pad_ny_ * pad_nz_);
     cplx_sz_  = static_cast<size_t>(fft_nx_ * pad_ny_ * pad_nz_);
 
+    // Y+Z mirror symmetry: kernels stored only for first quadrant
+    symm_ny_ = pad_ny_ / 2 + 1;
+    symm_nz_ = (pad_nz_ == 1) ? 1 : pad_nz_ / 2 + 1;
+    symm_sz_ = fft_nx_ * symm_ny_ * symm_nz_;
+
     // Precompute-only buffers: always double (plan_fwd_ is always CUFFT_D2Z)
     CUDA_CHECK(cudaMalloc(&d_r_buf_, real_sz_ * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_c_buf_, cplx_sz_ * sizeof(cufftDoubleComplex)));
@@ -370,14 +523,14 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
                              (int)pad_nz_, (int)pad_ny_, (int)pad_nx_,
                              CUFFT_D2Z));
 
-    // Kernel frequency-domain storage (6 components) — stored REAL (the demag
-    // kernel FFTs are real), so half the bytes of the old complex storage.
-    CUDA_CHECK(cudaMalloc(&d_K_xx_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
-    CUDA_CHECK(cudaMalloc(&d_K_yy_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
-    CUDA_CHECK(cudaMalloc(&d_K_zz_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
-    CUDA_CHECK(cudaMalloc(&d_K_xy_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
-    CUDA_CHECK(cudaMalloc(&d_K_xz_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
-    CUDA_CHECK(cudaMalloc(&d_K_yz_, cplx_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    // Kernel frequency-domain storage (6 components) — stored REAL in first quadrant
+    // only (Y+Z mirror symmetry), so ~4x less VRAM than full cplx_sz_ complex storage.
+    CUDA_CHECK(cudaMalloc(&d_K_xx_, symm_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_yy_, symm_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_zz_, symm_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_xy_, symm_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_xz_, symm_sz_ * sizeof(GREAL_CUFFT_REAL)));
+    CUDA_CHECK(cudaMalloc(&d_K_yz_, symm_sz_ * sizeof(GREAL_CUFFT_REAL)));
 
     // Step 6a: batch buffers ??all 3 components contiguous
     CUDA_CHECK(cudaMalloc(&d_M_all_,      3 * real_sz_ * sizeof(GReal)));
@@ -394,10 +547,11 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
     CUDA_CHECK(cudaMallocHost(&h_M_compact_pinned_,  3 * unpad_sz_ * sizeof(GReal)));
     CUDA_CHECK(cudaMallocHost(&h_Hunpad_all_pinned_, 3 * unpad_sz_ * sizeof(GReal)));
 
-    // Batch cuFFT plans (cufftPlanMany with batch=3).  (A rank-2 plan for the
-    // pad_nz==1 case was tried and gave no speedup — cuFFT already collapses the
-    // leading n[0]=1, so the rank-3 form is kept for simplicity.)
+    // Batch FFT plans (cuFFT or VkFFT, selected at compile time).
     int n[3] = {(int)pad_nz_, (int)pad_ny_, (int)pad_nx_};
+#ifndef MICROMAG_VKFFT
+    // (A rank-2 plan for pad_nz==1 was tried and gave no speedup — cuFFT
+    // already collapses n[0]=1, so the rank-3 form is kept for simplicity.)
     CUFFT_CHECK(cufftPlanMany(
         &plan_fwd_batch_, 3, n,
         nullptr, 1, (int)real_sz_,   // input: stride=1, dist=real_sz per batch
@@ -408,15 +562,74 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
         nullptr, 1, (int)cplx_sz_,   // input
         nullptr, 1, (int)real_sz_,   // output
         GREAL_CUFFT_ITYPE, 3));
+#endif // !MICROMAG_VKFFT
 
     // Step 6c: create dedicated stream; associate plans with it
     cudaStream_t s;
     CUDA_CHECK(cudaStreamCreate(&s));
     stream_ = static_cast<void*>(s);
 
-    CUFFT_CHECK(cufftSetStream(plan_fwd_,       s));
+    CUFFT_CHECK(cufftSetStream(plan_fwd_, s));
+#ifndef MICROMAG_VKFFT
     CUFFT_CHECK(cufftSetStream(plan_fwd_batch_, s));
     CUFFT_CHECK(cufftSetStream(plan_inv_batch_, s));
+#else
+    // P3: initialise VkFFT applications for the batch forward/inverse.
+    // VkFFT uses out-of-place R2C: inputBuffer(real) → buffer(complex) and
+    // C2R inverse: buffer(complex) → outputBuffer(real).
+    {
+        int dev_idx; cudaGetDevice(&dev_idx);
+        CUdevice cu_dev = static_cast<CUdevice>(dev_idx);
+
+        struct VkFFT_State { VkFFTApplication fwd{}; VkFFTApplication inv{}; };
+        auto* st = new VkFFT_State;
+        vkfft_state_ = st;
+
+        const int fft_dim = (pad_nz_ == 1) ? 2 : 3;
+        uint64_t real_bytes = static_cast<uint64_t>(3 * real_sz_ * sizeof(GReal));
+        uint64_t cplx_bytes = static_cast<uint64_t>(3 * cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX));
+
+        // Forward: real d_M_all_ → complex d_MF_all_
+        {
+            VkFFTConfiguration cfg = {};
+            cfg.FFTdim       = static_cast<uint64_t>(fft_dim);
+            cfg.size[0]      = static_cast<uint64_t>(pad_nx_);
+            cfg.size[1]      = static_cast<uint64_t>(pad_ny_);
+            if (fft_dim == 3) cfg.size[2] = static_cast<uint64_t>(pad_nz_);
+            cfg.numberBatches    = 3;
+            cfg.performR2C       = 1;
+            cfg.device           = &cu_dev;
+            cfg.isInputFormatted = 1;          // separate real inputBuffer
+            cfg.inputBuffer      = &d_M_all_;
+            cfg.inputBufferSize  = &real_bytes;
+            cfg.buffer           = &d_MF_all_; // complex output
+            cfg.bufferSize       = &cplx_bytes;
+            VkFFTResult vr = initializeVkFFT(&st->fwd, cfg);
+            if (vr != VKFFT_SUCCESS)
+                throw std::runtime_error("VkFFT fwd init failed: " + std::to_string((int)vr));
+        }
+
+        // Inverse: complex d_MF_all_ → real d_M_all_
+        {
+            VkFFTConfiguration cfg = {};
+            cfg.FFTdim        = static_cast<uint64_t>(fft_dim);
+            cfg.size[0]       = static_cast<uint64_t>(pad_nx_);
+            cfg.size[1]       = static_cast<uint64_t>(pad_ny_);
+            if (fft_dim == 3) cfg.size[2] = static_cast<uint64_t>(pad_nz_);
+            cfg.numberBatches     = 3;
+            cfg.performR2C        = 1;
+            cfg.device            = &cu_dev;
+            cfg.isOutputFormatted = 1;           // separate real outputBuffer
+            cfg.buffer            = &d_MF_all_;  // complex input
+            cfg.bufferSize        = &cplx_bytes;
+            cfg.outputBuffer      = &d_M_all_;   // real output
+            cfg.outputBufferSize  = &real_bytes;
+            VkFFTResult vr = initializeVkFFT(&st->inv, cfg);
+            if (vr != VKFFT_SUCCESS)
+                throw std::runtime_error("VkFFT inv init failed: " + std::to_string((int)vr));
+        }
+    }
+#endif // MICROMAG_VKFFT
 
     precompute_kernel();
     // No CPU sync needed: precompute and all subsequent accumulate_gpu_ptr()
@@ -424,12 +637,44 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
 }
 
 // ===========================================================================
+// set_stream (P2: single-stream refactor)
+// ===========================================================================
+void DemagFieldGPU::set_stream(void* s) {
+    if (stream_ == s) return;  // already on this stream
+    if (stream_owned_ && stream_) {
+        // Sync first: precompute may still be in-flight on the private stream.
+        // Without this, the MAC kernel on the new stream can race with precompute.
+        cudaStreamSynchronize(static_cast<cudaStream_t>(stream_));
+        cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    }
+    stream_       = s;
+    stream_owned_ = false;
+    // plan_fwd_ is precompute-only (already done) — no need to update its stream.
+#ifndef MICROMAG_VKFFT
+    cufftSetStream(plan_fwd_batch_, static_cast<cudaStream_t>(s));
+    cufftSetStream(plan_inv_batch_, static_cast<cudaStream_t>(s));
+#endif
+    // VkFFT: stream is passed per-launch in VkFFTLaunchParams (no per-plan binding).
+}
+
+// ===========================================================================
 // Destructor
 // ===========================================================================
 DemagFieldGPU::~DemagFieldGPU() {
     cufftDestroy(plan_fwd_);
+#ifndef MICROMAG_VKFFT
     cufftDestroy(plan_fwd_batch_);
     cufftDestroy(plan_inv_batch_);
+#else
+    if (vkfft_state_) {
+        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
+        auto* st = static_cast<VkFFT_State*>(vkfft_state_);
+        deleteVkFFT(&st->fwd);
+        deleteVkFFT(&st->inv);
+        delete st;
+        vkfft_state_ = nullptr;
+    }
+#endif
 
     cudaFree(d_r_buf_); cudaFree(d_c_buf_);
     cudaFree(d_K_xx_); cudaFree(d_K_yy_); cudaFree(d_K_zz_);
@@ -441,7 +686,8 @@ DemagFieldGPU::~DemagFieldGPU() {
     cudaFreeHost(h_M_compact_pinned_);
     cudaFreeHost(h_Hunpad_all_pinned_);
 
-    if (stream_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+    if (stream_ && stream_owned_)
+        cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
 // ===========================================================================
@@ -468,15 +714,17 @@ void DemagFieldGPU::precompute_kernel() {
         static_cast<unsigned>(nz_));
 
     // Helper: zero padded buffer, run fill kernel, FFT (always D2Z = double),
-    // then extract the REAL part of the FFT into the GReal-typed REAL kernel
-    // storage d_K_dest (the demag kernel FFTs are real; see dc_to_real).
+    // then extract the REAL part of the first quadrant (iy∈[0..symm_ny-1],
+    // iz∈[0..symm_nz-1]) into the compressed GReal-typed kernel storage d_K_dest.
+    // Y+Z mirror symmetry means only this quadrant is needed; the MAC kernel
+    // reconstructs remaining bins with appropriate sign flips at runtime.
     constexpr int BLK_PRE = 256;
     auto copy_or_convert = [&](void* d_K_dest) {
-        const int gcx = static_cast<int>((cplx_sz_ + BLK_PRE - 1) / BLK_PRE);
-        dc_to_real<<<gcx, BLK_PRE, 0, s>>>(
+        const int gcq = static_cast<int>((symm_sz_ + BLK_PRE - 1) / BLK_PRE);
+        dc_to_real_quadrant<<<gcq, BLK_PRE, 0, s>>>(
             reinterpret_cast<GREAL_CUFFT_REAL*>(d_K_dest),
             reinterpret_cast<const cufftDoubleComplex*>(d_c_buf_),
-            cplx_sz_);
+            fft_nx_, symm_ny_, symm_nz_, pad_ny_);
         CUDA_CHECK(cudaGetLastError());
     };
 
@@ -588,36 +836,79 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaGetLastError());
 
     // ------------------------------------------------------------------
-    // 3. Batch forward FFT ??uses stream_ (set via cufftSetStream in ctor)
+    // 3. Batch forward FFT
     // ------------------------------------------------------------------
+#ifndef MICROMAG_VKFFT
     CUFFT_CHECK(GREAL_CUFFT_EXEC_FWD(plan_fwd_batch_,
                               reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_),
                               reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_)));
+#else
+    {
+        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
+        VkFFTLaunchParams lp = {};
+        lp.inputBuffer = &d_M_all_;
+        lp.buffer      = &d_MF_all_;
+        lp.stream      = &s;
+        VkFFTResult vr = VkFFTAppend(
+            &static_cast<VkFFT_State*>(vkfft_state_)->fwd, -1, &lp);
+        if (vr != VKFFT_SUCCESS)
+            throw std::runtime_error("VkFFT fwd exec failed: " + std::to_string((int)vr));
+    }
+#endif
 
     // ------------------------------------------------------------------
-    // 4. Combined pointwise MAC (stream_)
-    // ------------------------------------------------------------------
-    constexpr int BLK = 256;
-    const int gcx = static_cast<int>((cplx_sz_ + BLK - 1) / BLK);
-
+    // 4. Combined pointwise MAC — dispatch to symmetric kernel (stream_)
     // In-place: H_f overwrites M_f in d_MF_all_ (each thread reads its 3 input
     // bins into registers before writing) → no separate d_HF_all_ buffer needed.
-    pointwise_mac_all3<<<gcx, BLK, 0, s>>>(
-        as_cx(d_MF_all_),
-        as_realc(d_K_xx_), as_realc(d_K_xy_), as_realc(d_K_xz_),
-        as_realc(d_K_yy_), as_realc(d_K_yz_), as_realc(d_K_zz_),
-        as_cxc(d_MF_all_),
-        cplx_sz_);
-    CUDA_CHECK(cudaGetLastError());
+    // ------------------------------------------------------------------
+    constexpr int BLK = 256;
+    {
+        if (pad_nz_ == 1) {
+            // Thin-film 2D: half Y threads, Kxz=Kyz=0
+            dim3 blk_m(16, 16, 1);
+            dim3 grd_m(static_cast<unsigned>((fft_nx_ + 15) / 16),
+                       static_cast<unsigned>((symm_ny_ + 15) / 16), 1);
+            mac_symm_2d<<<grd_m, blk_m, 0, s>>>(
+                as_cx(d_MF_all_),
+                as_realc(d_K_xx_), as_realc(d_K_xy_),
+                as_realc(d_K_yy_), as_realc(d_K_zz_),
+                as_cxc(d_MF_all_),
+                fft_nx_, pad_ny_, symm_ny_, cplx_sz_);
+        } else {
+            // General 3D: full bins, compressed kernel lookup with sign reconstruction
+            const int gcx = static_cast<int>((cplx_sz_ + BLK - 1) / BLK);
+            mac_symm_3d<<<gcx, BLK, 0, s>>>(
+                as_cx(d_MF_all_),
+                as_realc(d_K_xx_), as_realc(d_K_xy_), as_realc(d_K_xz_),
+                as_realc(d_K_yy_), as_realc(d_K_yz_), as_realc(d_K_zz_),
+                as_cxc(d_MF_all_),
+                fft_nx_, pad_ny_, pad_nz_, symm_ny_, symm_nz_, cplx_sz_);
+        }
+        CUDA_CHECK(cudaGetLastError());
+    }
 
     // ------------------------------------------------------------------
-    // 5. Batch inverse FFT ??uses stream_
+    // 5. Batch inverse FFT
     // ------------------------------------------------------------------
     // Inverse FFT output reuses d_M_all_ (free after the forward FFT) instead
     // of a dedicated d_H_all_ buffer — same size (3×real_sz), saves VRAM.
+#ifndef MICROMAG_VKFFT
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(plan_inv_batch_,
                               reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
                               reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_)));
+#else
+    {
+        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
+        VkFFTLaunchParams lp = {};
+        lp.buffer        = &d_MF_all_;
+        lp.outputBuffer  = &d_M_all_;
+        lp.stream        = &s;
+        VkFFTResult vr = VkFFTAppend(
+            &static_cast<VkFFT_State*>(vkfft_state_)->inv, 1, &lp);
+        if (vr != VKFFT_SUCCESS)
+            throw std::runtime_error("VkFFT inv exec failed: " + std::to_string((int)vr));
+    }
+#endif
 
     // ------------------------------------------------------------------
     // 6. Extract all 3 unpadded H components (stream_)
@@ -735,28 +1026,61 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
     mark(1);  // prep done (scale+memset+scatter)
 
     // 4. Batch forward FFT
+#ifndef MICROMAG_VKFFT
     CUFFT_CHECK(GREAL_CUFFT_EXEC_FWD(plan_fwd_batch_,
         reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_),
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_)));
+#else
+    {
+        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
+        VkFFTLaunchParams lp = {}; lp.inputBuffer = &d_M_all_; lp.buffer = &d_MF_all_; lp.stream = &s;
+        VkFFTResult vr = VkFFTAppend(&static_cast<VkFFT_State*>(vkfft_state_)->fwd, -1, &lp);
+        if (vr != VKFFT_SUCCESS) throw std::runtime_error("VkFFT fwd exec: " + std::to_string((int)vr));
+    }
+#endif
     mark(2);  // fwd FFT done
 
-    // 5. Pointwise MAC
+    // 5. Pointwise MAC — dispatch to appropriate symmetric kernel
+    // In-place: H_f overwrites M_f in d_MF_all_ (no separate d_HF_all_).
     {
-        const int gcx = static_cast<int>((cplx_sz_ + BLK - 1) / BLK);
-        // In-place: H_f overwrites M_f in d_MF_all_ (no separate d_HF_all_).
-        pointwise_mac_all3<<<gcx, BLK, 0, s>>>(
-            as_cx(d_MF_all_),
-            as_realc(d_K_xx_), as_realc(d_K_xy_), as_realc(d_K_xz_),
-            as_realc(d_K_yy_), as_realc(d_K_yz_), as_realc(d_K_zz_),
-            as_cxc(d_MF_all_), cplx_sz_);
+        if (pad_nz_ == 1) {
+            // Thin-film 2D: half Y threads, Kxz=Kyz=0
+            dim3 blk_m(16, 16, 1);
+            dim3 grd_m(static_cast<unsigned>((fft_nx_ + 15) / 16),
+                       static_cast<unsigned>((symm_ny_ + 15) / 16), 1);
+            mac_symm_2d<<<grd_m, blk_m, 0, s>>>(
+                as_cx(d_MF_all_),
+                as_realc(d_K_xx_), as_realc(d_K_xy_),
+                as_realc(d_K_yy_), as_realc(d_K_zz_),
+                as_cxc(d_MF_all_),
+                fft_nx_, pad_ny_, symm_ny_, cplx_sz_);
+        } else {
+            // General 3D: full bins, compressed kernel lookup with sign reconstruction
+            const int gcx = static_cast<int>((cplx_sz_ + BLK - 1) / BLK);
+            mac_symm_3d<<<gcx, BLK, 0, s>>>(
+                as_cx(d_MF_all_),
+                as_realc(d_K_xx_), as_realc(d_K_xy_), as_realc(d_K_xz_),
+                as_realc(d_K_yy_), as_realc(d_K_yz_), as_realc(d_K_zz_),
+                as_cxc(d_MF_all_),
+                fft_nx_, pad_ny_, pad_nz_, symm_ny_, symm_nz_, cplx_sz_);
+        }
         CUDA_CHECK(cudaGetLastError());
     }
-    mark(3);  // MAC done
+    mark(3);  // MAC done (mac_symm_2d or mac_symm_3d)
 
     // 6. Batch inverse FFT — output reuses d_M_all_ (free after forward FFT).
+#ifndef MICROMAG_VKFFT
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(plan_inv_batch_,
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_)));
+#else
+    {
+        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
+        VkFFTLaunchParams lp = {}; lp.buffer = &d_MF_all_; lp.outputBuffer = &d_M_all_; lp.stream = &s;
+        VkFFTResult vr = VkFFTAppend(&static_cast<VkFFT_State*>(vkfft_state_)->inv, 1, &lp);
+        if (vr != VKFFT_SUCCESS) throw std::runtime_error("VkFFT inv exec: " + std::to_string((int)vr));
+    }
+#endif
     mark(4);  // inv FFT done
 
     // 7. Fused extract + normalise + accumulate straight into d_H_out
@@ -773,8 +1097,12 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
         CUDA_CHECK(cudaGetLastError());
     }
     mark(5);  // extract done
-    // Sync before returning so caller on a different stream sees d_H_out updates.
-    CUDA_CHECK(cudaStreamSynchronize(s));
+    // Sync only in standalone mode (caller may be on a different stream).
+    // In shared-stream mode (stream_owned_==false) the caller's stream ordering
+    // guarantees all our writes to d_H_out are visible before the next kernel.
+    if (stream_owned_) {
+        CUDA_CHECK(cudaStreamSynchronize(s));
+    }
 
     if (prof) {
         float t[5];

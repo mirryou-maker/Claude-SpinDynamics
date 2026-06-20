@@ -93,21 +93,12 @@ void HeunIntegratorGPU::run_half(
     void* s = state_.stream();
     const int N = static_cast<int>(state_.N());
 
-    CUDA_CHECK(cudaMemsetAsync(d_H, 0, 3*N*sizeof(GReal),
-                               static_cast<cudaStream_t>(s)));
-    CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(s)));
-
+    // All fields are on state_.stream() (set by step()); stream ordering suffices.
+    state_.zero_H();
     exch.accumulate_gpu_ptr(d_m_in, mat, d_H);
-    CUDA_CHECK(cudaDeviceSynchronize());
-
     zeeman.accumulate_gpu_ptr(d_m_in, mat, d_H);
-    CUDA_CHECK(cudaDeviceSynchronize());
-
-    if (aniso) {
+    if (aniso)
         aniso->accumulate_gpu_ptr(d_m_in, mat, d_H);
-        CUDA_CHECK(cudaDeviceSynchronize());
-    }
-
     demag.accumulate_gpu_ptr(d_m_in, mat, d_H);
 
     if (add_noise)
@@ -128,6 +119,11 @@ void HeunIntegratorGPU::step(
     const int  N = static_cast<int>(state_.N());
     const Real h = dt_;
     void*      s = state_.stream();
+
+    demag.set_stream(s);
+    exch.set_stream(s);
+    zeeman.set_stream(s);
+    if (aniso) aniso->set_stream(s);
 
     // ---- Generate thermal noise 管^n (once per step) -------------------------
     const bool thermal = (T_K > 0.0 && mat.Ms > 0.0);
@@ -160,9 +156,9 @@ void HeunIntegratorGPU::step(
              state_.d_ki(),
              demag, exch, zeeman, aniso, thermal);
 
+    // Single-stream: stage + normalize ordered before corrector run_half on s.
     launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, s);
     launch_normalize(state_.d_m0(), N, s);
-    state_.sync();
 
     // ---- Corrector -----------------------------------------------------------
     // k2 = f(m_pred, H_eff + 管^n)  [SAME noise ??Stratonovich]
@@ -194,13 +190,9 @@ void HeunIntegratorGPU::run_half(
     void* s = state_.stream();
     const int N = static_cast<int>(state_.N());
 
-    CUDA_CHECK(cudaMemsetAsync(d_H, 0, 3*N*sizeof(GReal),
-                               static_cast<cudaStream_t>(s)));
-    CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(s)));
-
+    // All fields on state_.stream() (set by step()); stream ordering suffices.
+    state_.zero_H();
     extra_fields.accumulate_gpu_ptr(d_m_in, mat, d_H);
-    CUDA_CHECK(cudaDeviceSynchronize());
-
     demag.accumulate_gpu_ptr(d_m_in, mat, d_H);
 
     if (add_noise)
@@ -208,10 +200,8 @@ void HeunIntegratorGPU::run_half(
 
     launch_llg_torque(d_ki, d_m_in, d_H, mat.alpha, N, s);
 
-    if (torques && torques->size() > 0) {
+    if (torques && torques->size() > 0)
         torques->accumulate_gpu_ptr(d_m_in, mat, d_ki);
-        CUDA_CHECK(cudaDeviceSynchronize());
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +215,10 @@ void HeunIntegratorGPU::step(
     const int  N = static_cast<int>(state_.N());
     const Real h = dt_;
     void*      s = state_.stream();
+
+    demag.set_stream(s);
+    extra_fields.set_stream(s);
+    if (torques) torques->set_stream(s);
 
     const bool thermal = (T_K > 0.0 && mat.Ms > 0.0);
     if (thermal) {
@@ -252,9 +246,9 @@ void HeunIntegratorGPU::step(
              state_.d_ki(),
              demag, extra_fields, thermal, torques);
 
+    // Single-stream: stage + normalize ordered before corrector on s.
     launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, s);
     launch_normalize(state_.d_m0(), N, s);
-    state_.sync();
 
     // Corrector (same noise ??Stratonovich)
     run_half(mat,

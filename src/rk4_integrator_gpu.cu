@@ -56,32 +56,19 @@ void RK4IntegratorGPU::run_stage(
     GReal* dka = state_.d_k_acc();
     const int N = static_cast<int>(state_.N());
 
-    // 1. Zero effective field accumulator; sync ensures H=0 before any field writes
+    // 1. Zero effective field accumulator.
+    // All fields are on state_.stream() (set_stream called in step()); stream
+    // ordering guarantees zero_H completes before any subsequent kernel.
     state_.zero_H();
-    state_.sync();
 
-    // 2. Accumulate each field contribution.  Each field uses its own internal
-    //    CUDA stream.  cudaDeviceSynchronize() after each ensures the write to
-    //    d_H is complete before the next field starts, eliminating race conditions.
-    //    Overhead: ~3 횞 1-5 關s per stage ??negligible vs demag cost (?? ms/step).
-    exch.accumulate_gpu_ptr(dm, mat,
-                             dH);
-    CUDA_CHECK(cudaDeviceSynchronize());
+    // 2. Accumulate each field on the shared stream — no barriers needed.
+    exch.accumulate_gpu_ptr(dm, mat, dH);
+    zeeman.accumulate_gpu_ptr(dm, mat, dH);
+    if (aniso)
+        aniso->accumulate_gpu_ptr(dm, mat, dH);
+    demag.accumulate_gpu_ptr(dm, mat, dH);
+    // d_H = H_exch + H_zeeman + H_aniso + H_demag (all ordered on stream_).
 
-    zeeman.accumulate_gpu_ptr(dm, mat,
-                               dH);
-    CUDA_CHECK(cudaDeviceSynchronize());
-
-    if (aniso) {
-        aniso->accumulate_gpu_ptr(dm, mat,
-                                   dH);
-        CUDA_CHECK(cudaDeviceSynchronize());
-    }
-
-    // Demag uses its own stream and syncs internally before returning.
-    demag.accumulate_gpu_ptr(dm, mat,
-                              dH);
-    // After return: d_H = H_exch + H_zeeman + H_aniso + H_demag  ??
     // 3. LLG torque: ki = f(m, H)
     launch_llg_torque(dki, dm, dH, mat.alpha, N, s);
 
@@ -113,9 +100,11 @@ void RK4IntegratorGPU::step(
 {
     void* s = state_.stream();
 
-    // Each field runs on its own internal stream; cudaDeviceSynchronize()
-    // in run_stage() serialises them correctly without stream sharing.
-    // (set_stream is available but not needed for the current design.)
+    // Route all fields to the integrator's stream so run_stage() needs no syncs.
+    demag.set_stream(s);
+    exch.set_stream(s);
+    zeeman.set_stream(s);
+    if (aniso) aniso->set_stream(s);
 
     // Save m0 and zero the accumulator
     state_.save_m0();
@@ -157,24 +146,16 @@ void RK4IntegratorGPU::run_stage(
     GReal* dka = state_.d_k_acc();
     const int N = static_cast<int>(state_.N());
 
+    // All fields are on state_.stream() (set_stream called in step()).
     state_.zero_H();
-    state_.sync();
-
-    extra_fields.accumulate_gpu_ptr(dm, mat,
-                                     dH);
-    CUDA_CHECK(cudaDeviceSynchronize());
-
-    demag.accumulate_gpu_ptr(dm, mat,
-                              dH);
+    extra_fields.accumulate_gpu_ptr(dm, mat, dH);
+    demag.accumulate_gpu_ptr(dm, mat, dH);
 
     launch_llg_torque(dki, dm, dH, mat.alpha, N, s);
 
-    // Spin torques: add dm/dt contributions AFTER LLG torque
-    if (torques && torques->size() > 0) {
-        torques->accumulate_gpu_ptr(dm, mat,
-                                     dki);
-        CUDA_CHECK(cudaDeviceSynchronize());
-    }
+    // Spin torques: add dm/dt contributions AFTER LLG torque (also on state_.stream()).
+    if (torques && torques->size() > 0)
+        torques->accumulate_gpu_ptr(dm, mat, dki);
 
     launch_rk4_accumulate(dka, dki, accum_weight, N, s);
 
@@ -189,6 +170,8 @@ void RK4IntegratorGPU::step(
     const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields)
 {
     void* s = state_.stream();
+    demag.set_stream(s);
+    extra_fields.set_stream(s);
 
     state_.save_m0();
     state_.zero_k_acc();
@@ -214,6 +197,9 @@ void RK4IntegratorGPU::step(
     FieldSumGPU& extra_fields, SpinTorqueSumGPU& torques)
 {
     void* s = state_.stream();
+    demag.set_stream(s);
+    extra_fields.set_stream(s);
+    torques.set_stream(s);
 
     state_.save_m0();
     state_.zero_k_acc();
