@@ -1343,7 +1343,10 @@ PYBIND11_MODULE(_micromag, m) {
         .def_property("dt", &RK4IntegratorGPU::dt, &RK4IntegratorGPU::set_dt)
         .def("max_angle_gpu", &RK4IntegratorGPU::max_angle_gpu,
              "Maximum misalignment angle between adjacent spins (degrees). "
-             "Computed on GPU; only 1 double transferred D2H per call.");
+             "Computed on GPU; only 1 double transferred D2H per call.")
+        .def("invalidate_graph", &RK4IntegratorGPU::invalidate_graph,
+             "P4: Force CUDA graph re-capture on the next step() call. "
+             "Call after adding fields to FieldSumGPU or changing field objects.");
 
     // ------------------------------------------------------------------
     // RK45IntegratorGPU — adaptive DOPRI5, one D2H scalar per trial step

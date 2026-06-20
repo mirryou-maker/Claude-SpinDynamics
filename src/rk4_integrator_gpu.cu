@@ -1,8 +1,12 @@
-﻿// rk4_integrator_gpu.cu ??G6: Full-GPU RK4 LLG integrator
+﻿// rk4_integrator_gpu.cu — G6: Full-GPU RK4 LLG integrator
 //
-// Assembles G1?밎5 building blocks into a single step() with zero PCIe overhead.
+// Assembles G1-G5 building blocks into a single step() with zero PCIe overhead.
 // All kernels run on GPUMagState::stream_; field streams are redirected via
 // set_stream() so the entire pipeline is serialised on one CUDA stream.
+//
+// P4: CUDA Graphs — graph captured on first step() call; replayed on subsequent
+// calls to eliminate kernel-launch CPU overhead (~50-100 us/step for SP#4).
+// Re-captured automatically when material parameters or dt change.
 
 #ifdef MICROMAG_CUDA
 
@@ -25,22 +29,104 @@
 
 namespace micromag {
 
+// ---------------------------------------------------------------------------
+// P4 helpers
+// ---------------------------------------------------------------------------
+
+static bool mat_eq(const Material& a, const Material& b) {
+    return a.Ms == b.Ms && a.A_exchange == b.A_exchange &&
+           a.K_uniaxial == b.K_uniaxial && a.Ku2 == b.Ku2 &&
+           a.alpha == b.alpha &&
+           a.easy_axis.x == b.easy_axis.x &&
+           a.easy_axis.y == b.easy_axis.y &&
+           a.easy_axis.z == b.easy_axis.z;
+}
+
+static void free_graph_exec(void*& exec_v) {
+    if (exec_v) {
+        cudaGraphExecDestroy(static_cast<cudaGraphExec_t>(exec_v));
+        exec_v = nullptr;
+    }
+}
+
+// Capture body() as a CUDA graph and instantiate a cudaGraphExec_t.
+// Returns true on success (exec_out holds the new exec).
+// On any failure: exec_out stays null, body() is run directly as a fallback.
+// Capture body() onto stream s, instantiate a cudaGraphExec_t.
+// Returns true on success.  On failure, body() is run directly as a fallback.
+//
+// ALWAYS calls cudaStreamEndCapture after a successful BeginCapture so the
+// stream is never left in capture mode (which would poison the recycled handle
+// for subsequent tests / objects).
+template<class F>
+static bool do_capture(cudaStream_t s, void*& exec_out, F body) {
+    free_graph_exec(exec_out);
+
+    cudaError_t begin_err = cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal);
+    if (begin_err != cudaSuccess) {
+        cudaGetLastError();
+        body();    // fallback: execute normally
+        return false;
+    }
+
+    // body() may throw if it calls non-capturable ops (e.g. cudaStreamSynchronize).
+    // Wrap in try-catch so EndCapture is ALWAYS called after Begin.
+    bool body_ok = true;
+    try {
+        body();    // all GPU ops captured into the graph; not executed yet
+    } catch (...) {
+        body_ok = false;
+    }
+
+    cudaGraph_t g = nullptr;
+    cudaError_t end_err = cudaStreamEndCapture(s, &g);
+    // Stream is now out of capture mode regardless of body_ok / end_err.
+
+    if (!body_ok || end_err != cudaSuccess || !g) {
+        if (g) cudaGraphDestroy(g);
+        cudaGetLastError();  // clear any sticky error
+        body();    // fallback: ops not executed during capture; run directly now
+        return false;
+    }
+
+    cudaGraphExec_t ge = nullptr;
+    cudaError_t inst_err = cudaGraphInstantiate(&ge, g, nullptr, nullptr, 0);
+    cudaGraphDestroy(g);    // template no longer needed after instantiation
+    if (inst_err != cudaSuccess) {
+        cudaGetLastError();
+        body();    // fallback
+        return false;
+    }
+
+    exec_out = static_cast<void*>(ge);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Constructor / Destructor
+// ---------------------------------------------------------------------------
+
 RK4IntegratorGPU::RK4IntegratorGPU(const StructuredGrid& grid, Real dt)
     : state_(grid), dt_(dt) {}
 
+RK4IntegratorGPU::~RK4IntegratorGPU() {
+    free_graph_exec(gs1_.exec);
+    free_graph_exec(gs2_.exec);
+    free_graph_exec(gs3_.exec);
+}
+
+void RK4IntegratorGPU::set_dt(Real dt) {
+    if (dt != dt_)
+        gs1_.valid = gs2_.valid = gs3_.valid = false;
+    dt_ = dt;
+}
+
+void RK4IntegratorGPU::invalidate_graph() {
+    gs1_.valid = gs2_.valid = gs3_.valid = false;
+}
+
 // ---------------------------------------------------------------------------
-// run_stage ??one of the four RK4 stages
-//
-// On entry:  state_.d_m()  holds the stage's starting magnetization
-//            state_.d_m0() holds m at the beginning of the step
-//            state_.d_k_acc() accumulates the weighted sum
-//
-// Actions:
-//   1. zero d_H
-//   2. accumulate all field contributions into d_H
-//   3. compute ki = llg_torque(d_m, d_H)
-//   4. k_acc += accum_weight * ki
-//   5. if stage_scale != 0: d_m = d_m0 + stage_scale * ki
+// run_stage — one of the four RK4 stages
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::run_stage(
     const Material& mat,
@@ -56,40 +142,27 @@ void RK4IntegratorGPU::run_stage(
     GReal* dka = state_.d_k_acc();
     const int N = static_cast<int>(state_.N());
 
-    // 1. Zero effective field accumulator.
-    // All fields are on state_.stream() (set_stream called in step()); stream
-    // ordering guarantees zero_H completes before any subsequent kernel.
     state_.zero_H();
 
-    // 2. Accumulate each field on the shared stream — no barriers needed.
     exch.accumulate_gpu_ptr(dm, mat, dH);
     zeeman.accumulate_gpu_ptr(dm, mat, dH);
     if (aniso)
         aniso->accumulate_gpu_ptr(dm, mat, dH);
     demag.accumulate_gpu_ptr(dm, mat, dH);
-    // d_H = H_exch + H_zeeman + H_aniso + H_demag (all ordered on stream_).
 
-    // 3. LLG torque: ki = f(m, H)
     launch_llg_torque(dki, dm, dH, mat.alpha, N, s);
-
-    // 4. Accumulate into weighted sum
     launch_rk4_accumulate(dka, dki, accum_weight, N, s);
 
-    // 5. Stage update: d_m = d_m0 + stage_scale * ki  (skip for last stage)
     if (stage_scale != 0.0)
         launch_rk4_stage(dm, dm0, dki, stage_scale, N, s);
 }
 
 // ---------------------------------------------------------------------------
-// step ??complete 4-stage RK4 step
+// step — fixed-field overload
 //
-// Butcher tableau (classic RK4):
-//   stage 1: eval at m0,          accumulate 1/6,  next = m0 + dt/2*k1
-//   stage 2: eval at m0+dt/2*k1,  accumulate 2/6,  next = m0 + dt/2*k2
-//   stage 3: eval at m0+dt/2*k2,  accumulate 2/6,  next = m0 + dt*k3
-//   stage 4: eval at m0+dt*k3,    accumulate 1/6,  no stage update
-//   finalize: m = m0 + dt * k_acc
-//   normalize: |m| = 1
+// P4: On first call (or after material/dt change), the entire GPU pipeline
+// is captured as a CUDA graph.  All subsequent calls replay the graph,
+// eliminating kernel-launch CPU overhead.
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::step(
     const Material& mat,
@@ -98,39 +171,48 @@ void RK4IntegratorGPU::step(
     ZeemanFieldGPU&               zeeman,
     UniaxialAnisotropyFieldGPU*   aniso)
 {
-    void* s = state_.stream();
+    void* sv = state_.stream();
+    cudaStream_t s = static_cast<cudaStream_t>(sv);
 
-    // Route all fields to the integrator's stream so run_stage() needs no syncs.
-    demag.set_stream(s);
-    exch.set_stream(s);
-    zeeman.set_stream(s);
-    if (aniso) aniso->set_stream(s);
+    // CPU-only setup — not in capture window.
+    demag.set_stream(sv);
+    exch.set_stream(sv);
+    zeeman.set_stream(sv);
+    if (aniso) aniso->set_stream(sv);
 
-    // Save m0 and zero the accumulator
-    state_.save_m0();
-    state_.zero_k_acc();
+    bool stale = !gs1_.valid || !mat_eq(gs1_.mat, mat) || gs1_.dt != dt_;
 
-    const double h = static_cast<double>(dt_);
+    if (stale) {
+        const double h = static_cast<double>(dt_);
+        auto body = [&] {
+            state_.save_m0();
+            state_.zero_k_acc();
+            run_stage(mat, demag, exch, zeeman, aniso, h * 0.5,  1.0/6.0);
+            run_stage(mat, demag, exch, zeeman, aniso, h * 0.5,  2.0/6.0);
+            run_stage(mat, demag, exch, zeeman, aniso, h * 1.0,  2.0/6.0);
+            run_stage(mat, demag, exch, zeeman, aniso, 0.0,      1.0/6.0);
+            launch_rk4_finalize(state_.d_m(), state_.d_m0(), state_.d_k_acc(),
+                                 h, static_cast<int>(state_.N()), sv);
+            launch_normalize(state_.d_m(), static_cast<int>(state_.N()), sv);
+        };
 
-    run_stage(mat, demag, exch, zeeman, aniso, h * 0.5,  1.0/6.0); // k1
-    run_stage(mat, demag, exch, zeeman, aniso, h * 0.5,  2.0/6.0); // k2
-    run_stage(mat, demag, exch, zeeman, aniso, h * 1.0,  2.0/6.0); // k3
-    run_stage(mat, demag, exch, zeeman, aniso, 0.0,      1.0/6.0); // k4
+        gs1_.valid = do_capture(s, gs1_.exec, body);
+        gs1_.mat   = mat;
+        gs1_.dt    = dt_;
 
-    // Finalize: m = m0 + dt * k_acc  (state_ accessors return GReal*)
-    launch_rk4_finalize(state_.d_m(), state_.d_m0(), state_.d_k_acc(),
-                         h, static_cast<int>(state_.N()), s);
+        if (!gs1_.valid) {
+            // body() ran directly in do_capture fallback
+            state_.sync();
+            return;
+        }
+    }
 
-    // Normalize: |m| = 1
-    launch_normalize(state_.d_m(), static_cast<int>(state_.N()), s);
-
-    // Synchronise: caller's next download() or upload() will also sync,
-    // but explicit sync here keeps step() self-contained.
+    CUDA_CHECK(cudaGraphLaunch(static_cast<cudaGraphExec_t>(gs1_.exec), s));
     state_.sync();
 }
 
 // ---------------------------------------------------------------------------
-// run_stage ??FieldSumGPU overload (optional spin torques)
+// run_stage — FieldSumGPU overload (optional spin torques)
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::run_stage(
     const Material& mat,
@@ -146,14 +228,12 @@ void RK4IntegratorGPU::run_stage(
     GReal* dka = state_.d_k_acc();
     const int N = static_cast<int>(state_.N());
 
-    // All fields are on state_.stream() (set_stream called in step()).
     state_.zero_H();
     extra_fields.accumulate_gpu_ptr(dm, mat, dH);
     demag.accumulate_gpu_ptr(dm, mat, dH);
 
     launch_llg_torque(dki, dm, dH, mat.alpha, N, s);
 
-    // Spin torques: add dm/dt contributions AFTER LLG torque (also on state_.stream()).
     if (torques && torques->size() > 0)
         torques->accumulate_gpu_ptr(dm, mat, dki);
 
@@ -164,56 +244,86 @@ void RK4IntegratorGPU::run_stage(
 }
 
 // ---------------------------------------------------------------------------
-// step ??FieldSumGPU overload (no spin torques)
+// step — FieldSumGPU overload (no spin torques)
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::step(
     const Material& mat, IDemagGPU& demag, FieldSumGPU& extra_fields)
 {
-    void* s = state_.stream();
-    demag.set_stream(s);
-    extra_fields.set_stream(s);
+    void* sv = state_.stream();
+    cudaStream_t s = static_cast<cudaStream_t>(sv);
+    demag.set_stream(sv);
+    extra_fields.set_stream(sv);
 
-    state_.save_m0();
-    state_.zero_k_acc();
+    bool stale = !gs2_.valid || !mat_eq(gs2_.mat, mat) || gs2_.dt != dt_;
 
-    const double h = static_cast<double>(dt_);
+    if (stale) {
+        const double h = static_cast<double>(dt_);
+        auto body = [&] {
+            state_.save_m0();
+            state_.zero_k_acc();
+            run_stage(mat, demag, extra_fields, h * 0.5, 1.0/6.0);
+            run_stage(mat, demag, extra_fields, h * 0.5, 2.0/6.0);
+            run_stage(mat, demag, extra_fields, h * 1.0, 2.0/6.0);
+            run_stage(mat, demag, extra_fields, 0.0,     1.0/6.0);
+            launch_rk4_finalize(state_.d_m(), state_.d_m0(), state_.d_k_acc(),
+                                 h, static_cast<int>(state_.N()), sv);
+            launch_normalize(state_.d_m(), static_cast<int>(state_.N()), sv);
+        };
 
-    run_stage(mat, demag, extra_fields, h * 0.5, 1.0/6.0); // k1
-    run_stage(mat, demag, extra_fields, h * 0.5, 2.0/6.0); // k2
-    run_stage(mat, demag, extra_fields, h * 1.0, 2.0/6.0); // k3
-    run_stage(mat, demag, extra_fields, 0.0,     1.0/6.0); // k4
+        gs2_.valid = do_capture(s, gs2_.exec, body);
+        gs2_.mat   = mat;
+        gs2_.dt    = dt_;
 
-    launch_rk4_finalize(state_.d_m(), state_.d_m0(), state_.d_k_acc(),
-                         h, static_cast<int>(state_.N()), s);
-    launch_normalize(state_.d_m(), static_cast<int>(state_.N()), s);
+        if (!gs2_.valid) {
+            state_.sync();
+            return;
+        }
+    }
+
+    CUDA_CHECK(cudaGraphLaunch(static_cast<cudaGraphExec_t>(gs2_.exec), s));
     state_.sync();
 }
 
 // ---------------------------------------------------------------------------
-// step ??FieldSumGPU + SpinTorqueSumGPU overload
+// step — FieldSumGPU + SpinTorqueSumGPU overload
 // ---------------------------------------------------------------------------
 void RK4IntegratorGPU::step(
     const Material& mat, IDemagGPU& demag,
     FieldSumGPU& extra_fields, SpinTorqueSumGPU& torques)
 {
-    void* s = state_.stream();
-    demag.set_stream(s);
-    extra_fields.set_stream(s);
-    torques.set_stream(s);
+    void* sv = state_.stream();
+    cudaStream_t s = static_cast<cudaStream_t>(sv);
+    demag.set_stream(sv);
+    extra_fields.set_stream(sv);
+    torques.set_stream(sv);
 
-    state_.save_m0();
-    state_.zero_k_acc();
+    bool stale = !gs3_.valid || !mat_eq(gs3_.mat, mat) || gs3_.dt != dt_;
 
-    const double h = static_cast<double>(dt_);
+    if (stale) {
+        const double h = static_cast<double>(dt_);
+        auto body = [&] {
+            state_.save_m0();
+            state_.zero_k_acc();
+            run_stage(mat, demag, extra_fields, h * 0.5, 1.0/6.0, &torques);
+            run_stage(mat, demag, extra_fields, h * 0.5, 2.0/6.0, &torques);
+            run_stage(mat, demag, extra_fields, h * 1.0, 2.0/6.0, &torques);
+            run_stage(mat, demag, extra_fields, 0.0,     1.0/6.0, &torques);
+            launch_rk4_finalize(state_.d_m(), state_.d_m0(), state_.d_k_acc(),
+                                 h, static_cast<int>(state_.N()), sv);
+            launch_normalize(state_.d_m(), static_cast<int>(state_.N()), sv);
+        };
 
-    run_stage(mat, demag, extra_fields, h * 0.5, 1.0/6.0, &torques); // k1
-    run_stage(mat, demag, extra_fields, h * 0.5, 2.0/6.0, &torques); // k2
-    run_stage(mat, demag, extra_fields, h * 1.0, 2.0/6.0, &torques); // k3
-    run_stage(mat, demag, extra_fields, 0.0,     1.0/6.0, &torques); // k4
+        gs3_.valid = do_capture(s, gs3_.exec, body);
+        gs3_.mat   = mat;
+        gs3_.dt    = dt_;
 
-    launch_rk4_finalize(state_.d_m(), state_.d_m0(), state_.d_k_acc(),
-                         h, static_cast<int>(state_.N()), s);
-    launch_normalize(state_.d_m(), static_cast<int>(state_.N()), s);
+        if (!gs3_.valid) {
+            state_.sync();
+            return;
+        }
+    }
+
+    CUDA_CHECK(cudaGraphLaunch(static_cast<cudaGraphExec_t>(gs3_.exec), s));
     state_.sync();
 }
 

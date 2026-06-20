@@ -189,7 +189,7 @@ void SlonczewskiSTTGPU::accumulate_gpu_ptr(
         d_dm_out,
         d_m,
         N, aJ, bJ, p_.x, p_.y, p_.z);
-    CUDA_CHECK(cudaStreamSynchronize(s));
+    CUDA_CHECK(cudaGetLastError());
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ void SpinOrbitTorqueGPU::accumulate_gpu_ptr(
         d_m,
         N, a * eta_DL_, a * eta_FL_,
         sigma_.x, sigma_.y, sigma_.z);
-    CUDA_CHECK(cudaStreamSynchronize(s));
+    CUDA_CHECK(cudaGetLastError());
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +281,7 @@ void ZhangLiSTTGPU::accumulate_gpu_ptr(
         static_cast<int>(nx_), static_cast<int>(ny_), static_cast<int>(nz_), N,
         dx_, dy_, dz_, u_val, xi_,
         jhatx, jhaty, jhatz);
-    CUDA_CHECK(cudaStreamSynchronize(s));
+    CUDA_CHECK(cudaGetLastError());
 }
 
 }  // namespace micromag

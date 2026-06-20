@@ -41,6 +41,7 @@ class RK4IntegratorGPU {
 public:
     // Allocates GPUMagState (5 × [3×N] GPU buffers + pinned staging).
     RK4IntegratorGPU(const StructuredGrid& grid, Real dt);
+    ~RK4IntegratorGPU();
 
     // Non-copyable
     RK4IntegratorGPU(const RK4IntegratorGPU&)            = delete;
@@ -69,16 +70,32 @@ public:
     void step(const Material& mat, IDemagGPU& demag,
               FieldSumGPU& extra_fields, SpinTorqueSumGPU& torques);
 
-    Real dt() const        { return dt_; }
-    void set_dt(Real dt)   { dt_ = dt;  }
+    Real dt() const { return dt_; }
+    void set_dt(Real dt);  // also invalidates any captured graph
 
     // Maximum misalignment angle between adjacent spins (degrees).
     // Computed entirely on GPU — only 1 double transferred D2H per call.
     double max_angle_gpu() const { return state_.max_angle_gpu(); }
 
+    // P4: Force graph re-capture on next step() call.
+    // Call after modifying the field set (e.g. adding a field to FieldSumGPU).
+    void invalidate_graph();
+
 private:
     GPUMagState state_;
     Real        dt_;
+
+    // P4: CUDA Graph state — one per step() overload.
+    // exec is stored as void* to keep cuda_runtime.h out of this header.
+    struct GraphState {
+        void*    exec  = nullptr;  // cudaGraphExec_t; nullptr = not captured
+        bool     valid = false;    // false = need (re-)capture on next step
+        Material mat   = {};       // material snapshot baked into the graph
+        Real     dt    = Real{0};  // dt snapshot
+    };
+    GraphState gs1_;  // step(mat, demag, exch, zeeman, aniso)
+    GraphState gs2_;  // step(mat, demag, extra_fields)
+    GraphState gs3_;  // step(mat, demag, extra_fields, torques)
 
     // Run one RK4 stage (fixed-field overload).
     void run_stage(const Material& mat,
