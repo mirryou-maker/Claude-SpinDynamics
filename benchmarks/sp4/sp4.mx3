@@ -1,0 +1,20 @@
+// muMAG Standard Problem 4 — field A, 250 x 64 x 1 (high resolution).
+// Shared by mumax3, MuMax-CO, and our .mx3 runner.
+SetGridSize(250, 64, 1)
+SetCellSize(2e-9, 1.953125e-9, 3e-9)
+
+Msat  = 800e3
+Aex   = 13e-12
+alpha = 0.02
+
+// Equilibrium S-state.
+m = uniform(1, 0.1, 0)
+relax()
+saveas(m, "sstate")
+
+// Reversal field A, adaptive RK45 (Dormand-Prince), matched tolerance.
+setsolver(5)
+MaxErr = 1e-5
+B_ext = vector(-24.6e-3, 4.3e-3, 0)
+tableautosave(5e-12)
+run(1e-9)

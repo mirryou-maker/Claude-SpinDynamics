@@ -1,0 +1,43 @@
+# MIF 2.1 - muMAG Standard Problem 4 (field A), single-file 2-stage.
+# Stage 0: zero field, relax to S-state.  Stage 1: field A for 1 ns.
+# Field A = (-24.6, 4.3, 0) mT -> H = B/mu0 = (-19576.6, 3421.97, 0) A/m.
+
+Specify Oxs_BoxAtlas:atlas {
+  xrange {0 500e-9}
+  yrange {0 125e-9}
+  zrange {0   3e-9}
+}
+Specify Oxs_RectangularMesh:mesh {
+  cellsize {2e-9 1.953125e-9 3e-9}
+  atlas :atlas
+}
+Specify Oxs_UniformExchange { A 13e-12 }
+Specify Oxs_Demag {}
+
+Specify Oxs_UZeeman:zee {
+  Hrange {
+    { 0 0 0   0 0 0   0 }
+    { -19576.6 3421.97 0   -19576.6 3421.97 0   0 }
+  }
+}
+
+Specify Oxs_RungeKuttaEvolve:evolve {
+  alpha               0.02
+  start_dm            0.01
+  method              rkf54
+  relative_step_error 1e-5
+}
+
+Specify Oxs_TimeDriver {
+  basename sp4_oommf
+  evolver :evolve
+  mesh :mesh
+  stopping_dm_dt { 1 0 }
+  stopping_time  { 0 1e-9 }
+  stage_count 2
+  Ms 8e5
+  m0 { 1 0.1 0 }
+}
+
+Destination archive mmArchive
+Schedule DataTable archive Step 10

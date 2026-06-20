@@ -1,0 +1,6 @@
+# regenerable benchmark outputs
+*.out/
+*.odt
+*.omf
+*.ovf
+sp4/*/m.txt

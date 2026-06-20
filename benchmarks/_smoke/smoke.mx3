@@ -1,0 +1,9 @@
+SetGridSize(16, 16, 1)
+SetCellSize(5e-9, 5e-9, 5e-9)
+Msat  = 800e3
+Aex   = 13e-12
+alpha = 0.5
+m = uniform(1, 1, 0)
+minimize()
+tablesave()
+saveas(m, "m_final")
