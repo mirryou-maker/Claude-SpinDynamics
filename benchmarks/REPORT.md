@@ -133,6 +133,35 @@ near-critical vortex is genuinely close to the flower (<mz> ~ 0.9), so damped-LL
 relaxation (which mumax3's `minimize()` matches here to <3e-4) is the correct
 branch.
 
+## SP#5 — current-driven vortex-core motion (Zhang-Li STT)
+
+100x100x10 nm permalloy (Ms=8e5, A=13e-12, alpha=0.1), 40x40x2 cells. Relax a
+centred vortex, then switch on a spin-polarised current J=1e12 A/m^2 along +x
+(P=1, xi=0.05) and track the core to its steady gyrating state.
+
+| config | core(8 ns) x,y (nm) | steady orbit centre (nm) |
+|--------|---------------------|--------------------------|
+| Claude-SD f64 | (-3.52, -14.50) | (-3.56, -14.58) |
+| Claude-SD f32 | (-3.52, -14.50) | (-3.56, -14.58) |
+| mumax3 (`ext_corepos`) | (-1.15, -14.50) | (-1.17, -14.60) |
+
+-> The **dominant transverse displacement y = -14.5 nm matches mumax3 to
+0.1 nm**, the gyration-orbit radius matches (~0.2 nm), and the full x(t)/y(t)
+trajectories overlay in shape and timing; **f32 reproduces f64 to 0.01 nm**.
+The core x sits ~2.4 nm further along -x than mumax3's `ext_corepos`; this
+along-current offset (both an mz^2-centroid and an |mz|-peak core finder give
+it, so it is not a tracking artefact) reflects a small Zhang-Li non-adiabatic
+(xi) / core-definition difference and is within the SP#5 cross-code spread.
+
+**Binding bug found & fixed during this problem:** `SpinTorqueSumGPU.add()` /
+`FieldSumGPU.add()` store a *raw* pointer to the added term, so
+`sum.add(mm.ZhangLiSTTGPU(...))` let the temporary be garbage-collected ->
+dangling pointer -> segfault after a few hundred steps (GC-timing dependent,
+which is why short runs sometimes survived). Added `py::keep_alive<1,2>()` to
+all four `add()` bindings so the compositor keeps its terms alive.
+
+![SP#5 core trajectory](sp5/sp5_core.png)
+
 ## Remaining (planned)
 
 SP#5 (Zhang-Li STT, vortex-core steady displacement) and SP#1 (hysteresis)

@@ -772,7 +772,7 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<EffectiveFieldSum>(m, "EffectiveFieldSum")
         .def(py::init<>())
-        .def("add",             &EffectiveFieldSum::add)
+        .def("add",             &EffectiveFieldSum::add, py::keep_alive<1, 2>())
         .def("compute",         &EffectiveFieldSum::compute)
         .def("total_energy",    &EffectiveFieldSum::total_energy)
         .def("energy_density",  &EffectiveFieldSum::energy_density,
@@ -873,7 +873,7 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<SpinTorqueSum>(m, "SpinTorqueSum")
         .def(py::init<>())
-        .def("add",   &SpinTorqueSum::add)
+        .def("add",   &SpinTorqueSum::add, py::keep_alive<1, 2>())
         .def_property_readonly("terms",     &SpinTorqueSum::terms)
         .def_property_readonly("num_terms", &SpinTorqueSum::num_terms);
 
@@ -1131,7 +1131,7 @@ PYBIND11_MODULE(_micromag, m) {
              "GPU field compositor. add() fields in evaluation order, then pass "
              "to integ.step(mat, demag, fields).")
         .def("add", [](FieldSumGPU& self, IEffectiveFieldGPU& f) { self.add(f); },
-             py::arg("field"),
+             py::arg("field"), py::keep_alive<1, 2>(),
              "Append a GPU field (ExchangeFieldGPU, ZeemanFieldGPU, "
              "UniaxialAnisotropyFieldGPU, BulkDMIFieldGPU, etc.).")
         .def("clear", &FieldSumGPU::clear,
@@ -1476,8 +1476,8 @@ PYBIND11_MODULE(_micromag, m) {
              "GPU spin torque compositor. add() any ISpinTorqueGPU; "
              "pass to integ.step(mat, demag, fields, torques).")
         .def("add", [](SpinTorqueSumGPU& self, ISpinTorqueGPU& t) { self.add(t); },
-             py::arg("torque"),
-             "Append a spin torque term (reference held; caller owns lifetime).")
+             py::arg("torque"), py::keep_alive<1, 2>(),
+             "Append a spin torque term (kept alive for the compositor's lifetime).")
         .def("clear", &SpinTorqueSumGPU::clear, "Remove all spin torque terms.")
         .def("__len__", &SpinTorqueSumGPU::size);
 
