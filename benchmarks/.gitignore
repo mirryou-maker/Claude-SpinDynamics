@@ -12,3 +12,8 @@ sp3/_mxsp3*
 sp5/*.txt
 sp5/crashlog.txt
 sp1/*.txt
+perf/vkfft_spike/*.exe
+perf/vkfft_spike/*.obj
+perf/vkfft_spike/*.log
+perf/vkfft_spike/*.lib
+perf/vkfft_spike/*.exp
