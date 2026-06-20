@@ -739,6 +739,7 @@ class Engine:
         if self.gpu and demag is not None and not any(self.pbc):
             relax = mm.RelaxGPU(self.grid)
             opts = mm.RelaxGPUOptions()
+            opts.dt = self._safe_dt()
             relax.upload(self.m)
             relax.run(self.mat, demag, fs, opts)
             relax.download(self.m)
@@ -750,6 +751,10 @@ class Engine:
         if self.gpu and demag is not None and not any(self.pbc):
             mini = mm.MinimizeGPU(self.grid)
             opts = mm.MinimizeGPUOptions()
+            sdt = self._safe_dt()
+            opts.dt_init = sdt
+            opts.dt_max = sdt * 20
+            opts.dt_min = sdt * 1e-4
             mini.upload(self.m)
             mini.run(self.mat, demag, fs, opts)
             mini.download(self.m)
@@ -793,10 +798,26 @@ class Engine:
             self.t += dt
         self._download(integ)
 
+    def _rk45_opts(self):
+        """Build RK45 GPU options from MaxErr (with a tiny dt_min so fine,
+        stiff meshes don't bail with 'step size reached minimum')."""
+        if not hasattr(mm, "RK45GPUOptions"):
+            return None
+        sdt = self._safe_dt()
+        o = mm.RK45GPUOptions()
+        o.rtol = self.maxerr if self.maxerr > 0 else 1e-5
+        o.atol = o.rtol * 0.1
+        o.dt_min = self.mindt if self.mindt > 0 else sdt * 1e-4
+        o.dt_max = self.maxdt if self.maxdt > 0 else sdt * 50
+        o.dt_init = sdt
+        return o
+
     def _run_gpu(self, demag, fs, t, torques=None):
         adaptive = self.solver in (5, 6) and demag is not None
         if adaptive:
-            integ = mm.RK45IntegratorGPU(self.grid)
+            o = self._rk45_opts()
+            integ = mm.RK45IntegratorGPU(self.grid, o) if o is not None \
+                else mm.RK45IntegratorGPU(self.grid)
             integ.upload(self.m)
             elapsed = 0.0
             while elapsed < t * (1 - 1e-9):
@@ -862,10 +883,22 @@ class Engine:
             return integ.max_angle_gpu()
         return None
 
+    def _safe_dt(self):
+        """Exchange-limited stable explicit timestep for the current grid/material.
+        Without this, the relax/RK4 fixed dt (tuned for ~5 nm cells) diverges on
+        fine, stiff meshes (e.g. 2 nm) — the dominant rate scales as 1/dx^2."""
+        g = self.grid
+        dmin = min(g.dx, g.dy, g.dz)
+        A = self.aex if self.aex > 0 else 1.3e-11
+        Ms = self.mat.Ms if self.mat.Ms > 0 else 8e5
+        gamma0 = 1.7595e11
+        omega = gamma0 * (2.0 * A / Ms) * 4.0 / (dmin * dmin)
+        return 0.2 / omega
+
     def _default_dt(self):
         if self.maxdt and self.maxdt > 0:
             return self.maxdt
-        return 5e-14
+        return self._safe_dt()
 
     # -- outputs -----------------------------------------------------------
     def _avg_m(self):
