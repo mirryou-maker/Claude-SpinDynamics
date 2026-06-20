@@ -34,9 +34,13 @@ def make_mat(alpha):
 
 
 def relax(g, demag, exch, ani, m0, mat):
+    # Damped-LLG relaxation (RelaxGPU).  This reproduces mumax3's
+    # Vortex()+minimize() result to <3e-4 in every energy — the near-critical
+    # vortex is genuinely close to the flower (⟨mz⟩~0.9 at L~8.5), not a clean
+    # vortex.  (A pure BB minimiser instead gets stuck on a higher-energy clean
+    # vortex, which is the WRONG branch here.)
     fs = mm.FieldSumGPU(); fs.add(exch); fs.add(ani)
     rel = mm.RelaxGPU(g); o = mm.RelaxGPUOptions()
-    # cell-size-aware stable step
     cell = g.dx
     omega = 1.7595e11 * (2 * A / Ms) * 4.0 / (cell * cell)
     o.dt = 0.2 / omega; o.threshold = 1e-3 * Ms / 100; o.max_steps = 400000
@@ -110,15 +114,24 @@ if __name__ == "__main__":
     print(f"{'L/lex':>7}{'E_flower':>11}{'E_vortex':>11}{'dE=v-f':>11}{'<mz>_fl':>9}{'<mz>_vx':>9}")
     Ls = sorted(float(x) for x in (sys.argv[2:] or ["8.0", "8.3", "8.5", "8.7", "9.0", "9.5"]))
 
-    # flower branch: ascending L, continued
+    # dense continuation ladders so each branch tracks its (shallow) minimum
+    req = set(Ls)
+    up = sorted(req | {round(min(Ls) + 0.25 * k, 3) for k in range(int((max(Ls) - min(Ls)) / 0.25) + 1)})
+    down = sorted(req | {round(max(Ls) + 3.0 - 0.5 * k, 3)
+                         for k in range(int((max(Ls) + 3.0 - min(Ls)) / 0.5) + 1)}, reverse=True)
+
+    # flower branch: ascending L, continued from uniform-z
     flower = {}; st = ic_array("flower")
-    for L in Ls:
-        Ef, mzf, st = relax_state(L, st); flower[L] = (Ef, mzf)
+    for L in up:
+        Ef, mzf, st = relax_state(L, st)
+        if L in req:
+            flower[L] = (Ef, mzf)
     # vortex branch: descending L, continued from a stable large-L vortex
     vortex = {}; st = ic_array("vortex")
-    st = relax_state(max(Ls) + 3.0, st)[2]          # seed: relax vortex well above range
-    for L in reversed(Ls):
-        Ev, mzv, st = relax_state(L, st); vortex[L] = (Ev, mzv)
+    for L in down:
+        Ev, mzv, st = relax_state(L, st)
+        if L in req:
+            vortex[L] = (Ev, mzv)
 
     rows = []
     for L in Ls:
