@@ -66,10 +66,9 @@ private:
 
     // Step 6a: batch buffers — all 3 components contiguous for batch FFT
     // Layout: [comp0 | comp1 | comp2], each slice = real_sz_ or cplx_sz_
-    void* d_M_all_      = nullptr; // double[3 × real_sz_]              padded M upload
+    void* d_M_all_      = nullptr; // double[3 × real_sz_]  padded M upload; also reused as the inverse-FFT (H) output
     void* d_MF_all_     = nullptr; // cufftDoubleComplex[3 × cplx_sz_]  FFT(M); pointwise MAC writes H_f in-place here
-    void* d_H_all_      = nullptr; // double[3 × real_sz_]              IFFT(HF) output
-    void* d_Hunpad_all_ = nullptr; // double[3 × unpad_sz_]             extracted H
+    void* d_Hunpad_all_ = nullptr; // double[3 × unpad_sz_]  extracted H (CPU-path download staging)
 
     // Step 6b: compact GPU buffer for sparse upload (only unpadded region)
     void*   d_M_compact_ = nullptr;        // double[3 × unpad_sz_]  — GPU scatter src

@@ -52,9 +52,8 @@ private:
     int n_rep_;
 
     // GPU buffers — component-major, 3 slices each (void* cast in .cu)
-    void* d_M_all_  = nullptr;  // GReal[3 × real_sz_]                M upload
+    void* d_M_all_  = nullptr;  // GReal[3 × real_sz_]  M upload; also reused as the inverse-FFT (H) output
     void* d_MF_all_ = nullptr;  // GREAL_CUFFT_COMPLEX[3 × cplx_sz_] FFT(M); pointwise MAC writes H_f in-place here
-    void* d_H_all_  = nullptr;  // GReal[3 × real_sz_]                IFFT(HF) = H
 
     // GPU kernel (frequency-domain, each 6 components)
     void* d_K_xx_ = nullptr;  // GREAL_CUFFT_COMPLEX[cplx_sz_]

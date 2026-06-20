@@ -288,6 +288,33 @@ __global__ static void extract_all3(
 }
 
 // ===========================================================================
+// CUDA kernel: extract + normalize + accumulate directly into d_H_out.
+// Fuses the old extract_all3 + add_3N_kernel for the on-GPU (gpu_ptr) path,
+// removing one kernel launch and the d_Hunpad_all_ round-trip.
+//   d_H_out layout: [Hx_unpad (unpad_sz) | Hy_unpad | Hz_unpad]  (+=)
+// ===========================================================================
+__global__ static void extract_add_all3(
+    GReal* __restrict__        d_H_out,
+    const GReal* __restrict__  H_all,
+    size_t nx, size_t ny, size_t nz,
+    size_t pad_nx, size_t pad_ny,
+    size_t real_sz, size_t unpad_sz,
+    double norm)
+{
+    const size_t ix = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t iy = blockIdx.y * blockDim.y + threadIdx.y;
+    const size_t iz = blockIdx.z;
+    if (ix >= nx || iy >= ny || iz >= nz) return;
+
+    const size_t src = ix + pad_nx * (iy + pad_ny * iz);
+    const size_t dst = ix + nx    * (iy + ny    * iz);
+
+    d_H_out[dst]              = static_cast<GReal>(static_cast<double>(d_H_out[dst])              + static_cast<double>(H_all[src])             * norm);
+    d_H_out[unpad_sz + dst]   = static_cast<GReal>(static_cast<double>(d_H_out[unpad_sz + dst])   + static_cast<double>(H_all[real_sz  + src])  * norm);
+    d_H_out[2*unpad_sz + dst] = static_cast<GReal>(static_cast<double>(d_H_out[2*unpad_sz + dst]) + static_cast<double>(H_all[2*real_sz + src]) * norm);
+}
+
+// ===========================================================================
 // CUDA kernel: scatter compact M values into padded buffer (Step 6b)
 //
 // d_M_all_ is pre-zeroed (cudaMemset); this kernel writes the non-zero region.
@@ -351,7 +378,8 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
     CUDA_CHECK(cudaMalloc(&d_M_all_,      3 * real_sz_ * sizeof(GReal)));
     CUDA_CHECK(cudaMalloc(&d_MF_all_,     3 * cplx_sz_  * sizeof(GREAL_CUFFT_COMPLEX)));
     // d_HF_all_ removed: the pointwise MAC now writes H_f in-place into d_MF_all_.
-    CUDA_CHECK(cudaMalloc(&d_H_all_,      3 * real_sz_ * sizeof(GReal)));
+    // d_H_all_ removed: the inverse FFT writes its real output back into
+    // d_M_all_ (unused after the forward FFT) — same size, saves VRAM.
     CUDA_CHECK(cudaMalloc(&d_Hunpad_all_, 3 * unpad_sz_ * sizeof(GReal)));
 
     // Step 6b: compact GPU buffer + pinned host (8횞 smaller than full padded)
@@ -400,7 +428,6 @@ DemagFieldGPU::~DemagFieldGPU() {
     cudaFree(d_K_xx_); cudaFree(d_K_yy_); cudaFree(d_K_zz_);
     cudaFree(d_K_xy_); cudaFree(d_K_xz_); cudaFree(d_K_yz_);
     cudaFree(d_M_all_);    cudaFree(d_MF_all_);
-    cudaFree(d_H_all_);
     cudaFree(d_Hunpad_all_);
     cudaFree(d_M_compact_);
 
@@ -586,9 +613,11 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     // ------------------------------------------------------------------
     // 5. Batch inverse FFT ??uses stream_
     // ------------------------------------------------------------------
+    // Inverse FFT output reuses d_M_all_ (free after the forward FFT) instead
+    // of a dedicated d_H_all_ buffer — same size (3×real_sz), saves VRAM.
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(plan_inv_batch_,
                               reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
-                              reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
+                              reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_)));
 
     // ------------------------------------------------------------------
     // 6. Extract all 3 unpadded H components (stream_)
@@ -601,7 +630,7 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
 
     extract_all3<<<grd_ext, blk_ext, 0, s>>>(
         reinterpret_cast<GReal*>(d_Hunpad_all_),
-        reinterpret_cast<const GReal*>(d_H_all_),
+        reinterpret_cast<const GReal*>(d_M_all_),
         static_cast<size_t>(nx_), static_cast<size_t>(ny_),
         static_cast<size_t>(nz_),
         static_cast<size_t>(pad_nx_), static_cast<size_t>(pad_ny_),
@@ -646,17 +675,6 @@ __global__ static void scale_copy_kernel(
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N3) return;
     dst[i] = static_cast<GReal>(scale * static_cast<double>(src[i]));
-}
-
-// dst[i] += src[i]  (flat 3N op, used to add d_Hunpad_all_ to d_H_out)
-__global__ static void add_3N_kernel(
-    GReal* __restrict__        dst,
-    const GReal* __restrict__  src,
-    int N3)
-{
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= N3) return;
-    dst[i] = static_cast<GReal>(static_cast<double>(dst[i]) + static_cast<double>(src[i]));
 }
 
 // ===========================================================================
@@ -724,32 +742,22 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
         CUDA_CHECK(cudaGetLastError());
     }
 
-    // 6. Batch inverse FFT
+    // 6. Batch inverse FFT — output reuses d_M_all_ (free after forward FFT).
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(plan_inv_batch_,
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
-        reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
+        reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_)));
 
-    // 7. Extract unpadded + normalise ??d_Hunpad_all_
+    // 7. Fused extract + normalise + accumulate straight into d_H_out
+    //    (replaces extract_all3 + add_3N_kernel; no d_Hunpad_all_ round-trip).
     {
         dim3 blk_ext(16, 16, 1);
         dim3 grd_ext((unsigned)((nx_+15)/16), (unsigned)((ny_+15)/16), (unsigned)nz_);
-        extract_all3<<<grd_ext, blk_ext, 0, s>>>(
-            reinterpret_cast<GReal*>(d_Hunpad_all_),
-            reinterpret_cast<const GReal*>(d_H_all_),
+        extract_add_all3<<<grd_ext, blk_ext, 0, s>>>(
+            d_H_out,
+            reinterpret_cast<const GReal*>(d_M_all_),
             (size_t)nx_, (size_t)ny_, (size_t)nz_,
             (size_t)pad_nx_, (size_t)pad_ny_,
             real_sz_, unpad_sz_, norm);
-        CUDA_CHECK(cudaGetLastError());
-    }
-
-    // 8. Add d_Hunpad_all_ to d_H_out
-    {
-        const int N3  = static_cast<int>(3 * unpad_sz_);
-        const int grd = (N3 + BLK - 1) / BLK;
-        add_3N_kernel<<<grd, BLK, 0, s>>>(
-            d_H_out,
-            reinterpret_cast<const GReal*>(d_Hunpad_all_),
-            N3);
         CUDA_CHECK(cudaGetLastError());
     }
     // Sync before returning so caller on a different stream sees d_H_out updates.

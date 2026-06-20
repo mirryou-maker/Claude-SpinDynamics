@@ -152,7 +152,6 @@ DemagFieldPeriodicGPU::DemagFieldPeriodicGPU(const StructuredGrid& grid, int n_r
     // 3-component batch buffers
     CUDA_CHECK(cudaMallocAsync(&d_M_all_,  3*real_sz_*sizeof(GReal),             s));
     CUDA_CHECK(cudaMallocAsync(&d_MF_all_, 3*cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
-    CUDA_CHECK(cudaMallocAsync(&d_H_all_,  3*real_sz_*sizeof(GReal),             s));
 
     // Kernel components (frequency-domain)
     CUDA_CHECK(cudaMallocAsync(&d_K_xx_, cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
@@ -207,7 +206,6 @@ DemagFieldPeriodicGPU::~DemagFieldPeriodicGPU() {
     destroy(plan_inv_batch_);
     if (d_M_all_)  { cudaFreeAsync(d_M_all_,  s); d_M_all_=nullptr; }
     if (d_MF_all_) { cudaFreeAsync(d_MF_all_, s); d_MF_all_=nullptr; }
-    if (d_H_all_)  { cudaFreeAsync(d_H_all_,  s); d_H_all_=nullptr; }
     if (d_K_xx_)   { cudaFreeAsync(d_K_xx_, s); d_K_xx_=nullptr; }
     if (d_K_yy_)   { cudaFreeAsync(d_K_yy_, s); d_K_yy_=nullptr; }
     if (d_K_zz_)   { cudaFreeAsync(d_K_zz_, s); d_K_zz_=nullptr; }
@@ -304,18 +302,18 @@ void DemagFieldPeriodicGPU::accumulate_gpu_ptr(const GReal* d_m,
     // 4. Batch C2R IFFT: d_HF_all_ ??d_H_all_
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(handle(plan_inv_batch_),
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
-        reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
+        reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_)));
 
     // 5. Scale: H_demag = -1/N * IFFT(K쨌MF)
     // M was packed as Ms*m, so the factor is just -1/N (not -Ms/N).
     const double scale = -1.0 / static_cast<double>(real_sz_);
     scale_all3<<<(int)((N3+BLK-1)/BLK), BLK, 0, s>>>(
-        reinterpret_cast<GReal*>(d_H_all_), scale, N3);
+        reinterpret_cast<GReal*>(d_M_all_), scale, N3);
     CUDA_CHECK(cudaGetLastError());
 
     // 6. d_H_out += d_H_all_
     add_all3<<<(int)((N3+BLK-1)/BLK), BLK, 0, s>>>(
-        d_H_out, reinterpret_cast<const GReal*>(d_H_all_), N3);
+        d_H_out, reinterpret_cast<const GReal*>(d_M_all_), N3);
     CUDA_CHECK(cudaGetLastError());
 
     CUDA_CHECK(cudaStreamSynchronize(s));
@@ -343,8 +341,6 @@ void DemagFieldPeriodicGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaMemcpyAsync(d_M_all_, h_M_pinned_,
         N3*sizeof(GReal), cudaMemcpyHostToDevice, s));
 
-    // Prepare zero-initialised d_H_all_ (we accumulate fresh each call)
-    CUDA_CHECK(cudaMemsetAsync(d_H_all_, 0, N3*sizeof(GReal), s));
 
     // GPU compute via ptr path (copies d_M_all_ to itself ??no-op copy)
     // Avoid double-copy: call the inner pipeline directly
@@ -369,15 +365,15 @@ void DemagFieldPeriodicGPU::accumulate(const VectorField3D& m,
 
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(handle(plan_inv_batch_),
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
-        reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
+        reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_)));
 
     const double scale = -1.0 / static_cast<double>(N);
     scale_all3<<<(int)((N3+BLK-1)/BLK), BLK, 0, s>>>(
-        reinterpret_cast<GReal*>(d_H_all_), scale, N3);
+        reinterpret_cast<GReal*>(d_M_all_), scale, N3);
     CUDA_CHECK(cudaGetLastError());
 
     // D2H
-    CUDA_CHECK(cudaMemcpyAsync(h_H_pinned_, d_H_all_,
+    CUDA_CHECK(cudaMemcpyAsync(h_H_pinned_, d_M_all_,
         N3*sizeof(GReal), cudaMemcpyDeviceToHost, s));
     CUDA_CHECK(cudaStreamSynchronize(s));
 
