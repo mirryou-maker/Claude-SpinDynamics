@@ -152,7 +152,6 @@ DemagFieldPeriodicGPU::DemagFieldPeriodicGPU(const StructuredGrid& grid, int n_r
     // 3-component batch buffers
     CUDA_CHECK(cudaMallocAsync(&d_M_all_,  3*real_sz_*sizeof(GReal),             s));
     CUDA_CHECK(cudaMallocAsync(&d_MF_all_, 3*cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
-    CUDA_CHECK(cudaMallocAsync(&d_HF_all_, 3*cplx_sz_*sizeof(GREAL_CUFFT_COMPLEX), s));
     CUDA_CHECK(cudaMallocAsync(&d_H_all_,  3*real_sz_*sizeof(GReal),             s));
 
     // Kernel components (frequency-domain)
@@ -208,7 +207,6 @@ DemagFieldPeriodicGPU::~DemagFieldPeriodicGPU() {
     destroy(plan_inv_batch_);
     if (d_M_all_)  { cudaFreeAsync(d_M_all_,  s); d_M_all_=nullptr; }
     if (d_MF_all_) { cudaFreeAsync(d_MF_all_, s); d_MF_all_=nullptr; }
-    if (d_HF_all_) { cudaFreeAsync(d_HF_all_, s); d_HF_all_=nullptr; }
     if (d_H_all_)  { cudaFreeAsync(d_H_all_,  s); d_H_all_=nullptr; }
     if (d_K_xx_)   { cudaFreeAsync(d_K_xx_, s); d_K_xx_=nullptr; }
     if (d_K_yy_)   { cudaFreeAsync(d_K_yy_, s); d_K_yy_=nullptr; }
@@ -292,7 +290,7 @@ void DemagFieldPeriodicGPU::accumulate_gpu_ptr(const GReal* d_m,
     // 3. Pointwise MAC
     const int gcx = (int)((cplx_sz_+BLK-1)/BLK);
     mac_periodic<<<gcx,BLK,0,s>>>(
-        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xx_),
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xy_),
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xz_),
@@ -305,7 +303,7 @@ void DemagFieldPeriodicGPU::accumulate_gpu_ptr(const GReal* d_m,
 
     // 4. Batch C2R IFFT: d_HF_all_ ??d_H_all_
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(handle(plan_inv_batch_),
-        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
 
     // 5. Scale: H_demag = -1/N * IFFT(K쨌MF)
@@ -358,7 +356,7 @@ void DemagFieldPeriodicGPU::accumulate(const VectorField3D& m,
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_)));
 
     mac_periodic<<<gcx,BLK,0,s>>>(
-        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xx_),
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xy_),
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_xz_),
@@ -370,7 +368,7 @@ void DemagFieldPeriodicGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaGetLastError());
 
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(handle(plan_inv_batch_),
-        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
 
     const double scale = -1.0 / static_cast<double>(N);

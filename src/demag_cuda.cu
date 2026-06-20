@@ -350,7 +350,7 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
     // Step 6a: batch buffers ??all 3 components contiguous
     CUDA_CHECK(cudaMalloc(&d_M_all_,      3 * real_sz_ * sizeof(GReal)));
     CUDA_CHECK(cudaMalloc(&d_MF_all_,     3 * cplx_sz_  * sizeof(GREAL_CUFFT_COMPLEX)));
-    CUDA_CHECK(cudaMalloc(&d_HF_all_,     3 * cplx_sz_  * sizeof(GREAL_CUFFT_COMPLEX)));
+    // d_HF_all_ removed: the pointwise MAC now writes H_f in-place into d_MF_all_.
     CUDA_CHECK(cudaMalloc(&d_H_all_,      3 * real_sz_ * sizeof(GReal)));
     CUDA_CHECK(cudaMalloc(&d_Hunpad_all_, 3 * unpad_sz_ * sizeof(GReal)));
 
@@ -400,7 +400,7 @@ DemagFieldGPU::~DemagFieldGPU() {
     cudaFree(d_K_xx_); cudaFree(d_K_yy_); cudaFree(d_K_zz_);
     cudaFree(d_K_xy_); cudaFree(d_K_xz_); cudaFree(d_K_yz_);
     cudaFree(d_M_all_);    cudaFree(d_MF_all_);
-    cudaFree(d_HF_all_);   cudaFree(d_H_all_);
+    cudaFree(d_H_all_);
     cudaFree(d_Hunpad_all_);
     cudaFree(d_M_compact_);
 
@@ -573,8 +573,10 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     constexpr int BLK = 256;
     const int gcx = static_cast<int>((cplx_sz_ + BLK - 1) / BLK);
 
+    // In-place: H_f overwrites M_f in d_MF_all_ (each thread reads its 3 input
+    // bins into registers before writing) → no separate d_HF_all_ buffer needed.
     pointwise_mac_all3<<<gcx, BLK, 0, s>>>(
-        as_cx(d_HF_all_),
+        as_cx(d_MF_all_),
         as_cxc(d_K_xx_), as_cxc(d_K_xy_), as_cxc(d_K_xz_),
         as_cxc(d_K_yy_), as_cxc(d_K_yz_), as_cxc(d_K_zz_),
         as_cxc(d_MF_all_),
@@ -585,7 +587,7 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
     // 5. Batch inverse FFT ??uses stream_
     // ------------------------------------------------------------------
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(plan_inv_batch_,
-                              reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+                              reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
                               reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
 
     // ------------------------------------------------------------------
@@ -713,8 +715,9 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
     // 5. Pointwise MAC
     {
         const int gcx = static_cast<int>((cplx_sz_ + BLK - 1) / BLK);
+        // In-place: H_f overwrites M_f in d_MF_all_ (no separate d_HF_all_).
         pointwise_mac_all3<<<gcx, BLK, 0, s>>>(
-            as_cx(d_HF_all_),
+            as_cx(d_MF_all_),
             as_cxc(d_K_xx_), as_cxc(d_K_xy_), as_cxc(d_K_xz_),
             as_cxc(d_K_yy_), as_cxc(d_K_yz_), as_cxc(d_K_zz_),
             as_cxc(d_MF_all_), cplx_sz_);
@@ -723,7 +726,7 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
 
     // 6. Batch inverse FFT
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(plan_inv_batch_,
-        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_HF_all_),
+        reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         reinterpret_cast<GREAL_CUFFT_REAL*>(d_H_all_)));
 
     // 7. Extract unpadded + normalise ??d_Hunpad_all_
