@@ -13,11 +13,13 @@ from parse import load_mumax_table, load_oommf_odt, resample  # noqa: E402
 HERE = os.path.dirname(__file__)
 
 CONFIGS = [
-    ("mumax3",      os.path.join(HERE, "mumax.out", "table.txt"),       "table"),
-    ("MuMax-CO",    os.path.join(HERE, "mumaxCO.out", "table.txt"),     "table"),
-    ("OOMMF",       os.path.join(HERE, "sp4_oommf.odt"),                "odt"),
-    ("ours-double", os.path.join(HERE, "ours_double.out", "m.txt"),     "table"),
-    ("ours-f32",    os.path.join(HERE, "ours_f32.out", "m.txt"),        "table"),
+    ("mumax3 (adapt)",   os.path.join(HERE, "mumax.out", "table.txt"),        "table"),
+    ("MuMax-CO (adapt)", os.path.join(HERE, "mumaxCO.out", "table.txt"),      "table"),
+    ("OOMMF (adapt,ref)", os.path.join(HERE, "sp4_oommf.odt"),                "odt"),
+    ("Claude-SD f64 adapt", os.path.join(HERE, "ours_double_adapt.out", "m.txt"), "table"),
+    ("Claude-SD f32 adapt", os.path.join(HERE, "ours_float32_adapt.out", "m.txt"), "table"),
+    ("Claude-SD f64 fixed", os.path.join(HERE, "ours_double_fixed.out", "m.txt"), "table"),
+    ("Claude-SD f32 fixed", os.path.join(HERE, "ours_float32_fixed.out", "m.txt"), "table"),
 ]
 
 trajs = {}
@@ -28,9 +30,9 @@ for name, path, kind in CONFIGS:
     trajs[name] = load_oommf_odt(path, stage=1) if kind == "odt" else load_mumax_table(path)
 
 tg = np.linspace(0, 1e-9, 200)
-ref = trajs.get("OOMMF")
+ref = trajs.get("OOMMF (adapt,ref)")
 
-print(f"\n{'config':<13}{'mx(1ns)':>9}{'my(1ns)':>9}{'mz(1ns)':>9}"
+print(f"\n{'config':<22}{'mx(1ns)':>9}{'my(1ns)':>9}{'mz(1ns)':>9}"
       f"{'t_sw(ps)':>9}{'mx_RMS':>9}{'my_RMS':>9}")
 for name, _, _ in CONFIGS:
     tr = trajs.get(name)
@@ -46,7 +48,7 @@ for name, _, _ in CONFIGS:
         rmy = np.sqrt(np.mean((myg - resample(ref[0], ref[2], tg)) ** 2))
     else:
         rmx = rmy = float("nan")
-    print(f"{name:<13}{mxg[-1]:>9.4f}{myg[-1]:>9.4f}{mzg[-1]:>9.4f}"
+    print(f"{name:<22}{mxg[-1]:>9.4f}{myg[-1]:>9.4f}{mzg[-1]:>9.4f}"
           f"{tsw:>9.1f}{rmx:>9.4f}{rmy:>9.4f}")
 
 # plot
@@ -60,9 +62,9 @@ for name, _, _ in CONFIGS:
 for k, lbl in enumerate(("<mx>", "<my>", "<mz>")):
     ax[k].set_ylabel(lbl)
     ax[k].grid(alpha=0.3)
-ax[0].legend(fontsize=8, ncol=5, loc="upper right")
+ax[0].legend(fontsize=7, ncol=4, loc="upper right")
 ax[2].set_xlabel("t (ns)")
-ax[0].set_title("muMAG Standard Problem 4 (field A, 250x64x1) - 5-way")
+ax[0].set_title("muMAG Standard Problem 4 (field A, 250x64x1) - cross-solver")
 fig.tight_layout()
 out = os.path.join(HERE, "sp4_trajectories.png")
 fig.savefig(out, dpi=110)
