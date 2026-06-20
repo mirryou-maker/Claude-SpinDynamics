@@ -38,6 +38,16 @@ Geometry (CPU backend only — the GPU solver lacks empty-cell handling)
     setgeom(ellipse(dx, dy) | circle(d) | rect(lx, ly) | square(s) |
             cylinder(d, h) | cuboid(lx, ly, lz) | ellipsoid(dx, dy, dz))
 
+Regions (per-region material / initial magnetisation; both backends)
+    defregion(id, shape)
+    Msat.SetRegion(id, val) / Aex.SetRegion / Ku1.SetRegion / alpha.SetRegion
+    anisU.SetRegion(id, vector(...))
+    m.SetRegion(id, uniform(x, y, z))
+
+Time-dependent excitation
+    B_ext = vector(B0*sin(2*pi*f*t), 0, 0)   # any expr in `t` is re-evaluated
+                                             # before every integration step
+
 Control flow (Go-style braces)
     for init; cond; post { ... }       # e.g. for i := 0; i < N; i++ { ... }
     if cond { ... } else { ... }
@@ -382,6 +392,7 @@ class Engine:
         self.dind = 0.0
         self.dbulk = 0.0
         self.bext = (0.0, 0.0, 0.0)
+        self.bext_func = None       # optional B_ext(t) -> (bx,by,bz) [T], time-dependent
         self.enable_demag = True
 
         # solver options
@@ -395,6 +406,9 @@ class Engine:
         self._demag = self._exch = self._aniso = self._dmi = self._zeeman = None
         self._dmi_bulk = None
         self.geom_mask = None       # optional GeomMask (setgeom)
+        self.region_map = None      # optional RegionMap (defregion)
+        self.region_mats = {}       # region id -> Material (per-region params)
+        self._matf = None           # MaterialField3D kept alive while attached
 
         # time + outputs
         self.t = 0.0
@@ -467,6 +481,78 @@ class Engine:
         if self.geom_mask is not None:
             self.m.apply_mask(self.geom_mask)
 
+    # -- regions (per-region material / magnetization) ---------------------
+    def def_region(self, rid, shape_cfg):
+        self._require_grid()
+        if self.region_map is None:
+            self.region_map = mm.RegionMap(self.grid)
+        self.region_map.def_region(int(rid), self._build_mask(shape_cfg))
+
+    def _base_material(self):
+        mat = mm.Material()
+        mat.Ms = self.mat.Ms
+        mat.A_exchange = self.aex
+        mat.K_uniaxial = self.ku1
+        mat.alpha = self.mat.alpha
+        mat.easy_axis = mm.Vec3(*self.anisU)
+        return mat
+
+    def _region_material(self, rid):
+        rid = int(rid)
+        if rid not in self.region_mats:
+            self.region_mats[rid] = self._base_material()
+        return self.region_mats[rid]
+
+    def set_region_param(self, q, rid, val):
+        mat = self._region_material(rid)
+        if q == "msat":
+            mat.Ms = float(val)
+        elif q == "aex":
+            mat.A_exchange = float(val)
+        elif q in ("ku1", "k1"):
+            mat.K_uniaxial = float(val)
+        elif q == "alpha":
+            mat.alpha = float(val)
+        elif q == "anisu":
+            mat.easy_axis = mm.Vec3(*_as_vec(val))
+        else:
+            _warn(f"{q}.SetRegion not supported")
+
+    def set_region_m(self, rid, cfg):
+        self._require_grid()
+        if self.region_map is None:
+            self.region_map = mm.RegionMap(self.grid)
+        v = _config_to_vec(cfg)
+        self.region_map.set_magnetization(int(rid), self.m, mm.Vec3(*v))
+        self.m.normalize()
+
+    def _region_matfield(self):
+        if self.region_map is None or not self.region_mats:
+            return None
+        matf = mm.MaterialField3D(self.grid, self._base_material())
+        for rid, mat in self.region_mats.items():
+            self.region_map.set_material(int(rid), matf, mat)
+        return matf
+
+    def _attach_regions(self):
+        if self.region_map is None or not self.region_mats:
+            return
+        self._matf = self._region_matfield()
+        for fld in (self._demag, self._exch, self._aniso):
+            _call_method(fld, "set_material_field", self._matf)
+
+    # -- time-dependent excitation -----------------------------------------
+    def set_bext_func(self, f):
+        """Register a B_ext(t) -> 3-vector [T] callable (re-evaluated each step)."""
+        self.bext_func = f
+
+    def _update_bext(self, sim_t):
+        if self.bext_func is None:
+            return
+        bx, by, bz = _as_vec(self.bext_func(sim_t))
+        _set(self._zeeman, "H_ext", "set_H_ext",
+             mm.Vec3(bx / MU0, by / MU0, bz / MU0))
+
     # -- fields ------------------------------------------------------------
     def _build_fields(self):
         if self._fields_built:
@@ -499,6 +585,9 @@ class Engine:
         self.mat.A_exchange = self.aex
         self.mat.K_uniaxial = self.ku1
         self.mat.easy_axis = mm.Vec3(*self.anisU)
+        # Time-dependent B_ext: evaluate at the current sim time for static ops.
+        if self.bext_func is not None:
+            self.bext = _as_vec(self.bext_func(self.t))
         # Zeeman: B [T] -> H [A/m]  (H_ext is a read/write property)
         H = mm.Vec3(self.bext[0] / MU0, self.bext[1] / MU0, self.bext[2] / MU0)
         _set(self._zeeman, "H_ext", "set_H_ext", H)
@@ -512,9 +601,12 @@ class Engine:
         self._sync_params()
         if self.geom_mask is not None:
             _call_method(self._exch, "set_mask", self.geom_mask)   # CPU only; GPU no-op
+        self._attach_regions()
         use_dmi = abs(self.dind) > 0
         use_bulk = abs(self.dbulk) > 0
-        use_ani = abs(self.ku1) > 0
+        # Include anisotropy if a global OR any per-region Ku1 is set.
+        use_ani = abs(self.ku1) > 0 or \
+            any(m.K_uniaxial != 0 for m in self.region_mats.values())
         if self.gpu:
             fs = mm.FieldSumGPU()
             fs.add(self._exch)
@@ -652,6 +744,7 @@ class Engine:
             integ.upload(self.m)
             elapsed = 0.0
             while elapsed < t * (1 - 1e-9):
+                self._update_bext(self.t + elapsed)
                 dt = integ.step(self.mat, demag, fs)
                 elapsed += dt
                 self._handle_autosave(integ, elapsed)
@@ -662,6 +755,7 @@ class Engine:
             integ.upload(self.m)
             n = max(1, int(round(t / dt)))
             for k in range(n):
+                self._update_bext(self.t + k * dt)
                 integ.step(self.mat, demag, fs)
                 self._handle_autosave(integ, (k + 1) * dt)
             integ.download(self.m)
@@ -672,6 +766,7 @@ class Engine:
         elapsed = 0.0
         guard = 0
         while elapsed < t * (1 - 1e-9):
+            self._update_bext(self.t + elapsed)
             adv = integ.step(self.m, self.mat, fs)
             elapsed += (adv if adv else dt)
             guard += 1
@@ -715,16 +810,17 @@ class Engine:
         self.save_counter += 1
         print(f"  saved {path}")
 
-    def table_save(self):
+    def table_save(self, at=None):
         if self.table_path is None:
             self.table_path = os.path.join(self.outdir, f"{self.basename}.txt")
+        t = self.t if at is None else at
         new = not self.table_started
         with open(self.table_path, "a", encoding="utf-8") as fh:
             if new:
                 fh.write("# t (s)\tmx\tmy\tmz\n")
                 self.table_started = True
             mx, my, mz = self._avg_m()
-            fh.write(f"{self.t:.6e}\t{mx:.6e}\t{my:.6e}\t{mz:.6e}\n")
+            fh.write(f"{t:.6e}\t{mx:.6e}\t{my:.6e}\t{mz:.6e}\n")
 
     def add_autosave(self, interval):
         self.autosaves.append(["save", float(interval), float(interval)])
@@ -744,13 +840,31 @@ class Engine:
                 if kind == "save":
                     self.save()
                 else:
-                    self.table_save()
+                    self.table_save(at=cur)
                 entry[2] = nxt + interval
 
 
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
+def _as_vec(v):
+    if isinstance(v, (Vec, tuple, list)) and len(v) == 3:
+        return (float(v[0]), float(v[1]), float(v[2]))
+    raise TypeError(f"expected a 3-vector, got {v!r}")
+
+
+def _has_ident(toks, name):
+    return any(t.kind == "IDENT" and t.value == name for t in toks)
+
+
+def _config_to_vec(cfg):
+    if isinstance(cfg, Config) and cfg.kind == "uniform":
+        return tuple(float(x) for x in cfg.args[:3])
+    if isinstance(cfg, (Vec, tuple, list)) and len(cfg) == 3:
+        return tuple(float(x) for x in cfg)
+    raise TypeError(f"expected uniform(...) or vector(...), got {cfg!r}")
+
+
 def _call_method(obj, method, *args):
     """Call obj.method(*args) if it exists; return False if absent/failed."""
     fn = getattr(obj, method, None)
@@ -838,7 +952,7 @@ class Interpreter:
         elif kind == "if":
             self._exec_if(node)
         elif kind == "method":
-            _warn(f"method call '{node[1]}.{node[2]}(...)' not supported, skipped")
+            self._do_method(node[1], node[2], node[3])
         elif kind == "nop":
             pass
         else:
@@ -875,6 +989,12 @@ class Interpreter:
         if op in ("++", "--"):
             self.env[name] = self._get_var(name) + (1.0 if op == "++" else -1.0)
             return
+        # Time-dependent B_ext: defer the expression and re-evaluate it (with the
+        # current sim time bound to `t`) before every integration step.
+        if name == "b_ext" and op in ("=", ":=") and _has_ident(rhs_toks, "t"):
+            toks, env = list(rhs_toks), self.env
+            self.eng.set_bext_func(lambda tt: eval_expr(toks, dict(env, t=tt)))
+            return
         val = eval_expr(rhs_toks, self.env)
         if op in ("+=", "-=", "*=", "/="):
             cur = self._get_var(name)
@@ -903,6 +1023,7 @@ class Interpreter:
             e.dbulk = float(val)
         elif name == "b_ext":
             e.bext = tuple(val) if isinstance(val, Vec) else (0, 0, 0)
+            e.bext_func = None
         elif name == "enabledemag":
             e.enable_demag = bool(val)
         elif name == "maxerr":
@@ -944,7 +1065,9 @@ class Interpreter:
             e.add_tableautosave(float(args[0]))
         elif name == "setgeom":
             e.set_geom(args[0])
-        elif name in ("defregion", "setregion", "edgesmooth", "tablesaveafter"):
+        elif name == "defregion":
+            e.def_region(int(args[0]), args[1])
+        elif name in ("edgesmooth", "tablesaveafter"):
             _warn(f"'{name}(...)' not supported, skipped")
         else:
             _warn(f"unknown command '{name}(...)', skipped")
@@ -969,6 +1092,22 @@ class Interpreter:
             e.add_autosave(float(interval))
         elif name in ("tableadd", "tableaddvar"):
             pass  # we always log <mx,my,mz>
+
+    def _do_method(self, obj, method, inner):
+        if method != "setregion":
+            _warn(f"method '{obj}.{method}(...)' not supported, skipped")
+            return
+        args = [eval_expr(g, self.env) for g in _split_args(inner)]
+        if len(args) < 2:
+            _warn(f"{obj}.SetRegion needs (id, value)")
+            return
+        rid, val = int(args[0]), args[1]
+        if obj == "m":
+            self.eng.set_region_m(rid, val)
+        elif obj in ("msat", "aex", "ku1", "k1", "alpha", "anisu"):
+            self.eng.set_region_param(obj, rid, val)
+        else:
+            _warn(f"SetRegion on '{obj}' not supported")
 
     def _report(self):
         mx, my, mz = self.eng._avg_m()

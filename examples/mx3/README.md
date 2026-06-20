@@ -28,6 +28,8 @@ print(mm.mean_magnetization(eng.m))     # final <m>
 | Material | `Msat`, `Aex`, `alpha`, `Ku1`, `anisU`, `Dind`, `Dbulk`, `B_ext`, `EnableDemag` |
 | Init `m` | `uniform`, `vortex`, `random`, `twodomain` |
 | Geometry | `setgeom(ellipse/circle/rect/square/cylinder/cuboid/ellipsoid(...))` — CPU backend only |
+| Regions  | `defregion(id, shape)`, `Msat/Aex/Ku1/alpha/anisU.SetRegion(id, val)`, `m.SetRegion(id, uniform(...))` |
+| Excite   | time-dependent `B_ext = vector(... t ...)` (re-evaluated each step) |
 | Solver   | `MaxErr`, `MaxDt`, `MinDt`, `SetSolver` |
 | Control  | `for init; cond; post { ... }`, `if cond { ... } else { ... }` |
 | Run      | `relax()`, `minimize()`, `run(t)`, `steps(n)` |
@@ -67,9 +69,13 @@ See the `micromag.mx3` module docstring for the full reference.
 - **`loop_test.mx3`** — `for` / `if`-`else` / `:=` / `++` / comparison demo.
 - **`disk.mx3`** — `setgeom(circle(...))` vortex in a 120 nm disk (run with
   `gpu=False`).
+- **`bext_ac.mx3`** — time-dependent `B_ext = vector(B*sin(2*pi*f*t), 0, 0)`
+  driving mₓ to oscillate.
+- **`regions.mx3`** — `defregion` + `Msat/Ku1/anisU.SetRegion` + `m.SetRegion`
+  for a central disk with its own material and initial state.
 
 ## Not yet supported
 
-Regions / `defregion` / per-region material (`Msat.SetRegion(...)`),
-time-dependent excitations (`B_ext` as a function of `t`), geometry on the GPU
-backend, and `expectV` / user-defined script functions. These warn and skip.
+Geometry on the GPU backend (the GPU solver would need to skip empty Ms=0
+cells), per-region `alpha` on the GPU integrators, `for`-`range` iteration, and
+`expectV` / user-defined script functions. These warn and skip.

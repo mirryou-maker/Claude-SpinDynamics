@@ -1,0 +1,19 @@
+// Regions demo: a central disk (region 1) with its own material + initial m.
+SetGridSize(32, 32, 1)
+SetCellSize(4e-9, 4e-9, 5e-9)
+
+Msat  = 800e3
+Aex   = 13e-12
+alpha = 0.5
+
+defregion(1, circle(60e-9))        // central 60 nm disk = region 1 (rest = region 0)
+
+m = uniform(1, 0, 0)               // background magnetised +x
+m.SetRegion(1, uniform(0, 0, 1))   // disk magnetised +z
+
+Msat.SetRegion(1, 400e3)           // disk has half the saturation magnetisation
+Ku1.SetRegion(1, 5e5)              // and a perpendicular anisotropy
+anisU.SetRegion(1, vector(0, 0, 1))
+
+minimize()
+save(m)

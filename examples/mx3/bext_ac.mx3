@@ -1,0 +1,18 @@
+// Time-dependent excitation: an AC in-plane field drives mx to oscillate.
+// Perpendicular anisotropy keeps m near +z; B_ext(t) is re-evaluated each step.
+SetGridSize(8, 8, 1)
+SetCellSize(5e-9, 5e-9, 5e-9)
+
+Msat  = 800e3
+Aex   = 13e-12
+alpha = 0.02
+Ku1   = 6e5
+anisU = vector(0, 0, 1)
+
+m = uniform(0.05, 0, 1)
+minimize()
+
+f := 10e9
+B_ext = vector(0.02 * sin(2*pi*f*t), 0, 0)
+tableautosave(2e-11)
+run(2e-10)
