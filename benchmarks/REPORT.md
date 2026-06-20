@@ -64,40 +64,36 @@ schedule also crashes it; the working SP#4 MIF uses a single 2-stage
 
 ## Performance sweep (fixed-step, GPU)
 
-Throughput vs grid size for a fixed-step run (permalloy, 2 nm in-plane cells,
-`FixDt = 1e-14`).  Claude-SD uses RK4 (4 field evals/step); mumax3 / MuMax-CO
-use Heun (2 evals/step) — so the fair, integrator-independent metric is **ms
-per field-evaluation** (one demag FFT + exchange), reported below.  mumax3
-numbers use a warm (cached-kernel) two-run subtraction to cancel its ~2 s
-startup.
+Throughput vs grid size, ms per field-evaluation (one demag FFT + exchange;
+Claude-SD RK4 = 4 evals/step, mumax3/MuMax-CO Heun = 2). Thin-film grids
+(nz=1), FixDt=1e-14.
 
-**ms per field-eval** (lower = faster):
+**After the 2-D-FFT thin-film fix** (`pad_nz=1`, see below):
 
-| cells | Claude-SD f64 | Claude-SD f32 | mumax3 f32 | MuMax-CO f32 |
-|-------|--------------:|--------------:|-----------:|-------------:|
-| 16 384   | 0.347 | 0.149 | 0.263 | — |
-| 65 536   | 1.188 | 0.242 | 0.299 | — |
-| 262 144  | 5.516 | 1.037 | 0.421 | — |
-| 524 288  | 12.14 | 2.749 | 0.629 | — |
-| 1 048 576 | 26.26 | 5.739 | 1.212 | 1.169 |
+| cells | Claude-SD f64 | Claude-SD f32 | mumax3 f32 | f32 vs mumax3 |
+|-------|--------------:|--------------:|-----------:|--------------:|
+| 16 384   | 0.226 | 0.129 | 0.263 | **0.49x (faster)** |
+| 65 536   | 0.669 | 0.182 | 0.299 | **0.61x (faster)** |
+| 262 144  | 2.596 | 0.501 | 0.421 | 1.19x |
+| 524 288  | 5.899 | 1.133 | 0.629 | 1.80x |
+| 1 048 576 | 12.89 | 2.756 | 1.212 | 2.28x |
 
-(MuMax-CO's CUDA-Graph step is too fast at ≤0.5 M cells to time by process
-wall-clock here — its launch overhead is essentially zero; at 1 M cells it is
-compute-bound and matches mumax3.)
+The demag is FFT-bound: profiling (`MICROMAG_DEMAG_PROFILE=1`) showed the
+forward+inverse FFTs are ~86-88% of every demag eval. The single biggest win was
+realising a **single-layer (nz=1) film needs no z-padding** -- the code padded z
+to 2 and ran a 3-D FFT with a cuFFT-unfriendly z=2 dimension. Setting `pad_nz=1`
+makes it a true 2-D FFT and **~halved the demag** everywhere:
 
-**Peak model VRAM** (1 M cells): Claude-SD f64 ≈ 1130 MB, f32 ≈ 640 MB
-(~0.55×, the in-place demag keeps a single padded spectrum).
+| cells | f32 ms/eval before | after | speedup |
+|-------|-------------------:|------:|--------:|
+| 262 144  | 1.037 | 0.501 | 2.07x |
+| 1 048 576 | 5.739 | 2.756 | 2.08x |
 
-Findings:
-- **float32 is ~4–5× faster than double** for Claude-SD at compute-bound sizes
-  (e.g. 1 M cells: 5.74 vs 26.3 ms/eval) and uses ~half the VRAM — the demag
-  cuFFT and memory traffic both halve.
-- **mumax3 / MuMax-CO are the throughput reference.** At 1 M cells Claude-SD f32
-  is ~4.7× slower per field-eval than mumax3, f64 ~22×.  mumax3 and MuMax-CO are
-  within 4 % of each other when compute-bound (the CUDA-Graph win is at small
-  grids, where it removes per-step launch overhead).  Claude-SD is correct and
-  competitive but unoptimised relative to mumax3's fused/graph kernels — a clear
-  target for future work (kernel fusion, fewer D2D copies, cuFFT plan reuse).
+Net: **Claude-SD f32 now beats mumax3 at <= 65 K cells and is within 1.2x at
+262 K**; the residual 2.3x at 1 M (was 4.7x) is the large-grid FFT, where mumax3's
+transform pipeline is still more efficient. float32 stays ~4-5x faster than
+double and uses ~half the VRAM. Correctness was re-checked (GPU demag = CPU demag
+to 1.5e-9; 100 GPU tests pass).
 
 ![throughput](perf/perf_throughput.png)
 
