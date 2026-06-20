@@ -589,20 +589,23 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
         uint64_t real_bytes = static_cast<uint64_t>(3 * real_sz_ * sizeof(GReal));
         uint64_t cplx_bytes = static_cast<uint64_t>(3 * cplx_sz_ * sizeof(GREAL_CUFFT_COMPLEX));
 
+        const pfUINT use_double = (sizeof(GReal) == 8) ? 1u : 0u;
+
         // Forward: real d_M_all_ → complex d_MF_all_
         {
             VkFFTConfiguration cfg = {};
-            cfg.FFTdim       = static_cast<uint64_t>(fft_dim);
-            cfg.size[0]      = static_cast<uint64_t>(pad_nx_);
-            cfg.size[1]      = static_cast<uint64_t>(pad_ny_);
+            cfg.FFTdim           = static_cast<uint64_t>(fft_dim);
+            cfg.size[0]          = static_cast<uint64_t>(pad_nx_);
+            cfg.size[1]          = static_cast<uint64_t>(pad_ny_);
             if (fft_dim == 3) cfg.size[2] = static_cast<uint64_t>(pad_nz_);
             cfg.numberBatches    = 3;
             cfg.performR2C       = 1;
+            cfg.doublePrecision  = use_double;   // must match GReal (default=float32)
             cfg.device           = &cu_dev;
-            cfg.isInputFormatted = 1;          // separate real inputBuffer
+            cfg.isInputFormatted = 1;            // separate real inputBuffer
             cfg.inputBuffer      = &d_M_all_;
             cfg.inputBufferSize  = &real_bytes;
-            cfg.buffer           = &d_MF_all_; // complex output
+            cfg.buffer           = &d_MF_all_;   // complex output
             cfg.bufferSize       = &cplx_bytes;
             VkFFTResult vr = initializeVkFFT(&st->fwd, cfg);
             if (vr != VKFFT_SUCCESS)
@@ -612,12 +615,13 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
         // Inverse: complex d_MF_all_ → real d_M_all_
         {
             VkFFTConfiguration cfg = {};
-            cfg.FFTdim        = static_cast<uint64_t>(fft_dim);
-            cfg.size[0]       = static_cast<uint64_t>(pad_nx_);
-            cfg.size[1]       = static_cast<uint64_t>(pad_ny_);
+            cfg.FFTdim            = static_cast<uint64_t>(fft_dim);
+            cfg.size[0]           = static_cast<uint64_t>(pad_nx_);
+            cfg.size[1]           = static_cast<uint64_t>(pad_ny_);
             if (fft_dim == 3) cfg.size[2] = static_cast<uint64_t>(pad_nz_);
             cfg.numberBatches     = 3;
             cfg.performR2C        = 1;
+            cfg.doublePrecision   = use_double;
             cfg.device            = &cu_dev;
             cfg.isOutputFormatted = 1;           // separate real outputBuffer
             cfg.buffer            = &d_MF_all_;  // complex input
@@ -654,7 +658,8 @@ void DemagFieldGPU::set_stream(void* s) {
     cufftSetStream(plan_fwd_batch_, static_cast<cudaStream_t>(s));
     cufftSetStream(plan_inv_batch_, static_cast<cudaStream_t>(s));
 #endif
-    // VkFFT: stream is passed per-launch in VkFFTLaunchParams (no per-plan binding).
+    // VkFFT runs on CUDA null stream (implicit sync with all non-null streams).
+    // No per-stream binding needed.
 }
 
 // ===========================================================================
@@ -845,10 +850,7 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
 #else
     {
         struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
-        VkFFTLaunchParams lp = {};
-        lp.inputBuffer = &d_M_all_;
-        lp.buffer      = &d_MF_all_;
-        lp.stream      = &s;
+        VkFFTLaunchParams lp = {};  // buffers and stream already set in app configuration
         VkFFTResult vr = VkFFTAppend(
             &static_cast<VkFFT_State*>(vkfft_state_)->fwd, -1, &lp);
         if (vr != VKFFT_SUCCESS)
@@ -899,10 +901,7 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
 #else
     {
         struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
-        VkFFTLaunchParams lp = {};
-        lp.buffer        = &d_MF_all_;
-        lp.outputBuffer  = &d_M_all_;
-        lp.stream        = &s;
+        VkFFTLaunchParams lp = {};  // buffers and stream already set in app configuration
         VkFFTResult vr = VkFFTAppend(
             &static_cast<VkFFT_State*>(vkfft_state_)->inv, 1, &lp);
         if (vr != VKFFT_SUCCESS)
@@ -1033,7 +1032,7 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
 #else
     {
         struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
-        VkFFTLaunchParams lp = {}; lp.inputBuffer = &d_M_all_; lp.buffer = &d_MF_all_; lp.stream = &s;
+        VkFFTLaunchParams lp = {};  // buffers and stream in app configuration
         VkFFTResult vr = VkFFTAppend(&static_cast<VkFFT_State*>(vkfft_state_)->fwd, -1, &lp);
         if (vr != VKFFT_SUCCESS) throw std::runtime_error("VkFFT fwd exec: " + std::to_string((int)vr));
     }
@@ -1076,7 +1075,7 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
 #else
     {
         struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
-        VkFFTLaunchParams lp = {}; lp.buffer = &d_MF_all_; lp.outputBuffer = &d_M_all_; lp.stream = &s;
+        VkFFTLaunchParams lp = {};  // buffers and stream in app configuration
         VkFFTResult vr = VkFFTAppend(&static_cast<VkFFT_State*>(vkfft_state_)->inv, 1, &lp);
         if (vr != VKFFT_SUCCESS) throw std::runtime_error("VkFFT inv exec: " + std::to_string((int)vr));
     }
