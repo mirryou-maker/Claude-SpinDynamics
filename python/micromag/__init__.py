@@ -3179,3 +3179,10 @@ def bloch_dw_np(grid, Delta, axis=0):
     m = VectorField3D(grid)
     from_numpy(m, arr)
     return m
+
+
+# mumax3 .mx3 script runner (lazy import to avoid circular import at package init)
+def run_mx3(*args, **kwargs):
+    """Parse and execute a mumax3-style .mx3 script. See micromag.mx3."""
+    from .mx3 import run_mx3 as _run
+    return _run(*args, **kwargs)

@@ -1,0 +1,22 @@
+// muMAG Standard Problem 4 — field A
+// 500 nm x 125 nm x 3 nm permalloy film, 128 x 32 x 1 cells.
+// Relax to the S-state, then reverse with B = (-24.6, 4.3, 0) mT for 1 ns.
+// Expected: <mx>(1 ns) ~ -0.98.
+
+SetGridSize(128, 32, 1)
+SetCellSize(500e-9/128, 125e-9/32, 3e-9)
+
+Msat  = 800e3
+Aex   = 13e-12
+alpha = 0.02
+
+// Start tilted, then relax to the S-state.
+m = uniform(1, 0.1, 0)
+relax()
+save(m)
+
+// Apply reversal field A and integrate 1 ns.
+B_ext = vector(-24.6e-3, 4.3e-3, 0)
+tableautosave(20e-12)
+run(1e-9)
+save(m)
