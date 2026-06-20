@@ -410,6 +410,14 @@ class Engine:
         self.region_mats = {}       # region id -> Material (per-region params)
         self._matf = None           # MaterialField3D kept alive while attached
 
+        # spin-transfer torque (Zhang-Li)
+        self.stt_J = (0.0, 0.0, 0.0)   # current density [A/m^2]
+        self.stt_pol = 0.5             # spin polarisation
+        self.stt_xi = 0.0              # non-adiabaticity
+        self._stt = None
+
+        self.table_energy_cols = []    # [(label, which)] extra energy columns (tableAdd)
+
         # time + outputs
         self.t = 0.0
         self.table_path = None
@@ -540,6 +548,53 @@ class Engine:
         self._matf = self._region_matfield()
         for fld in (self._demag, self._exch, self._aniso):
             _call_method(fld, "set_material_field", self._matf)
+
+    # -- energy ------------------------------------------------------------
+    def field_energy(self, which):
+        self._build_fields()
+        self._sync_params()
+        m, mat = self.m, self.mat
+        single = {"exch": self._exch, "demag": self._demag, "anis": self._aniso,
+                  "zeeman": self._zeeman, "dmi": self._dmi}.get(which)
+        if single is not None:
+            try:
+                return single.energy(m, mat)
+            except Exception:
+                return 0.0
+        if which == "total":
+            e = 0.0
+            for ff in (self._demag, self._exch, self._zeeman):
+                try:
+                    e += ff.energy(m, mat)
+                except Exception:
+                    pass
+            if abs(self.ku1) > 0:
+                try:
+                    e += self._aniso.energy(m, mat)
+                except Exception:
+                    pass
+            if abs(self.dind) > 0:
+                try:
+                    e += self._dmi.energy(m, mat)
+                except Exception:
+                    pass
+            return e
+        return 0.0
+
+    # -- spin-transfer torque ----------------------------------------------
+    def _active_torques(self):
+        if not any(self.stt_J):
+            return None
+        self._build_fields()
+        if self.gpu:
+            self._stt = mm.ZhangLiSTTGPU(self.grid, mm.Vec3(*self.stt_J),
+                                         self.stt_pol, self.stt_xi)
+            ts = mm.SpinTorqueSumGPU()
+        else:
+            self._stt = mm.ZhangLiSTT(mm.Vec3(*self.stt_J), self.stt_pol, self.stt_xi)
+            ts = mm.SpinTorqueSum()
+        ts.add(self._stt)
+        return ts
 
     # -- time-dependent excitation -----------------------------------------
     def set_bext_func(self, f):
@@ -721,31 +776,35 @@ class Engine:
 
     def run(self, t):
         demag, fs = self._active_fields()
+        torques = self._active_torques()
         if self.gpu:
-            self._run_gpu(demag, fs, t)
+            self._run_gpu(demag, fs, t, torques)
         else:
-            self._run_cpu(fs, t)
+            self._run_cpu(fs, t, torques)
         self.t += t
 
     def steps(self, n):
         demag, fs = self._active_fields()
+        torques = self._active_torques()
         dt = self._default_dt()
-        integ, stepper = self._make_rk4(dt)
+        integ, stepper = self._make_rk4(dt, torques)
         for _ in range(int(n)):
             stepper()
             self.t += dt
         self._download(integ)
 
-    def _run_gpu(self, demag, fs, t):
+    def _run_gpu(self, demag, fs, t, torques=None):
         adaptive = self.solver in (5, 6) and demag is not None
         if adaptive:
-            opts = mm.RK45IntegratorGPUOptions() if hasattr(mm, "RK45IntegratorGPUOptions") else None
-            integ = mm.RK45IntegratorGPU(self.grid) if opts is None else mm.RK45IntegratorGPU(self.grid, opts)
+            integ = mm.RK45IntegratorGPU(self.grid)
             integ.upload(self.m)
             elapsed = 0.0
             while elapsed < t * (1 - 1e-9):
                 self._update_bext(self.t + elapsed)
-                dt = integ.step(self.mat, demag, fs)
+                if torques is not None:
+                    dt = integ.step(self.mat, demag, fs, torques)
+                else:
+                    dt = integ.step(self.mat, demag, fs)
                 elapsed += dt
                 self._handle_autosave(integ, elapsed)
             integ.download(self.m)
@@ -756,33 +815,42 @@ class Engine:
             n = max(1, int(round(t / dt)))
             for k in range(n):
                 self._update_bext(self.t + k * dt)
-                integ.step(self.mat, demag, fs)
+                if torques is not None:
+                    integ.step(self.mat, demag, fs, torques)
+                else:
+                    integ.step(self.mat, demag, fs)
                 self._handle_autosave(integ, (k + 1) * dt)
             integ.download(self.m)
 
-    def _run_cpu(self, fs, t):
+    def _run_cpu(self, fs, t, torques=None):
         dt = self._default_dt()
         integ = mm.RK45Integrator()       # adaptive DOPRI5 (default tolerances)
         elapsed = 0.0
         guard = 0
         while elapsed < t * (1 - 1e-9):
             self._update_bext(self.t + elapsed)
-            adv = integ.step(self.m, self.mat, fs)
+            adv = integ.step(self.m, self.mat, fs, torques)
             elapsed += (adv if adv else dt)
             guard += 1
             if guard > 10_000_000:
                 break
 
     # -- integrator helpers (for stepping-based relax/steps) ---------------
-    def _make_rk4(self, dt):
+    def _make_rk4(self, dt, torques=None):
         demag, fs = self._active_fields()
         if self.gpu:
             integ = mm.RK4IntegratorGPU(self.grid, dt)
             integ.upload(self.m)
-            stepper = lambda: integ.step(self.mat, demag, fs)
+            if torques is not None:
+                stepper = lambda: integ.step(self.mat, demag, fs, torques)
+            else:
+                stepper = lambda: integ.step(self.mat, demag, fs)
         else:
             integ = mm.RK4Integrator(dt)
-            stepper = lambda: integ.step(self.m, self.mat, fs)
+            if torques is not None:
+                stepper = lambda: integ.step(self.m, self.mat, fs, torques)
+            else:
+                stepper = lambda: integ.step(self.m, self.mat, fs)
         return integ, stepper
 
     def _download(self, integ):
@@ -817,10 +885,14 @@ class Engine:
         new = not self.table_started
         with open(self.table_path, "a", encoding="utf-8") as fh:
             if new:
-                fh.write("# t (s)\tmx\tmy\tmz\n")
+                cols = "".join(f"\t{lbl}" for lbl, _ in self.table_energy_cols)
+                fh.write("# t (s)\tmx\tmy\tmz" + cols + "\n")
                 self.table_started = True
             mx, my, mz = self._avg_m()
-            fh.write(f"{t:.6e}\t{mx:.6e}\t{my:.6e}\t{mz:.6e}\n")
+            row = f"{t:.6e}\t{mx:.6e}\t{my:.6e}\t{mz:.6e}"
+            for _lbl, which in self.table_energy_cols:
+                row += f"\t{self.field_energy(which):.6e}"
+            fh.write(row + "\n")
 
     def add_autosave(self, interval):
         self.autosaves.append(["save", float(interval), float(interval)])
@@ -902,6 +974,16 @@ def _warn(msg):
 # Interpreter — dispatch parsed statements onto the Engine
 # ---------------------------------------------------------------------------
 _OUTPUT_FUNCS = {"save", "saveas", "autosave", "tableadd", "tableaddvar", "print"}
+
+# mumax3 energy quantity (lower-cased) -> (column label, Engine.field_energy key)
+_ENERGY_MAP = {
+    "e_total": ("E_total", "total"),
+    "e_exch": ("E_exch", "exch"), "e_exchange": ("E_exch", "exch"),
+    "e_demag": ("E_demag", "demag"),
+    "e_zeeman": ("E_Zeeman", "zeeman"),
+    "e_anis": ("E_anis", "anis"),
+    "e_dmi": ("E_dmi", "dmi"),
+}
 
 
 def _split_args(toks):
@@ -1024,6 +1106,12 @@ class Interpreter:
         elif name == "b_ext":
             e.bext = tuple(val) if isinstance(val, Vec) else (0, 0, 0)
             e.bext_func = None
+        elif name == "j":
+            e.stt_J = tuple(val) if isinstance(val, Vec) else (0, 0, 0)
+        elif name == "pol":
+            e.stt_pol = float(val)
+        elif name == "xi":
+            e.stt_xi = float(val)
         elif name == "enabledemag":
             e.enable_demag = bool(val)
         elif name == "maxerr":
@@ -1091,7 +1179,11 @@ class Interpreter:
             interval = eval_expr(arg_groups[-1], self.env)
             e.add_autosave(float(interval))
         elif name in ("tableadd", "tableaddvar"):
-            pass  # we always log <mx,my,mz>
+            for g in arg_groups:
+                ident = next((t.value for t in g if t.kind == "IDENT"), None)
+                col = _ENERGY_MAP.get(ident)
+                if col and col not in self.eng.table_energy_cols:
+                    self.eng.table_energy_cols.append(col)
 
     def _do_method(self, obj, method, inner):
         if method != "setregion":
