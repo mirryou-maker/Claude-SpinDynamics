@@ -32,7 +32,7 @@ cmake --preset windows-msvc-cuda
 # Build
 cmake --build build/windows-msvc-cuda --config Release
 
-# Run GPU tests (100 tests)
+# Run GPU tests (113 tests)
 .\build\windows-msvc-cuda\bin\Release\unit_tests_gpu.exe
 
 # Run µMAG benchmarks
@@ -259,8 +259,8 @@ results = mm.parameter_sweep(fn, {"D": D_vals, "K": K_vals}, n_jobs=4)
 
 ## Test structure
 
-**CPU** (`tests/unit_tests`, 224 tests): Catch2 v3, tags below.  
-**GPU** (`tests/unit_tests_gpu`, 100 tests): same runner, all tagged `[gpu]`.
+**CPU** (`tests/unit_tests`, 232 tests): Catch2 v3, tags below.  
+**GPU** (`tests/unit_tests_gpu`, 113 tests): same runner, all tagged `[gpu]`.
 
 | Tag | Scope |
 |-----|-------|

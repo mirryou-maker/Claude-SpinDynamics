@@ -171,20 +171,21 @@ void RK4IntegratorGPU::run_stage(
     // fields are in uniform-material mode (no per-cell data on device).
     // Saves 36% of global-memory ops vs three separate launches.
     const bool aniso_percell = aniso && aniso->has_material_field();
-    if (!exch.has_material_field() && !aniso_percell) {
+    if (!exch.has_material_field() && !exch.has_geometry() && !aniso_percell) {
         const double mu0Ms = constants::mu_0 * mat.Ms;
         const double dx = exch.dx(), dy = exch.dy(), dz = exch.dz();
         const double fx = (dx > 0) ? 2.0 * mat.A_exchange / (mu0Ms * dx * dx) : 0.0;
         const double fy = (dy > 0) ? 2.0 * mat.A_exchange / (mu0Ms * dy * dy) : 0.0;
         const double fz = (dz > 0) ? 2.0 * mat.A_exchange / (mu0Ms * dz * dz) : 0.0;
 
-        double aniso_factor = 0.0, ux = 0, uy = 0, uz = 1;
-        if (aniso && mat.K_uniaxial != 0.0 && mu0Ms > 0) {
+        double aniso_factor = 0.0, aniso_k2_factor = 0.0, ux = 0, uy = 0, uz = 1;
+        if (aniso && (mat.K_uniaxial != 0.0 || mat.Ku2 != 0.0) && mu0Ms > 0) {
             Vec3 u = mat.easy_axis;
             const double unorm = std::sqrt(u.x*u.x + u.y*u.y + u.z*u.z);
             if (unorm > 1e-30) {
                 ux = u.x/unorm; uy = u.y/unorm; uz = u.z/unorm;
-                aniso_factor = 2.0 * mat.K_uniaxial / mu0Ms;
+                aniso_factor    = 2.0 * mat.K_uniaxial / mu0Ms;
+                aniso_k2_factor = 4.0 * mat.Ku2        / mu0Ms;
             }
         }
 
@@ -195,7 +196,7 @@ void RK4IntegratorGPU::run_stage(
             state_.nx(), state_.ny(), state_.nz(),
             fx, fy, fz,
             Hext.x, Hext.y, Hext.z,
-            aniso_factor, ux, uy, uz,
+            aniso_factor, aniso_k2_factor, ux, uy, uz,
             periodic, s);
     } else {
         // Per-cell mode: fall back to individual kernels

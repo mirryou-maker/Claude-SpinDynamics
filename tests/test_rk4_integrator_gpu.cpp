@@ -153,7 +153,8 @@ TEST_CASE("RK4IntegratorGPU 10 steps vs CPU", "[integ][gpu]") {
 TEST_CASE("RK4IntegratorGPU: fused kernel matches per-cell fallback", "[integ][gpu]") {
     StructuredGrid g(16, 16, 1, 4e-9, 4e-9, 4e-9);
     Material mat = Material::permalloy();
-    mat.K_uniaxial = 5e5;            // exercise the fused anisotropy term
+    mat.K_uniaxial = 5e5;            // exercise the fused 1st-order anisotropy term
+    mat.Ku2        = 2e5;            // exercise the fused 2nd-order (Ku2) term
     mat.easy_axis  = {0.0, 0.0, 1.0};
     const Real dt = 5e-14;
     const Vec3 Hext{-30e3, 8e3, 2e3};

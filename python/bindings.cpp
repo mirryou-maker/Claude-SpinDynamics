@@ -1050,6 +1050,32 @@ PYBIND11_MODULE(_micromag, m) {
         .def("clear_material_field", &ExchangeFieldGPU::clear_material_field,
              "Revert to uniform Material mode (free per-cell GPU buffers).")
         .def_property_readonly("has_material_field", &ExchangeFieldGPU::has_material_field)
+        .def("set_mask",
+             [](ExchangeFieldGPU& f, const GeomMask& mask) { f.set_mask(mask); },
+             py::arg("mask"),
+             "Attach a geometry mask (mumax3 geometry). Cells with mask<0.5 are "
+             "vacuum: skipped, with zero exchange flux across the interface.")
+        .def("clear_mask", &ExchangeFieldGPU::clear_mask,
+             "Detach the geometry mask (free GPU buffer).")
+        .def_property_readonly("has_mask", &ExchangeFieldGPU::has_mask)
+        .def("set_region_map",
+             [](ExchangeFieldGPU& f, const RegionMap& rm) { f.set_region_map(rm); },
+             py::arg("region_map"),
+             "Attach a RegionMap so per-cell region IDs drive inter-region "
+             "exchange coupling. Use with set_inter_exchange().")
+        .def("clear_region_map", &ExchangeFieldGPU::clear_region_map,
+             "Detach the region map (free GPU buffer).")
+        .def_property_readonly("has_region_map", &ExchangeFieldGPU::has_region_map)
+        .def("set_inter_exchange", &ExchangeFieldGPU::set_inter_exchange,
+             py::arg("ri"), py::arg("rj"), py::arg("A_IEC"),
+             "Set explicit exchange coupling A_IEC [J/m] across the bond between "
+             "regions ri and rj (symmetric). A_IEC=0 cuts the bond. Unset pairs "
+             "use the harmonic mean of the cells' A. Requires set_region_map().")
+        .def("inter_exchange", &ExchangeFieldGPU::inter_exchange,
+             py::arg("ri"), py::arg("rj"),
+             "Return the inter-region coupling A_IEC for (ri,rj), or -1 if unset.")
+        .def("clear_inter_exchange", &ExchangeFieldGPU::clear_inter_exchange,
+             "Clear all inter-region coupling entries.")
         .def_property_readonly("name", &ExchangeFieldGPU::name);
 
     py::class_<ZeemanFieldGPU, IEffectiveField, IEffectiveFieldGPU,

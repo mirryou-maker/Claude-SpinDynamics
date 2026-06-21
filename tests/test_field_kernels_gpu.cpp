@@ -259,6 +259,50 @@ TEST_CASE("UniaxialAnisotropyFieldGPU: additive", "[anisotropy][gpu]") {
     }
 }
 
+TEST_CASE("UniaxialAnisotropyFieldGPU: 2nd-order Ku2 matches CPU", "[anisotropy][gpu]") {
+    // Validate the GPU 2nd-order uniaxial term H += (4Ku2/μ₀Ms)(m·û)³ û
+    // against the CPU reference. Ku2 was previously silently dropped on GPU.
+    StructuredGrid g(8, 6, 4, 3e-9, 3e-9, 3e-9);
+    Material mat = Material::cobalt();
+    mat.K_uniaxial = 5.2e5;
+    mat.Ku2        = 1.5e5;            // strong 2nd-order term
+    mat.easy_axis  = {0.0, 0.0, 1.0};
+
+    VectorField3D m(g);
+    for (Index iz=0; iz<g.nz(); ++iz)
+    for (Index iy=0; iy<g.ny(); ++iy)
+    for (Index ix=0; ix<g.nx(); ++ix) {
+        double phi = ix*0.3 + iy*0.2;
+        m.at(ix,iy,iz) = {std::sin(phi)*std::cos(iz*0.1),
+                           std::sin(phi)*std::sin(iz*0.1),
+                           std::cos(phi)};
+    }
+
+    VectorField3D H_cpu(g), H_gpu(g);
+    for (Index i=0; i<g.size(); ++i) H_cpu[i] = H_gpu[i] = {0,0,0};
+
+    UniaxialAnisotropyField    cpu;
+    UniaxialAnisotropyFieldGPU gpu(g);
+    cpu.accumulate(m, mat, H_cpu);   // CPU includes Ku2
+    gpu.accumulate(m, mat, H_gpu);   // GPU host path (now includes Ku2)
+
+    const double scale = 2.0*mat.K_uniaxial/(constants::mu_0*mat.Ms);
+    const double err = max_rel_diff(H_cpu, H_gpu, scale * 1e-4);
+    INFO("max_rel_err (host path) = " << err);
+    REQUIRE(err < micromag::gtol(1e-7));
+
+    // Sanity: with Ku2=0 the GPU result must differ (proves Ku2 contributes)
+    Material mat_k1 = mat; mat_k1.Ku2 = 0.0;
+    VectorField3D H_k1(g);
+    for (Index i=0; i<g.size(); ++i) H_k1[i] = {0,0,0};
+    gpu.accumulate(m, mat_k1, H_k1);
+    double maxdiff = 0.0;
+    for (Index i=0; i<g.size(); ++i)
+        maxdiff = std::max(maxdiff, std::abs(H_gpu[i].z - H_k1[i].z));
+    INFO("Ku2 contribution magnitude = " << maxdiff);
+    REQUIRE(maxdiff > scale * 1e-3);
+}
+
 TEST_CASE("UniaxialAnisotropyFieldGPU energy matches CPU", "[anisotropy][gpu]") {
     StructuredGrid g(6, 6, 4, 5e-9, 5e-9, 5e-9);
     Material mat = Material::cobalt();

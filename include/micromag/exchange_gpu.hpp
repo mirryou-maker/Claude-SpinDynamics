@@ -62,11 +62,39 @@ public:
     void clear_material_field();
     bool has_material_field() const { return d_A_field_ != nullptr; }
 
+    // -----------------------------------------------------------------------
+    // Geometry mask (mumax3 geometry analog). Cells with mask < 0.5 are vacuum:
+    // skipped entirely, and exchange flux across the interface is zero (Neumann).
+    // Matches CPU ExchangeField::set_mask semantics.
+    // -----------------------------------------------------------------------
+    void set_mask(const GeomMask& mask);
+    void clear_mask();
+    bool has_mask() const { return d_mask_ != nullptr; }
+
+    // -----------------------------------------------------------------------
+    // Per-region-pair exchange coupling (mumax3 SetInterExchange analog).
+    // Attach a RegionMap so cell region IDs are available, then set explicit
+    // coupling A_IEC [J/m] for region-pair bonds. Unset pairs fall back to the
+    // harmonic mean of the two cells' A. A_IEC = 0 cuts the bond. Symmetric.
+    // -----------------------------------------------------------------------
+    void set_region_map(const RegionMap& rm);
+    void clear_region_map();
+    bool has_region_map() const { return d_region_ != nullptr; }
+
+    void set_inter_exchange(uint8_t ri, uint8_t rj, Real A_IEC);
+    Real inter_exchange(uint8_t ri, uint8_t rj) const;
+    void clear_inter_exchange();
+
+    // True when a mask or region map is attached → the integrator must use the
+    // per-field accumulate path (the fused local-field kernel ignores geometry).
+    bool has_geometry() const { return d_mask_ != nullptr || d_region_ != nullptr; }
+
     // Cell-size and BC accessors — used by fused local-field kernel in the integrator.
     Real dx() const { return dx_; }
     Real dy() const { return dy_; }
     Real dz() const { return dz_; }
     BoundaryCondition bc() const { return bc_; }
+    BoundaryCondition boundary() const { return bc_; }
 
 private:
     Index  nx_, ny_, nz_;
@@ -80,6 +108,14 @@ private:
     // Per-cell material buffers (null = uniform mode)
     double* d_A_field_  = nullptr;  // double[N] — A_exchange per cell
     double* d_Ms_field_ = nullptr;  // double[N] — Ms per cell
+
+    // Geometry / region buffers (null = not attached)
+    double*  d_mask_   = nullptr;   // double[N] — geometry mask (<0.5 = vacuum)
+    uint8_t* d_region_ = nullptr;   // uint8[N]  — per-cell region ID
+    double*  d_inter_  = nullptr;   // double[256*256] — symmetric A_IEC; NaN = unset
+    std::unordered_map<uint32_t, Real> inter_A_;   // host mirror (key = lo*256+hi)
+
+    void upload_inter_table();      // (re)build d_inter_ from inter_A_
 
     // CUDA stream — all GPU work serialised here
     void* stream_       = nullptr;

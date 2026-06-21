@@ -29,14 +29,16 @@ namespace micromag {
 // Fused Exchange + Zeeman + Uniaxial Anisotropy kernel launch (free function).
 // Called from RK4IntegratorGPU::run_stage when all three fields are uniform-mode.
 // Reduces global-memory H_out reads+writes from 3×3 to 1×3 (36% fewer ops).
-//   aniso_factor = 2K/(μ₀Ms); pass 0.0 to skip anisotropy.
-//   bc_periodic  = true → periodic exchange BC, false → Neumann (clamp).
+//   aniso_factor    = 2K1/(μ₀Ms); pass 0.0 to skip 1st-order anisotropy.
+//   aniso_k2_factor = 4Ku2/(μ₀Ms); pass 0.0 to skip 2nd-order anisotropy.
+//   bc_periodic     = true → periodic exchange BC, false → Neumann (clamp).
 void launch_fused_local_fields(
     const GReal* d_m, GReal* d_H_out,
     int nx, int ny, int nz,
     double fx, double fy, double fz,
     double Hx, double Hy, double Hz,
     double aniso_factor,
+    double aniso_k2_factor,
     double ux, double uy, double uz,
     bool bc_periodic,
     void* stream);

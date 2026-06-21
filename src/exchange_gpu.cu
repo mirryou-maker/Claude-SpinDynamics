@@ -13,14 +13,18 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "micromag/exchange.hpp"
 #include "micromag/exchange_gpu.hpp"
+#include "micromag/geom_mask.hpp"
 #include "micromag/gpu_real.hpp"
 #include "micromag/material_field.hpp"
+#include "micromag/region_map.hpp"
 #include "micromag/types.hpp"
 
 // ---------------------------------------------------------------------------
@@ -322,6 +326,101 @@ __global__ static void exchange_kernel_percell_periodic(
 }
 
 // ===========================================================================
+// General kernel: geometry mask + region-pair inter-exchange + optional
+// per-cell A/Ms. Used only when a mask or region map is attached (the fast
+// kernels above handle the common no-geometry case). Mirrors CPU
+// ExchangeField::accumulate per-bond logic exactly.
+// ===========================================================================
+
+// Neighbour index with Neumann/periodic BC and mask-interface clamp.
+// Returns `self` when the bond should carry zero flux (boundary or vacuum).
+__device__ __forceinline__ int exch_neighbor(
+    int ix, int iy, int iz, int dix, int diy, int diz,
+    int nx, int ny, int nz, int self, bool periodic,
+    const double* __restrict__ mask)
+{
+    int ni = ix + dix, nj = iy + diy, nk = iz + diz;
+    const bool out = (ni < 0 || ni >= nx || nj < 0 || nj >= ny || nk < 0 || nk >= nz);
+    if (!out) {
+        const int nidx = ni + nx * (nj + ny * nk);
+        if (mask && mask[nidx] < 0.5) return self;   // vacuum neighbour → no flux
+        return nidx;
+    }
+    if (!periodic) return self;                       // Neumann edge → no flux
+    ni = (ni % nx + nx) % nx;
+    nj = (nj % ny + ny) % ny;
+    nk = (nk % nz + nz) % nz;
+    return ni + nx * (nj + ny * nk);
+}
+
+__global__ static void exchange_kernel_general(
+    GReal* __restrict__       H_out,
+    const GReal* __restrict__ m,
+    const double* __restrict__ d_A,      // null → uniform A
+    const double* __restrict__ d_Ms,     // null → uniform Ms
+    double A_unif, double Ms_unif,
+    const double* __restrict__  d_mask,  // null → no geometry
+    const uint8_t* __restrict__ d_region,// null → no regions
+    const double* __restrict__  d_inter, // null → no inter-exchange table
+    int nx, int ny, int nz,
+    double mu0, double idx2, double idy2, double idz2,
+    bool periodic)
+{
+    const int N   = nx * ny * nz;
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+    if (d_mask && d_mask[idx] < 0.5) return;          // vacuum cell → skip
+
+    const double Ms_c = d_Ms ? d_Ms[idx] : Ms_unif;
+    if (Ms_c <= 0.0) return;
+    const double A_c   = d_A ? d_A[idx] : A_unif;
+    const double pre_c = 2.0 / (mu0 * Ms_c);
+    const int    rid_c = d_region ? (int)d_region[idx] : 0;
+
+    const int ix = idx % nx;
+    const int iy = (idx / nx) % ny;
+    const int iz = idx / (nx * ny);
+
+    int nb[6];
+    nb[0] = exch_neighbor(ix,iy,iz, +1,0,0, nx,ny,nz, idx, periodic, d_mask);
+    nb[1] = exch_neighbor(ix,iy,iz, -1,0,0, nx,ny,nz, idx, periodic, d_mask);
+    nb[2] = exch_neighbor(ix,iy,iz, 0,+1,0, nx,ny,nz, idx, periodic, d_mask);
+    nb[3] = exch_neighbor(ix,iy,iz, 0,-1,0, nx,ny,nz, idx, periodic, d_mask);
+    nb[4] = exch_neighbor(ix,iy,iz, 0,0,+1, nx,ny,nz, idx, periodic, d_mask);
+    nb[5] = exch_neighbor(ix,iy,iz, 0,0,-1, nx,ny,nz, idx, periodic, d_mask);
+    const double ih2[6] = {idx2, idx2, idy2, idy2, idz2, idz2};
+
+    double bondA[6];
+    for (int b = 0; b < 6; ++b) {
+        const int in = nb[b];
+        double A_b;
+        bool used_iec = false;
+        if (d_region) {
+            const int rid_n = (int)d_region[in];
+            if (rid_n != rid_c && d_inter) {
+                const double iec = d_inter[rid_c * 256 + rid_n];
+                if (!isnan(iec)) { A_b = iec; used_iec = true; }
+            }
+        }
+        if (!used_iec) {
+            const double A_n = d_A ? d_A[in] : A_unif;
+            const double s   = A_c + A_n;
+            A_b = (s > 0.0) ? (2.0 * A_c * A_n / s) : 0.0;  // harmonic mean
+        }
+        bondA[b] = A_b;
+    }
+
+    for (int c = 0; c < 3; ++c) {
+        const int base = c * N;
+        const double mc = m[base + idx];
+        double acc = 0.0;
+        for (int b = 0; b < 6; ++b)
+            acc += (m[base + nb[b]] - mc) * bondA[b] * ih2[b];
+        H_out[base + idx] += acc * pre_c;
+    }
+}
+
+// ===========================================================================
 // Constructor / Destructor
 // ===========================================================================
 ExchangeFieldGPU::ExchangeFieldGPU(const StructuredGrid& grid, BoundaryCondition bc)
@@ -345,6 +444,9 @@ ExchangeFieldGPU::~ExchangeFieldGPU() {
     cudaFree(d_H_scratch_);
     if (d_A_field_)  cudaFree(d_A_field_);
     if (d_Ms_field_) cudaFree(d_Ms_field_);
+    if (d_mask_)     cudaFree(d_mask_);
+    if (d_region_)   cudaFree(d_region_);
+    if (d_inter_)    cudaFree(d_inter_);
     if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
@@ -354,7 +456,8 @@ ExchangeFieldGPU::~ExchangeFieldGPU() {
 void ExchangeFieldGPU::accumulate(const VectorField3D& m,
                                    const Material& mat,
                                    VectorField3D& H_out) const {
-    if (mat.A_exchange == 0.0) return;
+    // Per-cell A or geometry can contribute even when uniform A_exchange is 0.
+    if (mat.A_exchange == 0.0 && !d_A_field_ && !has_geometry()) return;
 
     const cudaStream_t s   = static_cast<cudaStream_t>(stream_);
     const double pre = 2.0 * mat.A_exchange / (constants::mu_0 * mat.Ms);
@@ -385,7 +488,18 @@ void ExchangeFieldGPU::accumulate(const VectorField3D& m,
     // ------------------------------------------------------------------
     // 3. Launch exchange kernel (Neumann or Periodic BC)
     // ------------------------------------------------------------------
-    if (bc_ == BoundaryCondition::Periodic) {
+    if (has_geometry() || d_A_field_) {
+        // Geometry/region/per-cell path → general kernel
+        const int blk = 256;
+        const int grd = static_cast<int>((N_ + blk - 1) / blk);
+        exchange_kernel_general<<<grd, blk, 0, s>>>(
+            reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
+            d_A_field_, d_Ms_field_, mat.A_exchange, mat.Ms,
+            d_mask_, d_region_, d_inter_,
+            (int)nx_, (int)ny_, (int)nz_,
+            constants::mu_0, 1.0/(dx_*dx_), 1.0/(dy_*dy_), 1.0/(dz_*dz_),
+            bc_ == BoundaryCondition::Periodic);
+    } else if (bc_ == BoundaryCondition::Periodic) {
         const int blk = 256;
         const int grd = static_cast<int>((N_ + blk - 1) / blk);
         exchange_kernel_periodic<<<grd, blk, 0, s>>>(
@@ -434,6 +548,20 @@ void ExchangeFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
 
     auto* gm  = reinterpret_cast<const GReal*>(d_m);
     auto* gH  = reinterpret_cast<GReal*>(d_H_out);
+
+    // Geometry (mask) or region-pair coupling → general kernel (handles
+    // per-cell A/Ms too). Checked first so mask+per-cell combine correctly.
+    if (has_geometry()) {
+        exchange_kernel_general<<<grd, blk, 0, s>>>(
+            gH, gm, d_A_field_, d_Ms_field_,
+            mat.A_exchange, mat.Ms,
+            d_mask_, d_region_, d_inter_,
+            (int)nx_, (int)ny_, (int)nz_,
+            constants::mu_0, idx2, idy2, idz2,
+            bc_ == BoundaryCondition::Periodic);
+        CUDA_CHECK(cudaGetLastError());
+        return;
+    }
 
     if (d_A_field_) {
         // Per-cell mode
@@ -489,6 +617,84 @@ void ExchangeFieldGPU::set_material_field(const MaterialField3D& matf) {
 void ExchangeFieldGPU::clear_material_field() {
     if (d_A_field_)  { cudaFree(d_A_field_);  d_A_field_  = nullptr; }
     if (d_Ms_field_) { cudaFree(d_Ms_field_); d_Ms_field_ = nullptr; }
+}
+
+// ===========================================================================
+// Geometry mask
+// ===========================================================================
+void ExchangeFieldGPU::set_mask(const GeomMask& mask) {
+    if (!d_mask_)
+        CUDA_CHECK(cudaMalloc(&d_mask_, N_ * sizeof(double)));
+    std::vector<double> h_mask(N_);
+    for (size_t i = 0; i < N_; ++i)
+        h_mask[i] = static_cast<double>(mask[static_cast<Index>(i)]);
+    CUDA_CHECK(cudaMemcpyAsync(d_mask_, h_mask.data(), N_ * sizeof(double),
+                               cudaMemcpyHostToDevice,
+                               static_cast<cudaStream_t>(stream_)));
+    CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream_)));
+}
+
+void ExchangeFieldGPU::clear_mask() {
+    if (d_mask_) { cudaFree(d_mask_); d_mask_ = nullptr; }
+}
+
+// ===========================================================================
+// Region map + inter-region exchange
+// ===========================================================================
+void ExchangeFieldGPU::set_region_map(const RegionMap& rm) {
+    if (!d_region_)
+        CUDA_CHECK(cudaMalloc(&d_region_, N_ * sizeof(uint8_t)));
+    std::vector<uint8_t> h_r(N_);
+    for (size_t i = 0; i < N_; ++i)
+        h_r[i] = rm[static_cast<Index>(i)];
+    CUDA_CHECK(cudaMemcpyAsync(d_region_, h_r.data(), N_ * sizeof(uint8_t),
+                               cudaMemcpyHostToDevice,
+                               static_cast<cudaStream_t>(stream_)));
+    CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream_)));
+}
+
+void ExchangeFieldGPU::clear_region_map() {
+    if (d_region_) { cudaFree(d_region_); d_region_ = nullptr; }
+}
+
+void ExchangeFieldGPU::upload_inter_table() {
+    if (inter_A_.empty()) {
+        if (d_inter_) { cudaFree(d_inter_); d_inter_ = nullptr; }
+        return;
+    }
+    if (!d_inter_)
+        CUDA_CHECK(cudaMalloc(&d_inter_, 256 * 256 * sizeof(double)));
+    // NaN = "unset" (matches CPU lookup_inter convention); fill set pairs both ways.
+    std::vector<double> h(256 * 256, std::numeric_limits<double>::quiet_NaN());
+    for (const auto& kv : inter_A_) {
+        const uint8_t lo = static_cast<uint8_t>(kv.first / 256u);
+        const uint8_t hi = static_cast<uint8_t>(kv.first % 256u);
+        h[lo * 256 + hi] = kv.second;
+        h[hi * 256 + lo] = kv.second;
+    }
+    CUDA_CHECK(cudaMemcpyAsync(d_inter_, h.data(), 256 * 256 * sizeof(double),
+                               cudaMemcpyHostToDevice,
+                               static_cast<cudaStream_t>(stream_)));
+    CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream_)));
+}
+
+void ExchangeFieldGPU::set_inter_exchange(uint8_t ri, uint8_t rj, Real A_IEC) {
+    const uint8_t lo = ri < rj ? ri : rj;
+    const uint8_t hi = ri < rj ? rj : ri;
+    inter_A_[static_cast<uint32_t>(lo) * 256u + hi] = A_IEC;
+    upload_inter_table();
+}
+
+Real ExchangeFieldGPU::inter_exchange(uint8_t ri, uint8_t rj) const {
+    const uint8_t lo = ri < rj ? ri : rj;
+    const uint8_t hi = ri < rj ? rj : ri;
+    auto it = inter_A_.find(static_cast<uint32_t>(lo) * 256u + hi);
+    return (it != inter_A_.end()) ? it->second : Real{-1};
+}
+
+void ExchangeFieldGPU::clear_inter_exchange() {
+    inter_A_.clear();
+    if (d_inter_) { cudaFree(d_inter_); d_inter_ = nullptr; }
 }
 
 // ===========================================================================

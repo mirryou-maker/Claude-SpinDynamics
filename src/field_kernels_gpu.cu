@@ -54,13 +54,14 @@ __global__ static void anisotropy_kernel(
     GReal* __restrict__       H_out,
     const GReal* __restrict__ m,
     double factor,              // 2K / (關? Ms)
+    double k2_factor,           // 4*Ku2 / (mu0 Ms), 2nd-order uniaxial term
     double ux, double uy, double uz,
     int N)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
     const double dot = m[0*N + idx]*ux + m[1*N + idx]*uy + m[2*N + idx]*uz;
-    const double h   = factor * dot;
+    const double h   = factor * dot + k2_factor * dot*dot*dot;
     H_out[0*N + idx] += h * ux;
     H_out[1*N + idx] += h * uy;
     H_out[2*N + idx] += h * uz;
@@ -88,6 +89,7 @@ __global__ static void exch_zeeman_aniso_fused_kernel(
     double fx, double fy, double fz,
     double Hx, double Hy, double Hz,
     double aniso_factor,
+    double aniso_k2_factor,
     double ux, double uy, double uz,
     bool bc_periodic)
 {
@@ -138,10 +140,10 @@ __global__ static void exch_zeeman_aniso_fused_kernel(
         + (m[2*N+ym]-mz)*fy + (m[2*N+yp]-mz)*fy
         + (m[2*N+zm]-mz)*fz + (m[2*N+zp]-mz)*fz;
 
-    // --- Uniaxial Anisotropy (skipped when K=0) ---
-    if (aniso_factor != 0.0) {
+    // --- Uniaxial Anisotropy (1st + 2nd order; skipped when K1=Ku2=0) ---
+    if (aniso_factor != 0.0 || aniso_k2_factor != 0.0) {
         const double dot = mx*ux + my*uy + mz*uz;
-        const double h   = aniso_factor * dot;
+        const double h   = aniso_factor * dot + aniso_k2_factor * dot*dot*dot;
         hx += h * ux;
         hy += h * uy;
         hz += h * uz;
@@ -166,6 +168,7 @@ void launch_fused_local_fields(
     double fx, double fy, double fz,
     double Hx, double Hy, double Hz,
     double aniso_factor,
+    double aniso_k2_factor,
     double ux, double uy, double uz,
     bool bc_periodic,
     void* stream)
@@ -177,7 +180,7 @@ void launch_fused_local_fields(
         static_cast<cudaStream_t>(stream)>>>(
         d_H_out, d_m, nx, ny, nz,
         fx, fy, fz, Hx, Hy, Hz,
-        aniso_factor, ux, uy, uz,
+        aniso_factor, aniso_k2_factor, ux, uy, uz,
         bc_periodic);
 }
 
@@ -260,13 +263,15 @@ UniaxialAnisotropyFieldGPU::~UniaxialAnisotropyFieldGPU() {
 void UniaxialAnisotropyFieldGPU::accumulate(const VectorField3D& m,
                                               const Material& mat,
                                               VectorField3D& H_out) const {
-    if (mat.K_uniaxial == 0.0) return;
+    if (mat.K_uniaxial == 0.0 && mat.Ku2 == 0.0) return;
 
     Vec3 u = mat.easy_axis;
     const double unorm = std::sqrt(u.x*u.x + u.y*u.y + u.z*u.z);
     if (unorm < 1e-30) return;
     u.x /= unorm; u.y /= unorm; u.z /= unorm;
-    const double factor = 2.0 * mat.K_uniaxial / (constants::mu_0 * mat.Ms);
+    const double inv_mu0Ms = 1.0 / (constants::mu_0 * mat.Ms);
+    const double factor    = 2.0 * mat.K_uniaxial * inv_mu0Ms;
+    const double k2_factor = 4.0 * mat.Ku2 * inv_mu0Ms;
 
     // Pack m into [Mx|My|Mz] host buffer
     std::vector<GReal> h_m(3 * N_);
@@ -288,7 +293,7 @@ void UniaxialAnisotropyFieldGPU::accumulate(const VectorField3D& m,
     const int grd = static_cast<int>((N_ + blk - 1) / blk);
     anisotropy_kernel<<<grd, blk, 0, s>>>(
         reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
-        factor, u.x, u.y, u.z, static_cast<int>(N_));
+        factor, k2_factor, u.x, u.y, u.z, static_cast<int>(N_));
     CUDA_CHECK(cudaGetLastError());
 
     std::vector<GReal> h_H(3 * N_);
@@ -319,6 +324,8 @@ ScalarField3D UniaxialAnisotropyFieldGPU::energy_density(const VectorField3D& m,
 // d_K:    [N]   ??K_uniaxial per cell
 // d_axis: [3N]  ??easy_axis per cell (component-major: [ux0..uxN-1 | uy | uz])
 // d_Ms:   [N]   ??Ms per cell
+// Per-cell K1/easy_axis/Ms; Ku2 is uniform (from mat) matching the CPU
+// UniaxialAnisotropyField per-cell convention.
 __global__ static void anisotropy_kernel_percell(
     GReal* __restrict__       H_out,
     const GReal* __restrict__ m,
@@ -326,6 +333,7 @@ __global__ static void anisotropy_kernel_percell(
     const double* __restrict__ d_axis,
     const double* __restrict__ d_Ms,
     double mu0_inv2,   // 2.0 / mu_0
+    double ku2_uniform, // uniform Ku2 [J/m^3]
     int N)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -333,7 +341,7 @@ __global__ static void anisotropy_kernel_percell(
 
     const double K_i  = d_K[idx];
     const double Ms_i = d_Ms[idx];
-    if (Ms_i <= 0.0 || K_i == 0.0) return;
+    if (Ms_i <= 0.0 || (K_i == 0.0 && ku2_uniform == 0.0)) return;
 
     // Normalize easy axis
     double ux = d_axis[0*N + idx];
@@ -343,9 +351,11 @@ __global__ static void anisotropy_kernel_percell(
     if (unorm < 1e-30) return;
     ux /= unorm; uy /= unorm; uz /= unorm;
 
-    const double factor = K_i * mu0_inv2 / Ms_i;
+    const double inv_mu0Ms = mu0_inv2 / (2.0 * Ms_i);   // 1/(mu0 Ms)
+    const double factor    = 2.0 * K_i * inv_mu0Ms;
+    const double k2_factor = 4.0 * ku2_uniform * inv_mu0Ms;
     const double dot = m[0*N + idx]*ux + m[1*N + idx]*uy + m[2*N + idx]*uz;
-    const double h   = factor * dot;
+    const double h   = factor * dot + k2_factor * dot*dot*dot;
     H_out[0*N + idx] += h * ux;
     H_out[1*N + idx] += h * uy;
     H_out[2*N + idx] += h * uz;
@@ -363,21 +373,23 @@ void UniaxialAnisotropyFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
     auto* gH = reinterpret_cast<GReal*>(d_H_out);
 
     if (d_K_field_) {
-        // Per-cell mode
+        // Per-cell mode (K1/axis/Ms per cell; Ku2 uniform from mat)
         const double mu0_inv2 = 2.0 / constants::mu_0;
         anisotropy_kernel_percell<<<grd, blk, 0, s>>>(
             gH, gm, d_K_field_, d_axis_field_, d_Ms_field_,
-            mu0_inv2, static_cast<int>(N_));
+            mu0_inv2, mat.Ku2, static_cast<int>(N_));
     } else {
         // Uniform mode
-        if (mat.K_uniaxial == 0.0) return;
+        if (mat.K_uniaxial == 0.0 && mat.Ku2 == 0.0) return;
         Vec3 u = mat.easy_axis;
         const double unorm = std::sqrt(u.x*u.x + u.y*u.y + u.z*u.z);
         if (unorm < 1e-30) return;
         u.x /= unorm; u.y /= unorm; u.z /= unorm;
-        const double factor = 2.0 * mat.K_uniaxial / (constants::mu_0 * mat.Ms);
+        const double inv_mu0Ms = 1.0 / (constants::mu_0 * mat.Ms);
+        const double factor    = 2.0 * mat.K_uniaxial * inv_mu0Ms;
+        const double k2_factor = 4.0 * mat.Ku2 * inv_mu0Ms;
         anisotropy_kernel<<<grd, blk, 0, s>>>(
-            gH, gm, factor, u.x, u.y, u.z, static_cast<int>(N_));
+            gH, gm, factor, k2_factor, u.x, u.y, u.z, static_cast<int>(N_));
     }
     CUDA_CHECK(cudaGetLastError());
 }

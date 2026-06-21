@@ -11,8 +11,10 @@
 #include "micromag/exchange.hpp"
 #include "micromag/exchange_gpu.hpp"
 #include "micromag/field.hpp"
+#include "micromag/geom_mask.hpp"
 #include "micromag/grid.hpp"
 #include "micromag/material.hpp"
+#include "micromag/region_map.hpp"
 
 #include "gpu_test_tol.hpp"
 
@@ -297,6 +299,96 @@ TEST_CASE("ExchangeFieldGPU: uniform m → zero exchange (periodic BC)", "[excha
     for (Index i=0; i<H.size(); ++i)
         hmax = std::max({hmax, std::abs(H[i].x), std::abs(H[i].y), std::abs(H[i].z)});
     REQUIRE_THAT(hmax, WithinAbs(0.0, 1.0));
+}
+
+// ---------------------------------------------------------------------------
+// Geometry mask: GPU must match CPU (zero flux across vacuum interface)
+// ---------------------------------------------------------------------------
+TEST_CASE("ExchangeFieldGPU: geometry mask matches CPU", "[exchange][gpu]") {
+    StructuredGrid g(10, 8, 1, 4e-9, 4e-9, 4e-9);
+    Material mat = Material::permalloy();
+
+    // Circular disk geometry: cells outside radius are vacuum (mask=0).
+    GeomMask mask(g);
+    const double cx = 20e-9, cy = 16e-9, R = 14e-9;
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix) {
+        const double x = (ix + 0.5) * g.dx(), y = (iy + 0.5) * g.dy();
+        const double r2 = (x - cx)*(x - cx) + (y - cy)*(y - cy);
+        mask(ix, iy, 0) = (r2 <= R*R) ? 1.0 : 0.0;
+    }
+
+    VectorField3D m(g);
+    for (Index iy = 0; iy < g.ny(); ++iy)
+    for (Index ix = 0; ix < g.nx(); ++ix) {
+        double phi = ix * 0.4 + iy * 0.3;
+        m.at(ix, iy, 0) = {std::cos(phi), std::sin(phi), 0.2};
+    }
+    m.normalize();
+
+    ExchangeField    cpu;
+    ExchangeFieldGPU gpu(g);
+    cpu.set_mask(&mask);
+    gpu.set_mask(mask);
+    REQUIRE(gpu.has_mask());
+    REQUIRE(gpu.has_geometry());
+
+    VectorField3D Hc(g), Hg(g);
+    for (Index i = 0; i < g.size(); ++i) Hc[i] = Hg[i] = {0,0,0};
+    cpu.accumulate(m, mat, Hc);
+    gpu.accumulate(m, mat, Hg);
+
+    REQUIRE_THAT(max_rel_diff(Hc, Hg, 1.0), WithinAbs(0.0, micromag::gtol(1e-6, 5e-2)));
+
+    gpu.clear_mask();
+    REQUIRE_FALSE(gpu.has_mask());
+}
+
+// ---------------------------------------------------------------------------
+// Region map + inter-region exchange (A_IEC) — GPU must match CPU
+// ---------------------------------------------------------------------------
+TEST_CASE("ExchangeFieldGPU: inter-region exchange matches CPU", "[exchange][gpu]") {
+    StructuredGrid g(8, 1, 1, 5e-9, 5e-9, 5e-9);
+    Material mat; mat.Ms = 8e5; mat.A_exchange = 13e-12; mat.alpha = 0.01;
+
+    // Left half region 0, right half region 1.
+    RegionMap rm(g, 0);
+    for (Index i = 4; i < 8; ++i) rm[i] = 1;
+
+    // Spin texture with a twist at the boundary.
+    VectorField3D m(g);
+    for (Index i = 0; i < g.size(); ++i) {
+        double phi = i * 0.5;
+        m[i] = {std::cos(phi), std::sin(phi), 0.0};
+    }
+
+    const double A_IEC = 5e-12;   // explicit coupling, ≠ harmonic mean
+
+    ExchangeField    cpu;
+    ExchangeFieldGPU gpu(g);
+    cpu.set_region_map(&rm);  cpu.set_inter_exchange(0, 1, A_IEC);
+    gpu.set_region_map(rm);   gpu.set_inter_exchange(0, 1, A_IEC);
+    REQUIRE(gpu.has_region_map());
+    REQUIRE(gpu.inter_exchange(0, 1) == A_IEC);
+    REQUIRE(gpu.inter_exchange(1, 0) == A_IEC);   // symmetric
+
+    VectorField3D Hc(g), Hg(g);
+    for (Index i = 0; i < g.size(); ++i) Hc[i] = Hg[i] = {0,0,0};
+    cpu.accumulate(m, mat, Hc);
+    gpu.accumulate(m, mat, Hg);
+    REQUIRE_THAT(max_rel_diff(Hc, Hg, 1.0), WithinAbs(0.0, micromag::gtol(1e-6, 5e-2)));
+
+    // A_IEC = 0 cuts the boundary bond → GPU still matches CPU
+    cpu.set_inter_exchange(0, 1, 0.0);
+    gpu.set_inter_exchange(0, 1, 0.0);
+    for (Index i = 0; i < g.size(); ++i) Hc[i] = Hg[i] = {0,0,0};
+    cpu.accumulate(m, mat, Hc);
+    gpu.accumulate(m, mat, Hg);
+    REQUIRE_THAT(max_rel_diff(Hc, Hg, 1.0), WithinAbs(0.0, micromag::gtol(1e-6, 5e-2)));
+
+    gpu.clear_inter_exchange();
+    gpu.clear_region_map();
+    REQUIRE_FALSE(gpu.has_region_map());
 }
 
 #endif // MICROMAG_CUDA
