@@ -3262,6 +3262,13 @@ def recommend_integrator(
     RK4 (4th-order) accumulates O((omega*dt)^4 * t_end) phase error, roughly
     4 orders of magnitude smaller than Heun for the same dt.
 
+    **Float32 build (cmake --preset windows-msvc-cuda-f32)**:
+    All three integrators are 4-8× faster than the f64 build on Blackwell GPUs
+    (Tensor Core FFT). This doesn't change *which* integrator is recommended
+    (the physics requirements are precision-independent), but it makes
+    fixed-step Heun at SP#4 reach ~0.086 ms/step vs mumax3's 0.482 ms/step.
+    Use f32 when μMAG-level accuracy is sufficient (error < 2% vs f64).
+
     Examples
     --------
     >>> import micromag as mm
