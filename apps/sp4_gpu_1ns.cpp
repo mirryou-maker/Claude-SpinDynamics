@@ -143,6 +143,7 @@ int main() {
         }
     }
 
+    cudaDeviceSynchronize();
     const double total_wall = elapsed_s(wall_start);
     gpu.download(m_tmp);
     Vec3 final_avg = mean_m(m_tmp);

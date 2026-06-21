@@ -113,6 +113,7 @@ static void benchmark(const char* label,
         auto t0 = Clock::now();
         for (int k=0; k<n_steps; ++k)
             gpu.step(mat, demag, exch, zeeman);
+        cudaDeviceSynchronize();
         const double wall = elapsed_s(t0);
 
         VectorField3D m_out(grid);

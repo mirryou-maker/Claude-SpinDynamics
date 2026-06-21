@@ -689,6 +689,8 @@ def make_scalar_gradient(grid, v0: float, v1: float, axis: str = "x"):
     -------
     ScalarField3D
     """
+    if axis not in ("x", "y", "z"):
+        raise ValueError(f"axis must be 'x', 'y', or 'z'; got {axis!r}")
     nx, ny, nz = grid.nx, grid.ny, grid.nz
     arr = _np.zeros((nz, ny, nx), dtype=_np.float64)
     if axis == "x":
@@ -714,7 +716,9 @@ def cross_section_z(m, iz: int = 0):
     -------
     numpy array, shape (ny, nx, 3)
     """
-    import numpy as np
+    nz = m.grid.nz
+    if not (0 <= iz < nz):
+        raise IndexError(f"iz={iz} out of bounds [0, {nz})")
     arr = to_numpy(m)          # shape: (nz, ny, nx, 3) in C-order from to_numpy
     return arr[iz, :, :, :]
 
@@ -726,6 +730,9 @@ def cross_section_y(m, iy: int = 0):
     -------
     numpy array, shape (nz, nx, 3)
     """
+    ny = m.grid.ny
+    if not (0 <= iy < ny):
+        raise IndexError(f"iy={iy} out of bounds [0, {ny})")
     arr = to_numpy(m)
     return arr[:, iy, :, :]
 
@@ -737,6 +744,9 @@ def cross_section_x(m, ix: int = 0):
     -------
     numpy array, shape (nz, ny, 3)
     """
+    nx = m.grid.nx
+    if not (0 <= ix < nx):
+        raise IndexError(f"ix={ix} out of bounds [0, {nx})")
     arr = to_numpy(m)
     return arr[:, :, ix, :]
 
@@ -994,6 +1004,10 @@ def field_fft2d(data_xt, dt: float, dx: float):
     >>> kvals, freqs, S = mm.field_fft2d(my_xt, dt=10e-12, dx=20e-9)
     >>> plt.pcolormesh(kvals, freqs[:nt//2]/1e9, S[:nt//2], norm=LogNorm())
     """
+    import numpy as _np2
+    data_xt = _np2.asarray(data_xt)
+    if data_xt.ndim != 2:
+        raise ValueError(f"data_xt must be 2D (nt, nx); got shape {data_xt.shape}")
     nt, nx = data_xt.shape
     F = _np.fft.fft2(data_xt)
     S = _np.fft.fftshift(_np.abs(F) ** 2, axes=1)
@@ -2910,6 +2924,10 @@ def bloch_dw_width(m, axis: int = 0, comp: int = 2):
     >>> lam_theory = math.pi * math.sqrt(A / K)
     >>> print(f"DW width: measured={lam*1e9:.1f} nm, theory={lam_theory*1e9:.1f} nm")
     """
+    if axis not in (0, 1, 2):
+        raise ValueError(f"axis must be 0, 1, or 2; got {axis!r}")
+    if comp not in (0, 1, 2):
+        raise ValueError(f"comp must be 0, 1, or 2; got {comp!r}")
     import numpy as _np
     import math as _m
     g = m.grid

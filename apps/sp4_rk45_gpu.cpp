@@ -111,6 +111,7 @@ int main() {
 
         auto t0 = Clock::now();
         for (int k=0; k<n_steps; ++k) gpu.step(mat, demag, exch, zeeman);
+        cudaDeviceSynchronize();
         const double wall = elapsed_s(t0);
 
         VectorField3D m(grid); gpu.download(m);
@@ -143,6 +144,7 @@ int main() {
         double t=0.0;
         auto t0 = Clock::now();
         while (t < t_end) t += gpu.step(mat, demag, exch, zeeman);
+        cudaDeviceSynchronize();
         const double wall = elapsed_s(t0);
 
         const int n_acc = gpu.n_accepted();

@@ -30,6 +30,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "micromag/field_kernels_gpu.hpp"
 #include "micromag/gpu_real.hpp"
 #include "micromag/heun_integrator_gpu.hpp"
 #include "micromag/rk4_gpu.hpp"
@@ -145,10 +146,41 @@ void HeunIntegratorGPU::run_half(
 
     // All fields are on state_.stream() (set by step()); stream ordering suffices.
     state_.zero_H();
-    exch.accumulate_gpu_ptr(d_m_in, mat, d_H);
-    zeeman.accumulate_gpu_ptr(d_m_in, mat, d_H);
-    if (aniso)
-        aniso->accumulate_gpu_ptr(d_m_in, mat, d_H);
+
+    // Fuse exchange + zeeman + anisotropy into one kernel when all are uniform-mode.
+    // Mirrors RK4::run_stage optimisation; critical for f32 where FFT is Tensor-Core-fast
+    // and per-kernel graph-node overhead dominates at small grids (e.g. SP#4).
+    const bool aniso_percell = aniso && aniso->has_material_field();
+    if (!exch.has_material_field() && !aniso_percell) {
+        const double mu0Ms = constants::mu_0 * mat.Ms;
+        const double edx = exch.dx(), edy = exch.dy(), edz = exch.dz();
+        const double fx = (edx > 0) ? 2.0 * mat.A_exchange / (mu0Ms * edx * edx) : 0.0;
+        const double fy = (edy > 0) ? 2.0 * mat.A_exchange / (mu0Ms * edy * edy) : 0.0;
+        const double fz = (edz > 0) ? 2.0 * mat.A_exchange / (mu0Ms * edz * edz) : 0.0;
+        double aniso_factor = 0.0, ux = 0, uy = 0, uz = 1;
+        if (aniso && mat.K_uniaxial != 0.0 && mu0Ms > 0) {
+            Vec3 u = mat.easy_axis;
+            const double unorm = std::sqrt(u.x*u.x + u.y*u.y + u.z*u.z);
+            if (unorm > 1e-30) {
+                ux = u.x/unorm; uy = u.y/unorm; uz = u.z/unorm;
+                aniso_factor = 2.0 * mat.K_uniaxial / mu0Ms;
+            }
+        }
+        const Vec3& Hext = zeeman.H_ext();
+        const bool periodic = (exch.bc() == BoundaryCondition::Periodic);
+        launch_fused_local_fields(
+            d_m_in, d_H,
+            state_.nx(), state_.ny(), state_.nz(),
+            fx, fy, fz,
+            Hext.x, Hext.y, Hext.z,
+            aniso_factor, ux, uy, uz,
+            periodic, s);
+    } else {
+        exch.accumulate_gpu_ptr(d_m_in, mat, d_H);
+        zeeman.accumulate_gpu_ptr(d_m_in, mat, d_H);
+        if (aniso)
+            aniso->accumulate_gpu_ptr(d_m_in, mat, d_H);
+    }
     demag.accumulate_gpu_ptr(d_m_in, mat, d_H);
 
     if (add_noise)
