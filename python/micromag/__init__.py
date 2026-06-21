@@ -253,6 +253,8 @@ __all__ = [
     "HeunIntegratorGPU",
     "ISpinTorqueGPU", "SpinTorqueSumGPU",
     "SlonczewskiSTTGPU", "SpinOrbitTorqueGPU", "ZhangLiSTTGPU",
+    # Integrator selection helper
+    "recommend_integrator",
 ]
 
 __version__ = "0.1.0"
@@ -3179,6 +3181,312 @@ def bloch_dw_np(grid, Delta, axis=0):
     m = VectorField3D(grid)
     from_numpy(m, arr)
     return m
+
+
+# ---------------------------------------------------------------------------
+# recommend_integrator -- choose the best GPU integrator for a given scenario
+# ---------------------------------------------------------------------------
+
+def recommend_integrator(
+    mat,
+    T_K: float = 0.0,
+    goal: str = "dynamics",
+    dt: float = None,
+    B_eff_T: float = 0.1,
+    t_end: float = None,
+    verbose: bool = True,
+):
+    """Recommend the best GPU integrator for a given simulation scenario.
+
+    Parameters
+    ----------
+    mat : Material
+        Simulation material.  Uses ``mat.alpha`` for damping.
+    T_K : float
+        Temperature in Kelvin.  T_K > 0 mandates HeunIntegratorGPU (SLLG).
+    goal : str
+        ``"relax"`` -- converge to equilibrium; the trajectory does not matter.
+        ``"dynamics"`` -- track the LLG trajectory accurately (default).
+    dt : float, optional
+        Proposed fixed timestep [s].  Used to compute Heun phase error.
+    B_eff_T : float
+        Approximate magnitude of the effective field [T] for the phase-error
+        estimate.  Default 0.1 T (100 mT) -- typical for Permalloy at moderate
+        applied field.  Ignored when T_K > 0 or goal == "relax".
+    t_end : float, optional
+        Simulation duration [s].  Used together with *dt* for the total
+        accumulated phase-error estimate.  If omitted, the estimate is shown
+        per 1 ns.
+    verbose : bool
+        If True (default), print a formatted recommendation report.
+
+    Returns
+    -------
+    dict
+        ``integrator``  : str   -- recommended class name.
+        ``reason``      : str   -- primary justification.
+        ``warning``     : str   -- potential pitfall, or empty string.
+        ``heun_ok``     : bool  -- True when HeunIntegratorGPU is acceptable.
+        ``phase_err_deg`` : float or None -- Heun phase-error estimate [deg].
+        ``usage``       : str   -- minimal code snippet.
+
+    Notes
+    -----
+    **Heun phase-error formula (T=0, linear precession)**::
+
+        epsilon_phase = omega^3 * dt^2 * t_end / 6   [rad]
+
+    where ``omega = gamma_0 * B_eff_T``.  This is the global (accumulated)
+    truncation error for the 2nd-order Heun method applied to harmonic
+    precession.  For typical CUDA timesteps (dt ~ 0.1-1 ps), this error is
+    < 0.1 deg over 1 ns -- negligible in practice.
+
+    RK4 (4th-order) accumulates O((omega*dt)^4 * t_end) phase error, roughly
+    4 orders of magnitude smaller than Heun for the same dt.
+
+    Examples
+    --------
+    >>> import micromag as mm
+    >>> mat = mm.Material.permalloy()
+    >>> rec = mm.recommend_integrator(mat, T_K=0, goal="relax", dt=5e-13)
+    >>> rec = mm.recommend_integrator(mat, T_K=300, dt=1e-13)
+    >>> rec = mm.recommend_integrator(mat, T_K=0, goal="dynamics",
+    ...                               dt=5e-13, t_end=1e-9, B_eff_T=0.05)
+    """
+    import math
+    import textwrap
+
+    GAMMA0 = 1.7595e11   # rad / (T s)
+    alpha  = float(mat.alpha)
+    t_ref  = t_end if t_end is not None else 1e-9   # fallback: 1 ns
+
+    # ------------------------------------------------------------------
+    # Compute Heun phase-error estimate (only meaningful for dynamics)
+    # ------------------------------------------------------------------
+    phase_err_deg = None
+    if dt is not None and goal == "dynamics" and T_K == 0.0:
+        omega          = GAMMA0 * float(B_eff_T)
+        eps_rad        = (omega ** 3) * (dt ** 2) * t_ref / 6.0
+        phase_err_deg  = math.degrees(eps_rad)
+
+    # ------------------------------------------------------------------
+    # Decision logic
+    # ------------------------------------------------------------------
+    if T_K > 0.0:
+        # Rule 1: finite temperature -- Heun is the only correct SDE method
+        rec     = "HeunIntegratorGPU"
+        heun_ok = True
+        reason  = (
+            f"T_K={T_K:.1f} K > 0: the Stratonovich Heun method is the "
+            "only formally correct discretisation of the SLLG equation. "
+            "RK4/RK45 do not preserve the Stratonovich convention and give "
+            "wrong thermal averages."
+        )
+        warning = ""
+        usage   = (
+            f"integ = mm.HeunIntegratorGPU(grid, dt, seed=42)\n"
+            f"integ.upload(m0)\n"
+            f"integ.step(mat, demag, fields, T_K={T_K:.1f})"
+        )
+
+    elif goal in ("relax", "converge"):
+        # Rule 2: convergence to equilibrium -- path is irrelevant
+        rec     = "HeunIntegratorGPU"
+        heun_ok = True
+        reason  = (
+            "goal='relax': only the final equilibrium state matters, not "
+            "the trajectory. Heun (2 field evals/step) is exactly 2x "
+            "faster than RK4 (4 evals/step) with no accuracy penalty for "
+            "the converged state. CUDA Graph replay is active for T_K=0."
+        )
+        warning = (
+            "Call integ.invalidate_graph() after changing fields between "
+            "steps (e.g. field sweep in a hysteresis loop)."
+        )
+        usage   = (
+            "integ = mm.HeunIntegratorGPU(grid, dt)\n"
+            "integ.upload(m0)\n"
+            "mm.run_until_converged_gpu(integ, mat, demag, fields, m0)"
+        )
+
+    elif alpha >= 0.3:
+        # Rule 3: overdamped -- precession decays rapidly
+        rec     = "HeunIntegratorGPU"
+        heun_ok = True
+        reason  = (
+            f"alpha={alpha:.3f} >= 0.3 (overdamped regime): precessional "
+            "oscillations are quenched within ~1/alpha precession cycles. "
+            "Heun's 2nd-order truncation error is negligible; the 2x "
+            "step-time advantage is effectively free."
+        )
+        warning = ""
+        usage   = (
+            "integ = mm.HeunIntegratorGPU(grid, dt)\n"
+            "integ.upload(m0)\n"
+            "integ.step(mat, demag, fields, T_K=0.0)"
+        )
+
+    elif alpha >= 0.05:
+        # Rule 4: moderate damping -- decide from phase error if available
+        if phase_err_deg is not None and phase_err_deg < 1.0:
+            rec     = "HeunIntegratorGPU"
+            heun_ok = True
+            reason  = (
+                f"alpha={alpha:.3f} (moderate damping). Computed Heun "
+                f"phase error at dt={dt:.1e} s over "
+                f"{'1 ns (reference)' if t_end is None else f'{t_ref:.1e} s'}: "
+                f"{phase_err_deg:.4f} deg -- negligible. "
+                "Heun is acceptable and 2x faster than RK4."
+            )
+            warning = (
+                "For significantly larger dt or longer t_end, the 2nd-order "
+                "error grows as dt^2 * t_end. Verify with RK4 if in doubt."
+            )
+            usage   = (
+                "integ = mm.HeunIntegratorGPU(grid, dt)\n"
+                "integ.upload(m0)\n"
+                "integ.step(mat, demag, fields, T_K=0.0)"
+            )
+        elif phase_err_deg is not None and phase_err_deg >= 1.0:
+            rec     = "RK4IntegratorGPU"
+            heun_ok = False
+            reason  = (
+                f"alpha={alpha:.3f} (moderate damping). Computed Heun "
+                f"phase error at dt={dt:.1e} s over "
+                f"{'1 ns (reference)' if t_end is None else f'{t_ref:.1e} s'}: "
+                f"{phase_err_deg:.2f} deg -- exceeds 1 deg threshold. "
+                "RK4 (4th-order) reduces this by ~(omega*dt)^2 ~ "
+                f"{(GAMMA0*B_eff_T*dt)**2:.0e}x."
+            )
+            warning = (
+                f"Heun phase error {phase_err_deg:.1f} deg. "
+                "Reduce dt or switch to RK4."
+            )
+            usage   = (
+                "integ = mm.RK4IntegratorGPU(grid, dt)\n"
+                "integ.upload(m0)\n"
+                "integ.step(mat, demag, fields)"
+            )
+        else:
+            # No dt given -- conservative default
+            rec     = "RK4IntegratorGPU"
+            heun_ok = False
+            reason  = (
+                f"alpha={alpha:.3f} (moderate damping, no dt provided). "
+                "RK4 (4th-order) is the safe default for trajectory "
+                "accuracy. Provide dt and B_eff_T to get a quantitative "
+                "Heun phase-error estimate."
+            )
+            warning = ""
+            usage   = (
+                "integ = mm.RK4IntegratorGPU(grid, dt)\n"
+                "integ.upload(m0)\n"
+                "integ.step(mat, demag, fields)"
+            )
+
+    else:
+        # Rule 5: low damping (alpha < 0.05) -- adaptive RK45 preferred
+        if phase_err_deg is not None and phase_err_deg < 0.1:
+            # Fixed dt is fine for this regime too
+            rec     = "RK45IntegratorGPU"
+            heun_ok = False
+            reason  = (
+                f"alpha={alpha:.4f} (low damping). Heun phase error "
+                f"{phase_err_deg:.4f} deg is negligible at the given dt, "
+                "but RK45 (adaptive DOPRI5/FSAL) is still preferred: it "
+                "automatically controls the error and often requires fewer "
+                "total field evaluations than a fixed-step method."
+            )
+            warning = ""
+            usage   = (
+                "integ = mm.RK45IntegratorGPU(grid)\n"
+                "integ.upload(m0)\n"
+                "integ.step(mat, demag, fields)  # adaptive dt"
+            )
+        else:
+            rec     = "RK45IntegratorGPU"
+            heun_ok = False
+            reason  = (
+                f"alpha={alpha:.4f} (low damping): precessional dynamics "
+                "require high phase accuracy over many cycles. Adaptive "
+                "RK45 (DOPRI5/FSAL) adjusts dt to stay within a user-set "
+                "tolerance -- fewest field evaluations for a given accuracy. "
+                "Fixed-step Heun at this alpha would need dt ~10x smaller "
+                "than RK4 to match accuracy, erasing the 2x eval advantage."
+            )
+            warning = (
+                "For fixed-dt RK4, use dt <= 1e-12 s (1 ps) at alpha<0.05 "
+                "to keep numerical precession phase drift below 1%."
+            )
+            usage   = (
+                "integ = mm.RK45IntegratorGPU(grid)\n"
+                "integ.upload(m0)\n"
+                "integ.step(mat, demag, fields)  # adaptive dt"
+            )
+
+    # ------------------------------------------------------------------
+    # Verbose report
+    # ------------------------------------------------------------------
+    if verbose:
+        W = 62
+        def wrap(s):
+            return "\n".join(
+                "  " + line for line in textwrap.wrap(s, W - 4)
+            )
+
+        print("=" * W)
+        print("  Integrator Recommendation")
+        print("=" * W)
+        # Input summary
+        print(f"  alpha  = {alpha:.4f}    T_K = {T_K:.1f} K    goal = '{goal}'")
+        if dt is not None:
+            t_lbl = f"{t_ref:.1e} s" + ("" if t_end is not None else " (ref)")
+            print(f"  dt     = {dt:.2e} s   B_eff ~ {B_eff_T*1e3:.0f} mT   t_end = {t_lbl}")
+        print()
+
+        # Recommendation
+        print(f"  => {rec}")
+        print()
+        print(wrap(reason))
+
+        # Phase error
+        if phase_err_deg is not None:
+            t_lbl = f"{t_ref:.1e} s" + ("" if t_end is not None else " (1 ns ref)")
+            lvl   = ("negligible" if phase_err_deg < 0.1 else
+                     "acceptable" if phase_err_deg < 1.0 else
+                     "SIGNIFICANT")
+            print()
+            print(f"  Heun phase error over {t_lbl}:")
+            print(f"    {phase_err_deg:.5f} deg  [{lvl}]")
+            print(f"    formula: omega^3 * dt^2 * t / 6")
+            print(f"    omega = gamma_0 * B_eff = {GAMMA0*B_eff_T:.3e} rad/s")
+
+        # Warning
+        if warning:
+            print()
+            print("  [!]", end=" ")
+            first = True
+            for line in textwrap.wrap(warning, W - 6):
+                if first:
+                    print(line); first = False
+                else:
+                    print("      " + line)
+
+        # Usage
+        print()
+        print("  Usage:")
+        for line in usage.split("\n"):
+            print(f"    {line}")
+        print("=" * W)
+
+    return dict(
+        integrator=rec,
+        reason=reason,
+        warning=warning,
+        heun_ok=heun_ok,
+        phase_err_deg=phase_err_deg,
+        usage=usage,
+    )
 
 
 # mumax3 .mx3 script runner (lazy import to avoid circular import at package init)
