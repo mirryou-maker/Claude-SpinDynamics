@@ -100,6 +100,9 @@ private:
         bool     valid = false;
         Material mat   = {};
         Real     dt    = Real{0};
+        Vec3     hext  = {};             // H_ext baked into captured kernel args
+        bool     exch_percell  = false;  // per-cell material mode at capture time
+        bool     aniso_percell = false;
     };
     GraphState gs1_;  // step(mat, demag, exch, zeeman, T_K=0, aniso)
     GraphState gs2_;  // step(mat, demag, extra_fields, T_K=0, torques)

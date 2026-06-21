@@ -215,7 +215,16 @@ void HeunIntegratorGPU::step(
 
     // T=0: try CUDA Graph replay
     if (!thermal) {
-        bool stale = !gs1_.valid || !heun_mat_eq(gs1_.mat, mat) || gs1_.dt != dt_;
+        // H_ext and per-cell material mode are baked into the captured graph's
+        // kernel args; include them in the staleness test so field sweeps/pulses
+        // recapture automatically (no manual invalidate_graph() needed).
+        const Vec3 hext_now = zeeman.H_ext();
+        const bool exch_pc  = exch.has_material_field();
+        const bool aniso_pc = aniso && aniso->has_material_field();
+        bool stale = !gs1_.valid || !heun_mat_eq(gs1_.mat, mat) || gs1_.dt != dt_
+                  || gs1_.hext.x != hext_now.x || gs1_.hext.y != hext_now.y
+                  || gs1_.hext.z != hext_now.z
+                  || gs1_.exch_percell != exch_pc || gs1_.aniso_percell != aniso_pc;
         if (stale) {
             auto body = [&] {
                 run_half(mat, state_.d_m(), state_.d_H(), state_.d_ki(),
@@ -231,6 +240,9 @@ void HeunIntegratorGPU::step(
             gs1_.valid = heun_do_capture(s, gs1_.exec, body);
             gs1_.mat   = mat;
             gs1_.dt    = dt_;
+            gs1_.hext  = hext_now;
+            gs1_.exch_percell  = exch_pc;
+            gs1_.aniso_percell = aniso_pc;
             if (!gs1_.valid) { state_.sync(); return; }
         }
         CUDA_CHECK(cudaGraphLaunch(static_cast<cudaGraphExec_t>(gs1_.exec), s));

@@ -55,14 +55,14 @@ GPU adaptive RK45 vs. fixed-step RK4 on SP#4 (0.3 ns):
 ```powershell
 cmake --preset windows-msvc
 cmake --build build/windows-msvc --config Release
-ctest --preset windows-msvc   # 87 tests
+ctest --preset windows-msvc   # 224 tests
 ```
 
 ### GPU build (CUDA required)
 ```powershell
 cmake --preset windows-msvc-cuda
 cmake --build build/windows-msvc-cuda --config Release
-.\build\windows-msvc-cuda\bin\Release\unit_tests_gpu.exe   # 53 tests
+.\build\windows-msvc-cuda\bin\Release\unit_tests_gpu.exe   # 100 tests
 ```
 
 ### Python (minimal example)
@@ -123,7 +123,9 @@ Claude-SpinDynamics/
 
 ## Toolchain
 
-- **OS**: Windows 11 (MSVC 2022, UTF-8)
+- **OS**: Windows 11 (MSVC, UTF-8). Presets use the `Visual Studio 18 2026`
+  generator — for VS 2022 change `"generator"` in `CMakePresets.json` to
+  `Visual Studio 17 2022`.
 - **C++ standard**: C++20
 - **Dependencies**: FFTW3, pybind11, Catch2 v3 (all via vcpkg)
 - **GPU**: CUDA 13.2, cuFFT, cuRAND (`cmake --preset windows-msvc-cuda`)

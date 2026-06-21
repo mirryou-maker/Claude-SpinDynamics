@@ -92,6 +92,9 @@ private:
         bool     valid = false;    // false = need (re-)capture on next step
         Material mat   = {};       // material snapshot baked into the graph
         Real     dt    = Real{0};  // dt snapshot
+        Vec3     hext  = {};       // H_ext baked into the captured kernel args
+        bool     exch_percell  = false;  // per-cell material mode at capture time
+        bool     aniso_percell = false;  // (changing mode invalidates the graph)
     };
     GraphState gs1_;  // step(mat, demag, exch, zeeman, aniso)
     GraphState gs2_;  // step(mat, demag, extra_fields)

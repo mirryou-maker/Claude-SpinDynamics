@@ -1651,10 +1651,10 @@ def moving_gaussian_field(grid, H_amp, sigma: float, polarity: float = 1.0,
 
     Example
     -------
-    >>> head_fn = mm.moving_gaussian_field(g, H_write=5e5, sigma=15e-9)
+    >>> head_fn = mm.moving_gaussian_field(g, H_amp=5e5, sigma=15e-9)
     >>> for t in time_steps:
     ...     x_head = v_head * t
-    ...     H_field = head_fn(x_head, polarity=+1)
+    ...     H_field = head_fn(x_head, pol=+1)
     ...     zeeman_spatial.H_field = H_field
     """
     g = grid
@@ -1760,7 +1760,7 @@ def stray_field(grid, Ms_ext: float, volume_ext: float,
     Returns a VectorField3D [A/m] containing the stray field at each
     cell of ``grid``.  Use as the spatial field in a ZeemanFieldSpatial:
 
-    >>> H_stray = mm.stray_field(grid, Ms=860e3, volume=1e-24, position=(0,0,50e-9))
+    >>> H_stray = mm.stray_field(grid, Ms_ext=860e3, volume_ext=1e-24, position=(0,0,50e-9))
     >>> zee = mm.ZeemanFieldSpatial(grid)
     >>> zee.H_field = H_stray
     >>> heff.add(zee)

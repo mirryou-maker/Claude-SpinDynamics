@@ -236,7 +236,18 @@ void RK4IntegratorGPU::step(
     zeeman.set_stream(sv);
     if (aniso) aniso->set_stream(sv);
 
-    bool stale = !gs1_.valid || !mat_eq(gs1_.mat, mat) || gs1_.dt != dt_;
+    // The fused/Zeeman kernels bake H_ext and the per-cell material mode into
+    // the captured graph's launch args.  A field sweep / pulse changes H_ext
+    // between steps while mat & dt stay fixed, so include those in the staleness
+    // test — otherwise the graph would replay the stale field (silent wrong
+    // physics).  Callers no longer need invalidate_graph() for H_ext changes.
+    const Vec3 hext_now    = zeeman.H_ext();
+    const bool exch_pc     = exch.has_material_field();
+    const bool aniso_pc    = aniso && aniso->has_material_field();
+    bool stale = !gs1_.valid || !mat_eq(gs1_.mat, mat) || gs1_.dt != dt_
+              || gs1_.hext.x != hext_now.x || gs1_.hext.y != hext_now.y
+              || gs1_.hext.z != hext_now.z
+              || gs1_.exch_percell != exch_pc || gs1_.aniso_percell != aniso_pc;
 
     if (stale) {
         const double h = static_cast<double>(dt_);
@@ -255,6 +266,9 @@ void RK4IntegratorGPU::step(
         gs1_.valid = do_capture(s, gs1_.exec, body);
         gs1_.mat   = mat;
         gs1_.dt    = dt_;
+        gs1_.hext  = hext_now;
+        gs1_.exch_percell  = exch_pc;
+        gs1_.aniso_percell = aniso_pc;
 
         if (!gs1_.valid) {
             // body() ran directly in do_capture fallback

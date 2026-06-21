@@ -1203,6 +1203,7 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<RelaxGPU>(m, "RelaxGPU")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"),
+             py::keep_alive<1, 2>(),   // RelaxGPU stores const StructuredGrid* — keep grid alive
              "GPU energy minimisation via damping-only LLG (no precession). "
              "Equivalent to mumax3 Relax(). "
              "Usage: upload(m); run(mat, demag, exch, zeeman); download(m_out).")
@@ -1264,6 +1265,7 @@ PYBIND11_MODULE(_micromag, m) {
 
     py::class_<MinimizeGPU>(m, "MinimizeGPU")
         .def(py::init<const StructuredGrid&>(), py::arg("grid"),
+             py::keep_alive<1, 2>(),   // MinimizeGPU stores const StructuredGrid* — keep grid alive
              "GPU steepest-descent minimisation with adaptive step size. "
              "Equivalent to mumax3 Minimize(). "
              "Requires one D2H energy scalar per step.")

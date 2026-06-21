@@ -28,3 +28,21 @@ __pycache__/
 .claude/
 sp4_result.csv
 sp4_fieldB_result.csv
+
+# Runtime-generated caches
+fftw_wisdom.dat
+*.wisdom
+
+# Personal scratch / dev verification scripts (not deliverables)
+Todo_list.txt
+notebooks/check_api.py
+notebooks/run_p1_p2_p3.py
+notebooks/test_parallel_sweep.py
+
+# Generated notebook artifacts
+notebooks/*.gif
+notebooks/dw_profile_*.csv
+
+# mumax3 auto-generated run-output directories (gui/log.txt/references.bib/table.txt)
+*.out/
+_mxout/

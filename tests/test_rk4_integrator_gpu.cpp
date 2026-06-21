@@ -19,6 +19,7 @@
 #include "micromag/grid.hpp"
 #include "micromag/integrator.hpp"
 #include "micromag/material.hpp"
+#include "micromag/material_field.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
 #include "micromag/zeeman.hpp"
 #include "gpu_test_tol.hpp"
@@ -135,6 +136,64 @@ TEST_CASE("RK4IntegratorGPU 10 steps vs CPU", "[integ][gpu]") {
     INFO("CPU <mx> = " << [&](){ double s=0; for(Index i=0;i<g.size();++i) s+=m_cpu[i].x; return s/g.size(); }());
     INFO("GPU <mx> = " << [&](){ double s=0; for(Index i=0;i<g.size();++i) s+=m_gpu[i].x; return s/g.size(); }());
     REQUIRE(err < micromag::gtol(1e-10));
+}
+
+// ---------------------------------------------------------------------------
+// T4: fused local-field kernel == per-cell fallback path
+//
+// run_stage() takes a fast path that fuses Exchange+Zeeman+Anisotropy into one
+// kernel when all three are in uniform-material mode, and a fallback path of
+// three separate accumulate_gpu_ptr() kernels when any field carries per-cell
+// data.  Both must produce identical physics.  We force the fallback path by
+// attaching a MaterialField3D filled with the SAME uniform parameters (per-cell
+// exchange uses the harmonic mean, which equals A for equal A), so any
+// divergence here means the fused kernel dropped or mis-scaled a term.
+// This pins the default hot path to the validated reference.
+// ---------------------------------------------------------------------------
+TEST_CASE("RK4IntegratorGPU: fused kernel matches per-cell fallback", "[integ][gpu]") {
+    StructuredGrid g(16, 16, 1, 4e-9, 4e-9, 4e-9);
+    Material mat = Material::permalloy();
+    mat.K_uniaxial = 5e5;            // exercise the fused anisotropy term
+    mat.easy_axis  = {0.0, 0.0, 1.0};
+    const Real dt = 5e-14;
+    const Vec3 Hext{-30e3, 8e3, 2e3};
+
+    VectorField3D m0(g);
+    m0.set_vortex(32e-9, 32e-9, 4.0);
+    m0.normalize();
+
+    // Path A — fused kernel (all fields uniform)
+    DemagFieldGPU              demag_a(g);
+    ExchangeFieldGPU           exch_a(g);
+    ZeemanFieldGPU             zeeman_a(g, Hext);
+    UniaxialAnisotropyFieldGPU aniso_a(g);
+    RK4IntegratorGPU gpu_a(g, dt);
+    gpu_a.upload(m0);
+    for (int k = 0; k < 5; ++k)
+        gpu_a.step(mat, demag_a, exch_a, zeeman_a, &aniso_a);
+    VectorField3D m_fused(g);
+    gpu_a.download(m_fused);
+
+    // Path B — per-cell fallback (uniform values → identical physics)
+    MaterialField3D matf(g, mat);
+    DemagFieldGPU              demag_b(g);
+    ExchangeFieldGPU           exch_b(g);
+    ZeemanFieldGPU             zeeman_b(g, Hext);
+    UniaxialAnisotropyFieldGPU aniso_b(g);
+    exch_b.set_material_field(matf);
+    aniso_b.set_material_field(matf);
+    REQUIRE(exch_b.has_material_field());
+    REQUIRE(aniso_b.has_material_field());
+    RK4IntegratorGPU gpu_b(g, dt);
+    gpu_b.upload(m0);
+    for (int k = 0; k < 5; ++k)
+        gpu_b.step(mat, demag_b, exch_b, zeeman_b, &aniso_b);
+    VectorField3D m_fallback(g);
+    gpu_b.download(m_fallback);
+
+    const double err = max_abs_diff(m_fused, m_fallback);
+    INFO("fused vs fallback max |dm| = " << err);
+    REQUIRE(err < micromag::gtol(1e-6));
 }
 
 #endif // MICROMAG_CUDA
