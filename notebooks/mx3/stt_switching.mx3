@@ -1,0 +1,19 @@
+// STT Slonczewski: Pt/Co 3nm PMA macrospin (timing only)
+// Runs fixed-dt RK4 for 2ns at J=0.5e12 A/m2
+SetGridSize(1, 1, 1)
+SetCellSize(3e-9, 3e-9, 3e-9)
+Msat  = 580e3
+Aex   = 15e-12
+Ku1   = 0.5e6
+AnisU = vector(0, 0, 1)
+alpha = 0.02
+pol          = 0.5
+lambda       = 1.0
+epsilonprime = 0
+FixedLayer   = vector(0, 0, 1)
+setsolver(4)
+FixDt = 5e-14
+Jc := 0.5e12
+m = uniform(0.0872, 0, 0.9962)
+run(2e-9)
+save(m)

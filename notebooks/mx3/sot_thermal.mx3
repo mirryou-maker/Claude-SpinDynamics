@@ -1,0 +1,20 @@
+// SOT thermal switching: Pt/Co 3nm PMA macrospin, T=300K (timing only)
+// Heun stochastic integrator, 0.1ns, single trial
+SetGridSize(1, 1, 1)
+SetCellSize(3e-9, 3e-9, 3e-9)
+Msat  = 580e3
+Aex   = 15e-12
+Ku1   = 0.5e6
+AnisU = vector(0, 0, 1)
+alpha = 0.02
+Temp  = 300
+pol          = 0.35
+lambda       = 1.0
+epsilonprime = 0.0
+FixedLayer   = vector(1, 0, 0)
+Jc := 2e12
+setsolver(2)
+FixDt = 5e-14
+m = uniform(0.01, 0.01, 0.9999)
+run(1e-10)
+save(m)

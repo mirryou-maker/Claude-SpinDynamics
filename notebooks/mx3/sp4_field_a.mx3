@@ -1,0 +1,13 @@
+// SP#4 Field A: Permalloy 500x125x3 nm (200x50x1 cells, 2.5x2.5x3 nm)
+// Adaptive DOPRI5 (setsolver 5), muMAG ref <mx>(1ns) = -0.9862
+SetGridSize(200, 50, 1)
+SetCellSize(2.5e-9, 2.5e-9, 3e-9)
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.02
+m = uniform(1, 0.1, 0.01)
+B_ext = vector(-24.6e-3, 4.3e-3, 0)
+setsolver(5)
+MaxErr = 1e-4
+run(1e-9)
+save(m)

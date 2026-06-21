@@ -1,0 +1,15 @@
+// Zhang-Li DW motion: Py strip 400x20x1, dx=4nm (timing only)
+// Two-domain state, J=2e12 A/m2 x-direction drive, 0.5ns
+SetGridSize(400, 20, 1)
+SetCellSize(4e-9, 4e-9, 4e-9)
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.01
+pol   = 0.5
+xi    = 0.05
+m = twodomain(1, 0, 0,  0, 1, 0,  -1, 0, 0)
+setsolver(4)
+FixDt = 5e-14
+j = vector(2e12, 0, 0)
+run(5e-10)
+save(m)

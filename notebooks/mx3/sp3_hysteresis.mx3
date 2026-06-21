@@ -1,0 +1,28 @@
+// mumax3: µMAG SP#3 Hysteresis Loop
+// 1µm × 1µm × 20nm Permalloy (100×100×2, 10nm cells)
+// Field sweep +150 → -150 mT, find H_nuc and H_sw
+
+setgridsize(100, 100, 2)
+setcellsize(10e-9, 10e-9, 10e-9)
+
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.5   // high damping for fast convergence
+
+// Saturate at +150 mT
+B_ext = vector(150e-3, 0, 0)
+m = uniform(1, 0.02, 0.01)
+minimize()
+
+tableadd(B_ext.x)
+tableadd(m.x)
+tableadd(m.y)
+tableadd(abs(m.x))
+tablesave()
+
+// Field sweep: +150 → -150 mT in steps
+for B := 140e-3; B >= -150e-3; B -= 10e-3 {
+    B_ext = vector(B, 0, 0)
+    minimize()
+    tablesave()
+}

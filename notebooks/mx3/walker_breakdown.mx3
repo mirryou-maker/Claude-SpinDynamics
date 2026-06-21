@@ -1,0 +1,35 @@
+// mumax3: Walker Breakdown (Zhang-Li STT, Flat Strip)
+// Permalloy 200×10×1 cells, dx=5nm (1µm × 50nm × 5nm)
+// xi=0.5, alpha=0.05: sub-Walker (J=2e12) → v/u ≈ 10
+// Run at J=2e12 (well below Walker) to verify linear regime
+
+setgridsize(200, 10, 1)
+setcellsize(5e-9, 5e-9, 5e-9)
+
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.05
+xi    = 0.5
+pol   = 0.5
+
+// Current: J_x = 2e12 A/m2 (sub-Walker)
+jz    := 2e12   // note: mumax3 uses j in z-component for in-plane flow — use Jc for CIP
+Jcur  = vector(jz, 0, 0)
+
+// Néel DW init (core along y): mx = -tanh(x/lw), my = sech(x/lw)
+lw := 5.7e-9 * pi  // π × l_ex
+for i:=0; i<200; i++ {
+    for j:=0; j<10; j++ {
+        x := (i - 100) * 5e-9
+        arg := x / lw
+        m.SetCell(i, j, 0, vector(-tanh(arg), 1.0/cosh(arg), 0))
+    }
+}
+m.normalize()
+
+tableadd(m.x)
+tableadd(m.y)
+tableautosave(10e-12)   // every 10ps
+
+FixDt = 5e-14
+run(5e-10)              // 0.5 ns
