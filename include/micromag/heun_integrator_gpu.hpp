@@ -74,6 +74,10 @@ public:
         dt_ = dt;
     }
 
+    // Max misalignment angle between adjacent spins (GPU-side, no D2H transfer).
+    // Used by run_until_converged_gpu to check convergence without downloading m.
+    double max_angle_gpu() const { return state_.max_angle_gpu(); }
+
     // Force CUDA Graph re-capture on next T=0 step() call.
     // Call after changing the field set (e.g. new ZeemanFieldGPU).
     void invalidate_graph() { gs1_.valid = gs2_.valid = false; }

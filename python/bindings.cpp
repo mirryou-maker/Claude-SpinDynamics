@@ -1465,7 +1465,10 @@ PYBIND11_MODULE(_micromag, m) {
              "One Stratonovich Heun step with FieldSumGPU + SpinTorqueSumGPU.")
         .def_property("dt", &HeunIntegratorGPU::dt, &HeunIntegratorGPU::set_dt)
         .def("invalidate_graph", &HeunIntegratorGPU::invalidate_graph,
-             "Force CUDA Graph re-capture on next T_K=0 step() call.");
+             "Force CUDA Graph re-capture on next T_K=0 step() call.")
+        .def("max_angle_gpu", &HeunIntegratorGPU::max_angle_gpu,
+             "Max misalignment angle between adjacent spins (°, GPU-side, no D2H transfer). "
+             "Enables run_until_converged_gpu convergence check without downloading m.");
 
     // ------------------------------------------------------------------
     // GPU Spin Torques: ISpinTorqueGPU, SpinTorqueSumGPU,

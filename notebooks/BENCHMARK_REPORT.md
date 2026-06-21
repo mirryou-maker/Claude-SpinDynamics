@@ -264,7 +264,25 @@ The exchange Laplacian kernel (memory-bandwidth-limited, 4× per RK4 step) domin
 → Use `rk4.step(mat, demag, fields, torques)` / `rk45.step(mat, demag, fields, torques)` for T=0 STT/SOT.
 
 **HeunIntegratorGPU (T=0 or T>0):**  
-`HeunIntegratorGPU` now supports **CUDA Graph replay for T_K=0** (deterministic Heun ODE), giving a **1.16× speedup** on SP#4 (0.365→0.314 ms/step, −14%). T>0 thermal steps (cuRAND noise varies each step) fall back to direct execution automatically. Call `heun.invalidate_graph()` after changing the field set. For T>0 thermal simulations Heun is the **required** integrator — pass `seed` and `T_K` to `step()`.
+`HeunIntegratorGPU` supports **CUDA Graph replay for T_K=0** (deterministic Heun ODE). Heun uses **2 field evaluations per step** (predictor + corrector) vs RK4's 4, giving a **~2× step-time speedup** for T=0 relaxation and convergence scenarios. T>0 thermal steps (cuRAND noise varies each step) fall back to direct execution automatically. Call `heun.invalidate_graph()` after changing the field set. For T>0 thermal simulations Heun is the **required** integrator — pass `seed` and `T_K` to `step()`.
+
+`HeunIntegratorGPU` now exposes `max_angle_gpu()` (GPU-side, no D2H), enabling `run_until_converged_gpu` to use Heun directly.
+
+**Heun vs RK4 step-time benchmark (T=0, cuFFT_f64, 2026-06-21):**
+
+| Grid | Cells | RK4 (ms/step) | Heun (ms/step) | Speedup | ms/eval |
+| ---- | ----- | ------------- | -------------- | ------- | ------- |
+| SP#4 200×50×1 | 10K | 0.630 | 0.322 | **1.96×** | ~0.157 |
+| Medium 200×200×5 | 200K | 20.456 | 10.145 | **2.02×** | ~5.09 |
+| Large 500×500×10 | 2.5M | 271.7 | 135.7 | **2.00×** | ~67.9 |
+
+Per field-eval times are identical (RK4/4 ≈ Heun/2): CUDA Graph overhead is the same for both integrators. The full 2× ratio is achieved at all grid sizes.
+
+**When to use Heun vs RK4 for T=0:**
+
+- Use `HeunIntegratorGPU` whenever T=0 (energy minimization, convergence, high-damping relaxation) — 2× free speedup.
+- Use `RK4IntegratorGPU` when you need 4th-order accuracy in time (low-damping precession, pulse response).
+- Use `HeunIntegratorGPU` with `T_K>0` for SLLG (finite temperature, Stratonovich noise).
 
 **CUDA Graph acceleration (no STT/SOT):**  
 RK45 CUDA-graph path (NB41, pure fields) achieves 3 855 ms/ns on 200×50×1. The graph is captured once at the first `step()` call and replayed at zero kernel-launch overhead for all subsequent steps.
