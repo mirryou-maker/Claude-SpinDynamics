@@ -1,13 +1,12 @@
 // mumax3: µMAG SP#1 Phase Diagram — L_c measurement
-// Permalloy squares L×L×10nm, 5nm cells, sweep L=80-200nm
-// Minimize both S-state and vortex init, compare energies
+// Permalloy squares L×L×10nm, 5nm cells
+// Minimize S-state and vortex init at L=120nm (near boundary), compare energies
+// Default table: t, mx, my, mz  +  tableadd(E_total) → col 4
 
 Ms    := 860e3
 Aex   = 13e-12
 alpha = 0.5
 
-// L=120nm is right at the vortex/S-state boundary
-// Relax from vortex init → measure energy, then S-state init → measure energy
 NL := 24  // 120nm / 5nm cells
 Nz := 2   // 10nm thick
 
@@ -15,16 +14,14 @@ setgridsize(NL, NL, Nz)
 setcellsize(5e-9, 5e-9, 5e-9)
 Msat = Ms
 
+tableadd(E_total)   // col 4: E_total (J)
+
 // S-state init
 m = uniform(1, 0.05, 0.01)
 minimize()
-tableadd(E_total)
-tableadd(m.x)
-tablesave()
+tablesave()   // row 0: S-state energy + mx
 
 // Vortex init
 m = vortex(1, 1)
 minimize()
-tableadd(E_total)
-tableadd(m.x)
-tablesave()
+tablesave()   // row 1: vortex energy + mx

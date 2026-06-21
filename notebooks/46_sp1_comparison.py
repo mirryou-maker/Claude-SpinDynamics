@@ -128,8 +128,24 @@ for bl in ["cuFFT_f64"]:
 # --- mumax3 ---
 print("\n--- mumax3 ---")
 mx3r = bu.run_mumax3(MX3_SP1, timeout_s=300) if MX3_SP1.exists() else {"ok": False, "error": "mx3 not found"}
+mx3_Lc = None
 if mx3r["ok"]:
     print(f"  Wall: {mx3r['wall_ms']:.0f} ms")
+    outdir = MX3_SP1.parent / (MX3_SP1.stem + ".out")
+    tbl = bu.parse_mumax3_table(outdir)
+    # Table: t(0), mx(1), my(2), mz(3), E_total(4)
+    # Row 0 = S-state after minimize, row 1 = vortex after minimize
+    if tbl is not None and len(tbl) >= 2:
+        E_s = tbl[0, 4]; E_v = tbl[1, 4]
+        # L_c from single-L (120nm) run: dE sign only (not a sweep)
+        dE_pct = (E_v - E_s) / abs(E_s) * 100
+        print(f"  L=120nm  E_s={E_s*1e18:.3f}aJ  E_v={E_v*1e18:.3f}aJ  dE={dE_pct:+.1f}%")
+        if E_v < E_s:
+            print("  → vortex wins at 120nm (L_c < 120nm)")
+        else:
+            print("  → S-state wins at 120nm (L_c > 120nm)")
+    else:
+        print("  table parse failed")
 else:
     print(f"  {mx3r.get('error', 'failed')}")
 

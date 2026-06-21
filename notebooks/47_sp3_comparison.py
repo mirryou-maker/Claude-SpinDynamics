@@ -55,7 +55,7 @@ def run_cs_sp3(build_label):
     exch  = mm.ExchangeFieldGPU(g)
 
     mx_list, mag_list = [], []
-    opts = mm.RelaxGPUOptions(); opts.max_steps = 3000
+    opts = mm.RelaxGPUOptions(); opts.max_steps = 20000
 
     # Saturate at +150 mT
     zeeman = mm.ZeemanFieldGPU(g, mm.Vec3(H_AM[0], 0, 0))
@@ -101,17 +101,20 @@ for bl in ["cuFFT_f64"]:
 
 print("\n--- mumax3 ---")
 mx3r = bu.run_mumax3(MX3_SP3, timeout_s=300) if MX3_SP3.exists() else {"ok": False, "error": "mx3 not found"}
+mx3_Hsw = None
 if mx3r["ok"]:
     print(f"  Wall: {mx3r['wall_ms']:.0f} ms")
     outdir = MX3_SP3.parent / (MX3_SP3.stem + ".out")
     tbl = bu.parse_mumax3_table(outdir)
-    mx3_Hsw = None
     if tbl is not None and len(tbl) > 1:
-        # table columns: [t, B_ext.x (T), m.x, m.y, |m.x|]
-        B_mT = tbl[:, 1] * 1e3   # T → mT
-        mx_col = tbl[:, 2]
-        mx3_Hsw = _find_hsw(B_mT.tolist(), mx_col.tolist())
+        # Default table: t(0), mx(1), my(2), mz(3)
+        # Row k → B = 150 - k*10 mT  (row 0=+150, row 30=-150)
+        mx_col = tbl[:, 1]
+        B_mT   = [150.0 - k * 10.0 for k in range(len(mx_col))]
+        mx3_Hsw = _find_hsw(B_mT, mx_col.tolist())
         print(f"  H_sw ≈ {mx3_Hsw:.1f} mT" if mx3_Hsw else "  H_sw: not found in table")
+    else:
+        print("  table parse failed")
 else:
     print(f"  {mx3r.get('error', 'failed')}")
 
@@ -156,7 +159,8 @@ for r in results:
     rows.append([r['build'], f"{r['wall_ms']:.0f}",
                  f"{hsw:.1f} mT" if hsw else "n/a"])
 if mx3r.get("ok"):
-    rows.append(["mumax3", f"{mx3r['wall_ms']:.0f}", "from table TBD"])
+    rows.append(["mumax3", f"{mx3r['wall_ms']:.0f}",
+                 f"{mx3_Hsw:.1f} mT" if mx3_Hsw else "n/a"])
 if mxpr.get("ok"):
     hsw = mxpr.get("H_sw_mT")
     rows.append(["mumax+", f"{mxpr['wall_ms']:.0f}",
