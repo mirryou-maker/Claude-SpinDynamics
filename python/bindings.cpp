@@ -1463,7 +1463,9 @@ PYBIND11_MODULE(_micromag, m) {
              py::arg("mat"), py::arg("demag"), py::arg("extra_fields"),
              py::arg("T_K"), py::arg("torques"),
              "One Stratonovich Heun step with FieldSumGPU + SpinTorqueSumGPU.")
-        .def_property("dt", &HeunIntegratorGPU::dt, &HeunIntegratorGPU::set_dt);
+        .def_property("dt", &HeunIntegratorGPU::dt, &HeunIntegratorGPU::set_dt)
+        .def("invalidate_graph", &HeunIntegratorGPU::invalidate_graph,
+             "Force CUDA Graph re-capture on next T_K=0 step() call.");
 
     // ------------------------------------------------------------------
     // GPU Spin Torques: ISpinTorqueGPU, SpinTorqueSumGPU,

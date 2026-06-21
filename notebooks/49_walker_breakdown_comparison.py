@@ -104,7 +104,7 @@ def run_cs(build_label):
 
 
 results = []
-for bl in ["cuFFT_f64", "cuFFT_f32"]:
+for bl in ["cuFFT_f64", "cuFFT_f32", "VkFFT_f32"]:
     if not bu.BUILDS[bl].exists():
         print(f"[SKIP] {bl}"); continue
     print(f"\n--- {bl} ---")
@@ -214,7 +214,7 @@ try:
     ax.plot(J_arr, np.abs(v_sub_theory), 'k--', lw=1.5, alpha=0.5, label="Theory: sub-Walker (xi/alpha × u)")
     ax.plot(J_arr, np.abs(v_abv_theory), 'k:', lw=1.5, alpha=0.5, label="Theory: above-Walker (xi/sqrt(a²+xi²) × u)")
 
-    colors = {"cuFFT_f64": "C0", "cuFFT_f32": "C1", "mumax+": "C3"}
+    colors = {"cuFFT_f64": "C0", "cuFFT_f32": "C1", "VkFFT_f32": "C2", "mumax+": "C3"}
     for r in results:
         c = colors.get(r['build'], 'C0')
         ax.plot(J_arr, np.abs(r['v_list']), 'o-', ms=6, lw=2, color=c, label=f"CS {r['build']}")

@@ -1,0 +1,26 @@
+// mumax3: µMAG SP#3 Hysteresis — LLG protocol (relax() with high damping)
+// 1µm × 1µm × 20nm Permalloy (100×100×2, 10nm cells)
+// Uses relax() (LLG, alpha→1, no precession) instead of minimize()
+// matches µMAG reference protocol → H_sw ≈ −20 mT
+// Default table: t, mx, my, mz
+// Row index → B field: row 0 = 150mT, row k = (150 - k*10) mT
+
+setgridsize(100, 100, 2)
+setcellsize(10e-9, 10e-9, 10e-9)
+
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.5
+
+// Saturate at +150 mT, then relax
+B_ext = vector(150e-3, 0, 0)
+m = uniform(1, 0.02, 0.01)
+relax()
+tablesave()   // row 0: B=+150mT
+
+// Field sweep: +140 → -150 mT in 10mT steps  (rows 1-30)
+for B := 140e-3; B >= -150e-3; B -= 10e-3 {
+    B_ext = vector(B, 0, 0)
+    relax()
+    tablesave()
+}

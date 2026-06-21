@@ -69,7 +69,14 @@ public:
               SpinTorqueSumGPU* torques = nullptr);
 
     Real dt() const      { return dt_; }
-    void set_dt(Real dt) { dt_ = dt;   }
+    void set_dt(Real dt) {
+        if (dt != dt_) { gs1_.valid = gs2_.valid = false; }
+        dt_ = dt;
+    }
+
+    // Force CUDA Graph re-capture on next T=0 step() call.
+    // Call after changing the field set (e.g. new ZeemanFieldGPU).
+    void invalidate_graph() { gs1_.valid = gs2_.valid = false; }
 
 private:
     GPUMagState state_;
@@ -82,6 +89,16 @@ private:
 
     // cuRAND generator (opaque void* to avoid curand.h in header)
     void*  curand_gen_ = nullptr;
+
+    // P4-style CUDA Graph state — one per step() overload, T=0 only.
+    struct GraphState {
+        void*    exec  = nullptr;
+        bool     valid = false;
+        Material mat   = {};
+        Real     dt    = Real{0};
+    };
+    GraphState gs1_;  // step(mat, demag, exch, zeeman, T_K=0, aniso)
+    GraphState gs2_;  // step(mat, demag, extra_fields, T_K=0, torques)
 
     // Fixed-field run_half
     // P11: all [3×N] device buffer pointers use GReal (float or double per build flag).

@@ -226,7 +226,9 @@
 
 ---
 
-## FFT Backend Comparison: cuFFT vs VkFFT
+## FFT Backend Comparison: cuFFT_f64 vs cuFFT_f32 vs VkFFT_f32
+
+### Small/Medium grids (NB41–49 scenarios)
 
 | Grid | cuFFT_f64 (ms) | VkFFT_f32 (ms) | VkFFT/cuFFT |
 | ------ | ---------------- | ---------------- | ------------- |
@@ -236,11 +238,22 @@
 | 400×20×1 | 22 766 | 21 098 | **0.93×** |
 | 1×1×1 T=300K (×40) | 35 075 | 50 764 | 1.45× |
 
-**Findings:**
+### P4: RK4 full-field benchmark (SP#4 / Medium / Large)
+
+| Grid | Cells | cuFFT_f64 (ms) | cuFFT_f32 (ms) | VkFFT_f32 (ms) |
+| ------ | ----- | ---------------- | ---------------- | ---------------- |
+| SP#4 200×50×1 | 10 K | 0.609 | 0.615 | 0.620 |
+| Medium 200×200×5 | 200 K | 20.197 | 20.698 | 20.680 |
+| Large 500×500×10 | 2.5 M | 271.5 | 272.5 | 272.4 |
+
+**Key finding: f32 and VkFFT_f32 provide NO measurable speedup over cuFFT_f64 on this hardware.**  
+The exchange Laplacian kernel (memory-bandwidth-limited, 4× per RK4 step) dominates step time. Both f32 and f64 read the same number of cell neighbors per step, so DRAM access patterns are identical. The FFT (demag) is NOT the bottleneck. **f32 provides 2× VRAM savings** (useful for very large grids) but not compute speedup on consumer GPUs where FP64 FFT is already near bandwidth-limited.
+
+### Small-scenario findings (NB41–49)
+
 - VkFFT ≈ cuFFT for most grid shapes (within 5%)
 - cuFFT is faster for macrospin thermal (1.45× higher VkFFT per-call overhead)
 - VkFFT is slightly faster for 400×20×1 strip (mixed-radix benefits non-power-of-2 dimensions)
-- VkFFT advantage expected at large 3D grids (512×512×64+)
 
 ---
 
@@ -251,7 +264,7 @@
 → Use `rk4.step(mat, demag, fields, torques)` / `rk45.step(mat, demag, fields, torques)` for T=0 STT/SOT.
 
 **HeunIntegratorGPU (T=0 or T>0):**  
-Heun does not use CUDA graphs; it works natively with STT/SOT torques and stochastic noise. For T>0 thermal simulations it is the **required** integrator. Pass `seed` and `T_K` to the constructor.
+`HeunIntegratorGPU` now supports **CUDA Graph replay for T_K=0** (deterministic Heun ODE), giving a **1.16× speedup** on SP#4 (0.365→0.314 ms/step, −14%). T>0 thermal steps (cuRAND noise varies each step) fall back to direct execution automatically. Call `heun.invalidate_graph()` after changing the field set. For T>0 thermal simulations Heun is the **required** integrator — pass `seed` and `T_K` to `step()`.
 
 **CUDA Graph acceleration (no STT/SOT):**  
 RK45 CUDA-graph path (NB41, pure fields) achieves 3 855 ms/ns on 200×50×1. The graph is captured once at the first `step()` call and replayed at zero kernel-launch overhead for all subsequent steps.

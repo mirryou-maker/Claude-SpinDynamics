@@ -54,6 +54,54 @@
 namespace micromag {
 
 // ---------------------------------------------------------------------------
+// P4-style CUDA Graph helpers (same logic as rk4_integrator_gpu.cu)
+// ---------------------------------------------------------------------------
+static bool heun_mat_eq(const Material& a, const Material& b) {
+    return a.Ms == b.Ms && a.A_exchange == b.A_exchange &&
+           a.K_uniaxial == b.K_uniaxial && a.Ku2 == b.Ku2 &&
+           a.alpha == b.alpha &&
+           a.easy_axis.x == b.easy_axis.x &&
+           a.easy_axis.y == b.easy_axis.y &&
+           a.easy_axis.z == b.easy_axis.z;
+}
+
+static void heun_free_graph(void*& exec_v) {
+    if (exec_v) {
+        cudaGraphExecDestroy(static_cast<cudaGraphExec_t>(exec_v));
+        exec_v = nullptr;
+    }
+}
+
+template<class F>
+static bool heun_do_capture(cudaStream_t s, void*& exec_out, F body) {
+    heun_free_graph(exec_out);
+#ifdef MICROMAG_VKFFT
+    body();
+    return false;
+#endif
+    static const bool profiling_active =
+        (std::getenv("MICROMAG_DEMAG_PROFILE") != nullptr);
+    if (profiling_active) { body(); return false; }
+
+    cudaError_t begin_err = cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal);
+    if (begin_err != cudaSuccess) { cudaGetLastError(); body(); return false; }
+    bool body_ok = true;
+    try { body(); } catch (...) { body_ok = false; }
+    cudaGraph_t g = nullptr;
+    cudaError_t end_err = cudaStreamEndCapture(s, &g);
+    if (!body_ok || end_err != cudaSuccess || !g) {
+        if (g) cudaGraphDestroy(g);
+        cudaGetLastError(); body(); return false;
+    }
+    cudaGraphExec_t ge = nullptr;
+    cudaError_t inst_err = cudaGraphInstantiate(&ge, g, nullptr, nullptr, 0);
+    cudaGraphDestroy(g);
+    if (inst_err != cudaSuccess) { cudaGetLastError(); body(); return false; }
+    exec_out = static_cast<void*>(ge);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Constructor / Destructor
 // ---------------------------------------------------------------------------
 HeunIntegratorGPU::HeunIntegratorGPU(const StructuredGrid& grid,
@@ -73,6 +121,8 @@ HeunIntegratorGPU::HeunIntegratorGPU(const StructuredGrid& grid,
 }
 
 HeunIntegratorGPU::~HeunIntegratorGPU() {
+    heun_free_graph(gs1_.exec);
+    heun_free_graph(gs2_.exec);
     if (curand_gen_)
         curandDestroyGenerator(static_cast<curandGenerator_t>(curand_gen_));
     cudaFree(d_noise_);
@@ -108,7 +158,10 @@ void HeunIntegratorGPU::run_half(
 }
 
 // ---------------------------------------------------------------------------
-// step ??one complete Stratonovich Heun step
+// step — one complete Stratonovich Heun step (fixed-field overload)
+//
+// T_K=0: deterministic Heun ODE, eligible for CUDA Graph replay.
+// T_K>0: cuRAND noise varies each step — Graph capture skipped.
 // ---------------------------------------------------------------------------
 void HeunIntegratorGPU::step(
     const Material& mat,
@@ -118,15 +171,42 @@ void HeunIntegratorGPU::step(
 {
     const int  N = static_cast<int>(state_.N());
     const Real h = dt_;
-    void*      s = state_.stream();
+    void*      sv = state_.stream();
+    cudaStream_t s = static_cast<cudaStream_t>(sv);
 
-    demag.set_stream(s);
-    exch.set_stream(s);
-    zeeman.set_stream(s);
-    if (aniso) aniso->set_stream(s);
+    demag.set_stream(sv);
+    exch.set_stream(sv);
+    zeeman.set_stream(sv);
+    if (aniso) aniso->set_stream(sv);
 
-    // ---- Generate thermal noise 管^n (once per step) -------------------------
     const bool thermal = (T_K > 0.0 && mat.Ms > 0.0);
+
+    // T=0: try CUDA Graph replay
+    if (!thermal) {
+        bool stale = !gs1_.valid || !heun_mat_eq(gs1_.mat, mat) || gs1_.dt != dt_;
+        if (stale) {
+            auto body = [&] {
+                run_half(mat, state_.d_m(), state_.d_H(), state_.d_ki(),
+                         demag, exch, zeeman, aniso, false);
+                launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, sv);
+                launch_normalize(state_.d_m0(), N, sv);
+                run_half(mat, state_.d_m0(), state_.d_H(), state_.d_k_acc(),
+                         demag, exch, zeeman, aniso, false);
+                launch_heun_corrector(state_.d_m(), state_.d_ki(), state_.d_k_acc(),
+                                      h * 0.5, N, sv);
+                launch_normalize(state_.d_m(), N, sv);
+            };
+            gs1_.valid = heun_do_capture(s, gs1_.exec, body);
+            gs1_.mat   = mat;
+            gs1_.dt    = dt_;
+            if (!gs1_.valid) { state_.sync(); return; }
+        }
+        CUDA_CHECK(cudaGraphLaunch(static_cast<cudaGraphExec_t>(gs1_.exec), s));
+        state_.sync();
+        return;
+    }
+
+    // T>0: thermal noise — cannot use Graph (cuRAND must run each step)
     if (thermal) {
         // ? = sqrt(2慣 k_B T / (關? Ms 款? V dt))
         const Real V   = dx_ * dy_ * dz_;
@@ -148,30 +228,18 @@ void HeunIntegratorGPU::step(
 #endif
     }
 
-    // ---- Predictor -----------------------------------------------------------
-    // k1 = f(m^n, H_eff + 管^n);  m_pred = normalize(m^n + dt쨌k1)
-    run_half(mat,
-             state_.d_m(),
-             state_.d_H(),
-             state_.d_ki(),
+    // Predictor: k1 = f(m^n, H_eff + η^n);  m_pred = normalize(m^n + dt·k1)
+    run_half(mat, state_.d_m(), state_.d_H(), state_.d_ki(),
              demag, exch, zeeman, aniso, thermal);
+    launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, sv);
+    launch_normalize(state_.d_m0(), N, sv);
 
-    // Single-stream: stage + normalize ordered before corrector run_half on s.
-    launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, s);
-    launch_normalize(state_.d_m0(), N, s);
-
-    // ---- Corrector -----------------------------------------------------------
-    // k2 = f(m_pred, H_eff + 管^n)  [SAME noise ??Stratonovich]
-    run_half(mat,
-             state_.d_m0(),
-             state_.d_H(),
-             state_.d_k_acc(),
+    // Corrector: k2 = f(m_pred, H_eff + η^n)  [SAME noise — Stratonovich]
+    run_half(mat, state_.d_m0(), state_.d_H(), state_.d_k_acc(),
              demag, exch, zeeman, aniso, thermal);
-
-    // m^{n+1} = normalize(m^n + dt/2쨌(k1 + k2))
     launch_heun_corrector(state_.d_m(), state_.d_ki(), state_.d_k_acc(),
-                           h * 0.5, N, s);
-    launch_normalize(state_.d_m(), N, s);
+                          h * 0.5, N, sv);
+    launch_normalize(state_.d_m(), N, sv);
     state_.sync();
 }
 
@@ -205,7 +273,11 @@ void HeunIntegratorGPU::run_half(
 }
 
 // ---------------------------------------------------------------------------
-// step ??FieldSumGPU overload (optional spin torques, optional noise)
+// step — FieldSumGPU overload (optional spin torques, optional noise)
+//
+// T_K=0 without torques: CUDA Graph eligible.
+// T_K=0 with torques: also Graph eligible (torques are deterministic).
+// T_K>0: cuRAND noise — no Graph.
 // ---------------------------------------------------------------------------
 void HeunIntegratorGPU::step(
     const Material& mat, IDemagGPU& demag,
@@ -214,52 +286,66 @@ void HeunIntegratorGPU::step(
 {
     const int  N = static_cast<int>(state_.N());
     const Real h = dt_;
-    void*      s = state_.stream();
+    void*      sv = state_.stream();
+    cudaStream_t s = static_cast<cudaStream_t>(sv);
 
-    demag.set_stream(s);
-    extra_fields.set_stream(s);
-    if (torques) torques->set_stream(s);
+    demag.set_stream(sv);
+    extra_fields.set_stream(sv);
+    if (torques) torques->set_stream(sv);
 
     const bool thermal = (T_K > 0.0 && mat.Ms > 0.0);
-    if (thermal) {
-        const Real V   = dx_ * dy_ * dz_;
-        const Real num = 2.0 * mat.alpha * constants::k_B * T_K;
-        const Real den = constants::mu_0 * mat.Ms * constants::gamma_0 * V * h;
-        const double sig = std::sqrt(num / den);
-#ifdef MICROMAG_FLOAT32
-        CURAND_CHECK(curandGenerateNormal(
-            static_cast<curandGenerator_t>(curand_gen_),
-            static_cast<float*>(d_noise_),
-            static_cast<size_t>(N_pad_), 0.0f, static_cast<float>(sig)));
-#else
-        CURAND_CHECK(curandGenerateNormalDouble(
-            static_cast<curandGenerator_t>(curand_gen_),
-            static_cast<double*>(d_noise_),
-            static_cast<size_t>(N_pad_), 0.0, sig));
-#endif
+
+    // T=0: try CUDA Graph replay
+    if (!thermal) {
+        bool stale = !gs2_.valid || !heun_mat_eq(gs2_.mat, mat) || gs2_.dt != dt_;
+        if (stale) {
+            auto body = [&] {
+                run_half(mat, state_.d_m(), state_.d_H(), state_.d_ki(),
+                         demag, extra_fields, false, torques);
+                launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, sv);
+                launch_normalize(state_.d_m0(), N, sv);
+                run_half(mat, state_.d_m0(), state_.d_H(), state_.d_k_acc(),
+                         demag, extra_fields, false, torques);
+                launch_heun_corrector(state_.d_m(), state_.d_ki(), state_.d_k_acc(),
+                                      h * 0.5, N, sv);
+                launch_normalize(state_.d_m(), N, sv);
+            };
+            gs2_.valid = heun_do_capture(s, gs2_.exec, body);
+            gs2_.mat   = mat;
+            gs2_.dt    = dt_;
+            if (!gs2_.valid) { state_.sync(); return; }
+        }
+        CUDA_CHECK(cudaGraphLaunch(static_cast<cudaGraphExec_t>(gs2_.exec), s));
+        state_.sync();
+        return;
     }
 
-    // Predictor
-    run_half(mat,
-             state_.d_m(),
-             state_.d_H(),
-             state_.d_ki(),
-             demag, extra_fields, thermal, torques);
+    // T>0: generate thermal noise then run directly
+    const Real V   = dx_ * dy_ * dz_;
+    const Real num = 2.0 * mat.alpha * constants::k_B * T_K;
+    const Real den = constants::mu_0 * mat.Ms * constants::gamma_0 * V * h;
+    const double sig = std::sqrt(num / den);
+#ifdef MICROMAG_FLOAT32
+    CURAND_CHECK(curandGenerateNormal(
+        static_cast<curandGenerator_t>(curand_gen_),
+        static_cast<float*>(d_noise_),
+        static_cast<size_t>(N_pad_), 0.0f, static_cast<float>(sig)));
+#else
+    CURAND_CHECK(curandGenerateNormalDouble(
+        static_cast<curandGenerator_t>(curand_gen_),
+        static_cast<double*>(d_noise_),
+        static_cast<size_t>(N_pad_), 0.0, sig));
+#endif
 
-    // Single-stream: stage + normalize ordered before corrector on s.
-    launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, s);
-    launch_normalize(state_.d_m0(), N, s);
-
-    // Corrector (same noise ??Stratonovich)
-    run_half(mat,
-             state_.d_m0(),
-             state_.d_H(),
-             state_.d_k_acc(),
-             demag, extra_fields, thermal, torques);
-
+    run_half(mat, state_.d_m(), state_.d_H(), state_.d_ki(),
+             demag, extra_fields, true, torques);
+    launch_rk4_stage(state_.d_m0(), state_.d_m(), state_.d_ki(), h, N, sv);
+    launch_normalize(state_.d_m0(), N, sv);
+    run_half(mat, state_.d_m0(), state_.d_H(), state_.d_k_acc(),
+             demag, extra_fields, true, torques);
     launch_heun_corrector(state_.d_m(), state_.d_ki(), state_.d_k_acc(),
-                           h * 0.5, N, s);
-    launch_normalize(state_.d_m(), N, s);
+                          h * 0.5, N, sv);
+    launch_normalize(state_.d_m(), N, sv);
     state_.sync();
 }
 
