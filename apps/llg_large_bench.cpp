@@ -140,6 +140,7 @@ static double run_gpu(const StructuredGrid& grid, const Material& mat,
     const auto t0 = Clock::now();
     for (int k = 0; k < n_timed; ++k)
         gpu.step(mat, *demag, exch, zeeman);
+    cudaDeviceSynchronize();   // wait for GPU completion before stopping timer
     const double wall_ms = elapsed_ms(t0);
 
     VectorField3D m_out(grid);
