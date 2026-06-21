@@ -63,6 +63,16 @@
                 "MICROMAG_VKFFT": "ON",
                 "MICROMAG_VKFFT_PATH": "C:/vkfft"
             }
+        },
+        {
+            "name": "windows-msvc-cuda-vkfft-f32",
+            "inherits": "windows-msvc-cuda-vkfft",
+            "displayName": "Windows MSVC + CUDA GPU (VkFFT + float32)",
+            "description": "VkFFT (faster non-pow2) + float32 (faster large-grid FFT via L1 fit)",
+            "binaryDir": "${sourceDir}/build/windows-msvc-cuda-vkfft-f32",
+            "cacheVariables": {
+                "MICROMAG_FLOAT32": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -89,6 +99,11 @@
         {
             "name": "windows-msvc-cuda-vkfft",
             "configurePreset": "windows-msvc-cuda-vkfft",
+            "configuration": "Release"
+        },
+        {
+            "name": "windows-msvc-cuda-vkfft-f32",
+            "configurePreset": "windows-msvc-cuda-vkfft-f32",
             "configuration": "Release"
         }
     ],

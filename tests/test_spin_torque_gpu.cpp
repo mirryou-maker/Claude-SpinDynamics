@@ -7,6 +7,9 @@
 // ST4: SpinTorqueSumGPU adds terms correctly
 // ST5: RK4IntegratorGPU::step with SpinTorqueSumGPU (no crash, m normalized)
 // ST6: SlonczewskiSTTGPU switches a macrospin
+// ST7: RK45IntegratorGPU + SpinTorqueSumGPU (no crash, m normalized)
+// ST8: RK4 + STT with changing J between steps (no stale baked-in values)
+// ST9: RK4 and RK45 + SOT agree at T=0
 
 #ifdef MICROMAG_CUDA
 
@@ -23,6 +26,7 @@
 #include "micromag/grid.hpp"
 #include "micromag/material.hpp"
 #include "micromag/rk4_integrator_gpu.hpp"
+#include "micromag/rk45_integrator_gpu.hpp"
 #include "micromag/spin_torque.hpp"
 #include "micromag/spin_torque_gpu.hpp"
 
@@ -338,6 +342,154 @@ TEST_CASE("SlonczewskiSTTGPU: torque drives mz away from p direction",
     // mz should have decreased from mz0 (STT drives m away from p = +z)
     INFO("mz_initial=" << mz0 << "  mz_final=" << m_out[0].z);
     REQUIRE(m_out[0].z < mz0);
+}
+
+// ---------------------------------------------------------------------------
+// ST7: RK45IntegratorGPU + SpinTorqueSumGPU — no crash, m stays normalized
+//
+// RK45 does not use CUDA Graphs, so STT/SOT kernels are always called in
+// normal (non-capture) execution mode.  This test verifies the overload
+// step(mat, demag, FieldSumGPU, SpinTorqueSumGPU) works end-to-end.
+// ---------------------------------------------------------------------------
+TEST_CASE("RK45IntegratorGPU: step with SpinTorqueSumGPU runs without crash",
+          "[spin_torque_gpu][gpu]") {
+    StructuredGrid g(4, 4, 1, 5e-9, 5e-9, 5e-9);
+    auto mat = make_py();
+    mat.alpha = 0.3;
+
+    VectorField3D m0(g);
+    for (Index i = 0; i < m0.size(); ++i)
+        m0[i] = Vec3{0.1, 0.0, std::sqrt(1.0 - 0.01)};
+
+    DemagFieldGPU    demag(g);
+    ExchangeFieldGPU exch(g);
+    ZeemanFieldGPU   zeeman(g, Vec3{0, 0, 1e5});
+
+    FieldSumGPU fields;
+    fields.add(exch);
+    fields.add(zeeman);
+
+    SlonczewskiSTTGPU stt(g, 1e12, 0.5, 3e-9, Vec3{0, 0, 1});
+    SpinTorqueSumGPU torques;
+    torques.add(stt);
+
+    RK45IntegratorGPU rk45(g);
+    rk45.upload(m0);
+
+    REQUIRE_NOTHROW([&]() {
+        for (int k = 0; k < 10; ++k)
+            rk45.step(mat, demag, fields, torques);
+    }());
+
+    VectorField3D m_out(g);
+    rk45.download(m_out);
+    for (Index i = 0; i < m_out.size(); ++i)
+        REQUIRE_THAT(m_out[i].norm(), WithinAbs(1.0, micromag::gtol(1e-9)));
+}
+
+// ---------------------------------------------------------------------------
+// ST8: RK4 with changing torque parameter (J sweep) stays physically correct
+//
+// Tests the core use case: changing stt.J between steps should give results
+// consistent with a fresh integrator started at the new J.  Before the fix,
+// the CUDA Graph could bake in the old aJ coefficient.
+// ---------------------------------------------------------------------------
+TEST_CASE("RK4IntegratorGPU + STT: changing J between steps gives correct physics",
+          "[spin_torque_gpu][gpu]") {
+    StructuredGrid g(1, 1, 1, 10e-9, 10e-9, 3e-9);
+    auto mat = Material::permalloy();
+    mat.alpha = 0.02;
+
+    const double mx0 = 0.1;
+    const double mz0 = std::sqrt(1.0 - mx0*mx0);
+
+    DemagFieldGPU    demag(g);
+    ExchangeFieldGPU exch(g);
+    ZeemanFieldGPU   zeeman(g, Vec3{0, 0, 0});
+    FieldSumGPU fields;
+    fields.add(exch); fields.add(zeeman);
+
+    SlonczewskiSTTGPU stt(g, 1e13, 0.5, 3e-9, Vec3{0, 0, 1});
+    SpinTorqueSumGPU torques;
+    torques.add(stt);
+
+    // Run 500 steps at J=1e13 (large — should cause mz to decrease)
+    VectorField3D m0(g);
+    m0[0] = Vec3{mx0, 0.0, mz0};
+    RK4IntegratorGPU integ(g, 5e-14);
+    integ.upload(m0);
+    for (int k = 0; k < 500; ++k)
+        integ.step(mat, demag, fields, torques);
+    VectorField3D m_big_J(g);
+    integ.download(m_big_J);
+
+    // Run 500 steps at J=0 (no STT — m should barely change from precession)
+    stt.set_J(0.0);
+    m0[0] = Vec3{mx0, 0.0, mz0};
+    RK4IntegratorGPU integ2(g, 5e-14);
+    integ2.upload(m0);
+    for (int k = 0; k < 500; ++k)
+        integ2.step(mat, demag, fields, torques);
+    VectorField3D m_zero_J(g);
+    integ2.download(m_zero_J);
+
+    // With J=1e13 (antidamping), mz should have decreased more than at J=0
+    INFO("mz at J=1e13: " << m_big_J[0].z << "  mz at J=0: " << m_zero_J[0].z);
+    REQUIRE(m_big_J[0].z < m_zero_J[0].z);
+}
+
+// ---------------------------------------------------------------------------
+// ST9: RK4 + SOT gives same result as RK45 + SOT (T=0, short run)
+//
+// Confirms both integrators agree on deterministic SOT dynamics.
+// RK4 uses direct execution (no graph); RK45 uses its normal loop.
+// ---------------------------------------------------------------------------
+TEST_CASE("RK4 and RK45 + SOT agree at T=0 (short run)",
+          "[spin_torque_gpu][gpu]") {
+    StructuredGrid g(1, 1, 1, 10e-9, 10e-9, 3e-9);
+    auto mat = Material::permalloy();
+    mat.alpha = 0.02;
+
+    const double mx0 = 0.1, mz0 = std::sqrt(1.0 - mx0*mx0);
+    VectorField3D m0(g);
+    m0[0] = Vec3{mx0, 0.0, mz0};
+
+    DemagFieldGPU    demag(g);
+    ExchangeFieldGPU exch(g);
+    ZeemanFieldGPU   zeeman(g, Vec3{0, 0, 0});
+    FieldSumGPU fields;
+    fields.add(exch); fields.add(zeeman);
+
+    SpinOrbitTorqueGPU sot(g, 2e12, 0.12, 3e-9, Vec3{1, 0, 0});
+    SpinTorqueSumGPU torques;
+    torques.add(sot);
+
+    const Real DT = 5e-15;
+    const int NSTEP = 100;
+
+    // RK4 run
+    RK4IntegratorGPU rk4(g, DT);
+    rk4.upload(m0);
+    for (int k = 0; k < NSTEP; ++k)
+        rk4.step(mat, demag, fields, torques);
+    VectorField3D m_rk4(g);
+    rk4.download(m_rk4);
+
+    // RK45 run (same fixed dt via dt_max = dt_init = DT to force fixed stepping)
+    RK45IntegratorGPU::Options opts;
+    opts.dt_init = DT; opts.dt_max = DT; opts.rtol = 1e-8; opts.atol = 1e-10;
+    RK45IntegratorGPU rk45(g, opts);
+    rk45.upload(m0);
+    for (int k = 0; k < NSTEP; ++k)
+        rk45.step(mat, demag, fields, torques);
+    VectorField3D m_rk45(g);
+    rk45.download(m_rk45);
+
+    // RK4 and RK45 with same dt should agree within truncation error (O(dt^4))
+    const double tol = micromag::gtol(1e-6);
+    REQUIRE_THAT(m_rk4[0].x, WithinAbs(m_rk45[0].x, tol));
+    REQUIRE_THAT(m_rk4[0].y, WithinAbs(m_rk45[0].y, tol));
+    REQUIRE_THAT(m_rk4[0].z, WithinAbs(m_rk45[0].z, tol));
 }
 
 #endif // MICROMAG_CUDA

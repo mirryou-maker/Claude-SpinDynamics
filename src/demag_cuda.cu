@@ -581,8 +581,13 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
         int dev_idx; cudaGetDevice(&dev_idx);
         CUdevice cu_dev = static_cast<CUdevice>(dev_idx);
 
-        struct VkFFT_State { VkFFTApplication fwd{}; VkFFTApplication inv{}; };
+        struct VkFFT_State {
+            VkFFTApplication fwd{};
+            VkFFTApplication inv{};
+            cudaStream_t stream = nullptr; // dereferenced at each VkFFTAppend call
+        };
         auto* st = new VkFFT_State;
+        st->stream = static_cast<cudaStream_t>(stream_);
         vkfft_state_ = st;
 
         const int fft_dim = (pad_nz_ == 1) ? 2 : 3;
@@ -602,6 +607,7 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
             cfg.performR2C       = 1;
             cfg.doublePrecision  = use_double;   // must match GReal (default=float32)
             cfg.device           = &cu_dev;
+            cfg.stream           = &st->stream;  // VkFFT dereferences at launch time
             cfg.isInputFormatted = 1;            // separate real inputBuffer
             cfg.inputBuffer      = &d_M_all_;
             cfg.inputBufferSize  = &real_bytes;
@@ -623,6 +629,7 @@ DemagFieldGPU::DemagFieldGPU(const StructuredGrid& grid)
             cfg.performR2C        = 1;
             cfg.doublePrecision   = use_double;
             cfg.device            = &cu_dev;
+            cfg.stream            = &st->stream;  // shared pointer → same variable
             cfg.isOutputFormatted = 1;           // separate real outputBuffer
             cfg.buffer            = &d_MF_all_;  // complex input
             cfg.bufferSize        = &cplx_bytes;
@@ -657,9 +664,14 @@ void DemagFieldGPU::set_stream(void* s) {
 #ifndef MICROMAG_VKFFT
     cufftSetStream(plan_fwd_batch_, static_cast<cudaStream_t>(s));
     cufftSetStream(plan_inv_batch_, static_cast<cudaStream_t>(s));
+#else
+    if (vkfft_state_) {
+        // VkFFT dereferences cfg.stream at each VkFFTAppend call.
+        // Both fwd and inv share &st->stream, so updating it here suffices.
+        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; cudaStream_t stream; };
+        static_cast<VkFFT_State*>(vkfft_state_)->stream = static_cast<cudaStream_t>(s);
+    }
 #endif
-    // VkFFT runs on CUDA null stream (implicit sync with all non-null streams).
-    // No per-stream binding needed.
 }
 
 // ===========================================================================
@@ -1031,9 +1043,9 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_)));
 #else
     {
-        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
-        VkFFTLaunchParams lp = {};  // buffers and stream in app configuration
-        VkFFTResult vr = VkFFTAppend(&static_cast<VkFFT_State*>(vkfft_state_)->fwd, -1, &lp);
+        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; cudaStream_t stream; };
+        // Stream is bound at init via cfg.stream = &st->stream; updated by set_stream().
+        VkFFTResult vr = VkFFTAppend(&static_cast<VkFFT_State*>(vkfft_state_)->fwd, -1, nullptr);
         if (vr != VKFFT_SUCCESS) throw std::runtime_error("VkFFT fwd exec: " + std::to_string((int)vr));
     }
 #endif
@@ -1074,9 +1086,8 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
         reinterpret_cast<GREAL_CUFFT_REAL*>(d_M_all_)));
 #else
     {
-        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; };
-        VkFFTLaunchParams lp = {};  // buffers and stream in app configuration
-        VkFFTResult vr = VkFFTAppend(&static_cast<VkFFT_State*>(vkfft_state_)->inv, 1, &lp);
+        struct VkFFT_State { VkFFTApplication fwd; VkFFTApplication inv; cudaStream_t stream; };
+        VkFFTResult vr = VkFFTAppend(&static_cast<VkFFT_State*>(vkfft_state_)->inv, 1, nullptr);
         if (vr != VKFFT_SUCCESS) throw std::runtime_error("VkFFT inv exec: " + std::to_string((int)vr));
     }
 #endif
@@ -1104,6 +1115,7 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
     }
 
     if (prof) {
+        cudaStreamSynchronize(s);   // ensure all events are completed before readback
         float t[5];
         cudaEventElapsedTime(&t[0], ev[0], ev[1]);   // prep
         cudaEventElapsedTime(&t[1], ev[1], ev[2]);   // fwd FFT

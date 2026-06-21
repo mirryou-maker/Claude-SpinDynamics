@@ -67,6 +67,121 @@ __global__ static void anisotropy_kernel(
 }
 
 // ===========================================================================
+// Fused Exchange + Zeeman + Uniaxial Anisotropy kernel (uniform-material only)
+//
+// Replaces three separate kernel launches with one pass over m and H_out,
+// cutting global-memory reads/writes by ~36% for the non-demag fields:
+//   Separate: (7×3 m-reads + 3 H-reads + 3 H-writes) × 3 kernels  = 42 ops
+//   Fused:     7×3 m-reads + 3 H-reads + 3 H-writes               = 27 ops
+//
+// Parameters:
+//   fx, fy, fz       — exchange factors: 2A/(μ₀ Ms d²) per axis
+//   Hx, Hy, Hz       — uniform Zeeman field (A/m)
+//   aniso_factor     — 2K/(μ₀ Ms); set to 0.0 to skip anisotropy
+//   ux, uy, uz       — easy axis (pre-normalised)
+//   bc_periodic      — true: periodic BC on all axes; false: Neumann BC
+// ===========================================================================
+__global__ static void exch_zeeman_aniso_fused_kernel(
+    GReal* __restrict__       H_out,
+    const GReal* __restrict__ m,
+    int nx, int ny, int nz,
+    double fx, double fy, double fz,
+    double Hx, double Hy, double Hz,
+    double aniso_factor,
+    double ux, double uy, double uz,
+    bool bc_periodic)
+{
+    const int N   = nx * ny * nz;
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+
+    const int ix = idx % nx;
+    const int iy = (idx / nx) % ny;
+    const int iz = idx / (nx * ny);
+
+    // Neighbour indices (Neumann BC: clamp to self → zero contribution)
+    int xm, xp, ym, yp, zm, zp;
+    if (bc_periodic) {
+        xm = (ix > 0)    ? idx - 1      : idx - 1 + nx;
+        xp = (ix < nx-1) ? idx + 1      : idx + 1 - nx;
+        ym = (iy > 0)    ? idx - nx      : idx - nx + nx*ny;
+        yp = (iy < ny-1) ? idx + nx      : idx + nx - nx*ny;
+        zm = (iz > 0)    ? idx - nx*ny   : idx - nx*ny + N;
+        zp = (iz < nz-1) ? idx + nx*ny   : idx + nx*ny - N;
+    } else {
+        xm = (ix > 0)    ? idx - 1      : idx;
+        xp = (ix < nx-1) ? idx + 1      : idx;
+        ym = (iy > 0)    ? idx - nx      : idx;
+        yp = (iy < ny-1) ? idx + nx      : idx;
+        zm = (iz > 0)    ? idx - nx*ny   : idx;
+        zp = (iz < nz-1) ? idx + nx*ny   : idx;
+    }
+
+    // Load centre magnetization into registers (reused for anisotropy)
+    const double mx = m[0*N + idx];
+    const double my = m[1*N + idx];
+    const double mz = m[2*N + idx];
+
+    // Accumulate into registers (single H_out read per component)
+    double hx = H_out[0*N + idx];
+    double hy = H_out[1*N + idx];
+    double hz = H_out[2*N + idx];
+
+    // --- Exchange (6-point Laplacian) ---
+    hx += (m[0*N+xm]-mx)*fx + (m[0*N+xp]-mx)*fx
+        + (m[0*N+ym]-mx)*fy + (m[0*N+yp]-mx)*fy
+        + (m[0*N+zm]-mx)*fz + (m[0*N+zp]-mx)*fz;
+    hy += (m[1*N+xm]-my)*fx + (m[1*N+xp]-my)*fx
+        + (m[1*N+ym]-my)*fy + (m[1*N+yp]-my)*fy
+        + (m[1*N+zm]-my)*fz + (m[1*N+zp]-my)*fz;
+    hz += (m[2*N+xm]-mz)*fx + (m[2*N+xp]-mz)*fx
+        + (m[2*N+ym]-mz)*fy + (m[2*N+yp]-mz)*fy
+        + (m[2*N+zm]-mz)*fz + (m[2*N+zp]-mz)*fz;
+
+    // --- Uniaxial Anisotropy (skipped when K=0) ---
+    if (aniso_factor != 0.0) {
+        const double dot = mx*ux + my*uy + mz*uz;
+        const double h   = aniso_factor * dot;
+        hx += h * ux;
+        hy += h * uy;
+        hz += h * uz;
+    }
+
+    // --- Zeeman (uniform) ---
+    hx += Hx;
+    hy += Hy;
+    hz += Hz;
+
+    // Single H_out write per component
+    H_out[0*N + idx] = static_cast<GReal>(hx);
+    H_out[1*N + idx] = static_cast<GReal>(hy);
+    H_out[2*N + idx] = static_cast<GReal>(hz);
+}
+
+// Free function called from rk4_integrator_gpu.cu
+void launch_fused_local_fields(
+    const GReal* d_m,
+    GReal*       d_H_out,
+    int nx, int ny, int nz,
+    double fx, double fy, double fz,
+    double Hx, double Hy, double Hz,
+    double aniso_factor,
+    double ux, double uy, double uz,
+    bool bc_periodic,
+    void* stream)
+{
+    const int N   = nx * ny * nz;
+    const int blk = 256;
+    const int grd = (N + blk - 1) / blk;
+    exch_zeeman_aniso_fused_kernel<<<grd, blk, 0,
+        static_cast<cudaStream_t>(stream)>>>(
+        d_H_out, d_m, nx, ny, nz,
+        fx, fy, fz, Hx, Hy, Hz,
+        aniso_factor, ux, uy, uz,
+        bc_periodic);
+}
+
+// ===========================================================================
 // ZeemanFieldGPU
 // ===========================================================================
 

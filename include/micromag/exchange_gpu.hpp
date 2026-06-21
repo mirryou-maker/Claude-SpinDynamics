@@ -62,6 +62,12 @@ public:
     void clear_material_field();
     bool has_material_field() const { return d_A_field_ != nullptr; }
 
+    // Cell-size and BC accessors — used by fused local-field kernel in the integrator.
+    Real dx() const { return dx_; }
+    Real dy() const { return dy_; }
+    Real dz() const { return dz_; }
+    BoundaryCondition bc() const { return bc_; }
+
 private:
     Index  nx_, ny_, nz_;
     Real   dx_, dy_, dz_;

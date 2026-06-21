@@ -189,7 +189,9 @@ void SlonczewskiSTTGPU::accumulate_gpu_ptr(
         d_dm_out,
         d_m,
         N, aJ, bJ, p_.x, p_.y, p_.z);
-    CUDA_CHECK(cudaGetLastError());
+    // Note: no cudaGetLastError() here — that call is forbidden during CUDA Graph
+    // capture and would cause the capture to fail.  Kernel launch errors are
+    // caught by the integrator's cudaStreamSynchronize() at the end of step().
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +234,7 @@ void SpinOrbitTorqueGPU::accumulate_gpu_ptr(
         d_m,
         N, a * eta_DL_, a * eta_FL_,
         sigma_.x, sigma_.y, sigma_.z);
-    CUDA_CHECK(cudaGetLastError());
+    // No cudaGetLastError() — see SlonczewskiSTTGPU::accumulate_gpu_ptr.
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +283,7 @@ void ZhangLiSTTGPU::accumulate_gpu_ptr(
         static_cast<int>(nx_), static_cast<int>(ny_), static_cast<int>(nz_), N,
         dx_, dy_, dz_, u_val, xi_,
         jhatx, jhaty, jhatz);
-    CUDA_CHECK(cudaGetLastError());
+    // No cudaGetLastError() — see SlonczewskiSTTGPU::accumulate_gpu_ptr.
 }
 
 }  // namespace micromag
