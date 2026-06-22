@@ -144,4 +144,4 @@ Claude-SpinDynamics/
 
 ## License
 
-TBD
+GNU General Public License v3.0 (GPLv3) — see [LICENSE](LICENSE).
