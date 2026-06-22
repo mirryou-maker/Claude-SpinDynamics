@@ -7,6 +7,9 @@ Landau–Lifshitz–Gilbert (LLG) equation on structured grids using CPU (FFTW)
 and GPU (cuFFT/CUDA) backends.  It is validated against the µMAG standard
 problems and designed for research-scale simulations of nanomagnetic devices.
 
+📖 **New here? Start with the [User Guide](docs/USER_GUIDE.md)** — advantages, installation,
+beginner & advanced tutorials, and how to extend Claude-SD with Claude Code.
+
 ---
 
 ## Key Features
