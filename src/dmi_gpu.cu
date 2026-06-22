@@ -222,11 +222,11 @@ static void dmi_gpu_alloc(size_t N, void*& d_m, void*& d_H, void*& stream)
     stream = static_cast<void*>(s);
 }
 
-static void dmi_gpu_free(void* d_m, void* d_H, void* stream)
+static void dmi_gpu_free(void* d_m, void* d_H, void* stream, bool owned)
 {
     cudaFree(d_m);
     cudaFree(d_H);
-    if (stream) cudaStreamDestroy(static_cast<cudaStream_t>(stream));
+    if (stream && owned) cudaStreamDestroy(static_cast<cudaStream_t>(stream));
 }
 
 static void dmi_pack(const VectorField3D& m, size_t N, std::vector<GReal>& h_m)
@@ -261,7 +261,7 @@ BulkDMIFieldGPU::BulkDMIFieldGPU(const StructuredGrid& grid, Real D)
 }
 
 BulkDMIFieldGPU::~BulkDMIFieldGPU() {
-    dmi_gpu_free(d_m_scratch_, d_H_scratch_, stream_);
+    dmi_gpu_free(d_m_scratch_, d_H_scratch_, stream_, stream_owned_);
     if (d_D_field_)  cudaFree(d_D_field_);
     if (d_Ms_field_) cudaFree(d_Ms_field_);
 }
@@ -370,7 +370,7 @@ InterfacialDMIFieldGPU::InterfacialDMIFieldGPU(const StructuredGrid& grid, Real 
 }
 
 InterfacialDMIFieldGPU::~InterfacialDMIFieldGPU() {
-    dmi_gpu_free(d_m_scratch_, d_H_scratch_, stream_);
+    dmi_gpu_free(d_m_scratch_, d_H_scratch_, stream_, stream_owned_);
     if (d_D_field_)  cudaFree(d_D_field_);
     if (d_Ms_field_) cudaFree(d_Ms_field_);
 }

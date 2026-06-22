@@ -38,6 +38,11 @@ public:
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const;
 
+    // Redirect kernels to an external stream (single-stream compositor mode).
+    // REQUIRED so FieldSumGPU can run this field serially with the others on one
+    // stream; without it the field stays on its own stream and races on d_H_out.
+    void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
+
     Real D() const       { return D_; }
     void set_D(Real D)   { D_ = D;   }
 
@@ -57,6 +62,7 @@ private:
     void*   d_m_scratch_ = nullptr;
     void*   d_H_scratch_ = nullptr;
     void*   stream_      = nullptr;
+    bool    stream_owned_ = true;
 
     // Per-cell buffers (null = uniform mode)
     double* d_D_field_  = nullptr;  // [N] — D_bulk per cell
@@ -84,6 +90,11 @@ public:
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat,
                              GReal* d_H_out) const;
 
+    // Redirect kernels to an external stream (single-stream compositor mode).
+    // REQUIRED so FieldSumGPU runs this field serially with the others on one
+    // stream; without it the field stays on its own stream and races on d_H_out.
+    void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
+
     Real D() const       { return D_; }
     void set_D(Real D)   { D_ = D;   }
 
@@ -100,6 +111,7 @@ private:
     void*   d_m_scratch_ = nullptr;
     void*   d_H_scratch_ = nullptr;
     void*   stream_      = nullptr;
+    bool    stream_owned_ = true;
 
     double* d_D_field_  = nullptr;
     double* d_Ms_field_ = nullptr;
