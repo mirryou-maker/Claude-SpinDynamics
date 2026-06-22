@@ -1,0 +1,23 @@
+// mumax3 skyrmion relaxation -> topological charge, for the precision-sensitivity
+// cross-code check. Same Co/Pt disk as Claude-SD P1 (Dc = 4.41 mJ/m^2).
+// DIND is substituted by the harness; minimize() is deterministic in mumax3, so
+// one Q per D — compared against the Claude-SD run-to-run distribution.
+SetGridSize(100, 100, 1)
+SetCellSize(2e-9, 2e-9, 1e-9)
+
+Msat  = 800e3
+Aex   = 15e-12
+Ku1   = 0.8e6
+anisU = vector(0, 0, 1)
+alpha = 0.3
+Dind  = DIND_PLACEHOLDER
+
+// seed: mz=-1 disk (r<20nm) in a +z background
+m = uniform(0, 0, 1)
+DefRegion(1, circle(20e-9))
+m.setRegion(1, uniform(0, 0, -1))
+
+relax()
+tableAdd(ext_topologicalcharge)
+tableSave()
+save(m)

@@ -54,3 +54,9 @@ benchmarks/_throughput_out/
 benchmarks/**/_*.mx3
 benchmarks/**/_*.out/
 benchmarks/results/logs/
+
+# OOMMF transients
+*.odt
+*.restart
+benchmarks/oommf/*.omf
+benchmarks/sensitivity/_*.mx3

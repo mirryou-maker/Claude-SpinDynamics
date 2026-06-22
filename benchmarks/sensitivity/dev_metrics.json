@@ -1,0 +1,38 @@
+{
+  "_comment": "P3 development metrics mined from git history (for Fig 6 / Supplementary S4)",
+  "period": {"first": "2026-05-22", "last": "2026-06-22", "days": 31},
+  "commits": 155,
+  "churn": {"insertions": 136510, "deletions": 4358},
+  "commits_per_week": {"2026-W21": 1, "2026-W22": 4, "2026-W23": 70, "2026-W25": 77, "2026-W26": 3},
+  "loc_by_category": {
+    "src_cpp": {"files": 28, "lines": 3749},
+    "src_cu":  {"files": 16, "lines": 7003},
+    "include_hpp": {"files": 48, "lines": 4265},
+    "python_bindings_cpp": {"files": 1, "lines": 1824},
+    "python_micromag_py": {"files": 3, "lines": 5340},
+    "tests_cpp": {"files": 37, "lines": 9328}
+  },
+  "totals": {
+    "cpp_source_loc": 16841,
+    "python_loc": 5340,
+    "test_loc": 9328,
+    "test_to_source_ratio": 0.554
+  },
+  "test_case_growth": [
+    {"date": "2026-05-22", "commit": "76fe06a8", "test_cases": 7},
+    {"date": "2026-06-04", "commit": "eb7bdf06", "test_cases": 89},
+    {"date": "2026-06-07", "commit": "90724cfc", "test_cases": 155},
+    {"date": "2026-06-19", "commit": "17c2bae2", "test_cases": 302},
+    {"date": "2026-06-20", "commit": "e782beea", "test_cases": 324},
+    {"date": "2026-06-21", "commit": "6ba655a3", "test_cases": 328}
+  ],
+  "current_test_cases": {"cpu": 236, "total_incl_gpu": 345},
+  "delivered": {
+    "effective_field_implementations": 25,
+    "integrators": ["RK4", "RK45-DP", "Heun", "RelaxGPU", "MinimizeGPU", "(x CPU/GPU)"],
+    "apps": 22,
+    "standard_problem_apps": 12,
+    "notebooks": 59,
+    "cuda_build_variants": 4
+  }
+}

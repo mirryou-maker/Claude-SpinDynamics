@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use Claude-SpinDynamics, please cite it using these metadata."
+title: "Claude-SpinDynamics: a GPU-accelerated, dual-precision micromagnetic simulator"
+abstract: >-
+  Claude-SpinDynamics (Claude-SD) is a C++20/CUDA micromagnetic simulator with a
+  Python API that solves the Landau-Lifshitz-Gilbert (and stochastic LLG)
+  equation on structured grids. It offers both single and double precision,
+  cuFFT and VkFFT demag backends, native spin-orbit/spin-transfer torques, DMI,
+  RKKY, magnetoelastic and surface anisotropy, per-cell materials, and adaptive
+  integrators, validated against the muMAG standard problems and cross-checked
+  against mumax3, mumax+ and MuMax-CO.
+type: software
+authors:
+  - family-names: You
+    given-names: Chun-Yeol
+    affiliation: "DGIST"
+    orcid: "https://orcid.org/0000-0000-0000-0000"
+repository-code: "https://github.com/mirryou-maker/Claude-SpinDynamics"
+license: GPL-3.0
+keywords:
+  - micromagnetics
+  - GPU computing
+  - CUDA
+  - Landau-Lifshitz-Gilbert
+  - spin-orbit torque
+  - skyrmion
+  - AI-assisted software development
+version: "1.0.0"
+date-released: "2026-06-22"
