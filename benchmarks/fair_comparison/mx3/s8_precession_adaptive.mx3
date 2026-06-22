@@ -1,0 +1,22 @@
+// S8: Low-damping uniform precession — adaptive DOPRI5
+// Grid 200×50×1 → FFT 400×100×1 (IDENTICAL 2N)
+// Physics: uniform magnetisation, strong perpendicular field → Larmor precession
+// alpha=0.005 → f_FMR ≈ γ*mu0*H/(2π) ≈ 28 GHz/T × 0.5T = 14 GHz → T≈71 ps
+// Adaptive must take ~T/10 steps → very few steps (≈140 per ns)
+// This tests RAW STEP SPEED (both adaptive take similar step counts)
+// Hypothesis: mumax3 may be competitive here (speed dominated by FFT, not step count)
+// Fair: both DOPRI5, MaxErr=1e-4, f32, simulate 1 ns
+
+SetGridSize(200, 50, 1)
+SetCellSize(5e-9, 5e-9, 20e-9)
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.005          // very low damping → many precession cycles
+setsolver(5)
+MaxErr = 1e-4
+
+// Initial: uniform near +x with tiny z perturbation
+// Field: 0.5 T along z → strong precession around z
+m = uniform(0.99, 0.0, 0.141)   // tilted 8° from xy plane
+B_ext = vector(0, 0, 0.5)        // 0.5 T along z
+run(1e-9)

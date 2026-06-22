@@ -1,0 +1,16 @@
+// S6: Medium 3D grid, field reversal — adaptive DOPRI5
+// Grid 300×300×6 → FFT 600×600×12 (IDENTICAL for CS and mumax3 since 2N)
+// Same SP#4 Field A physics but 3D multi-layer: stiff switching + larger FFT cost/step
+// Hypothesis: CS advantages compound (step count reduction × VkFFT speed/step)
+// Fair: both DOPRI5, MaxErr=1e-4 (mumax3) ↔ rtol=1e-4 (CS), f32
+
+SetGridSize(300, 300, 6)
+SetCellSize(3e-9, 3e-9, 4e-9)
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.02
+setsolver(5)           // DormandPrince (DOPRI5)
+MaxErr = 1e-4
+m = uniform(1, 0.1, 0.01)
+B_ext = vector(-24.6e-3, 4.3e-3, 0)   // SP#4 Field A [Tesla]
+run(3e-10)             // 0.3 ns (field reversal completes, then plateau)

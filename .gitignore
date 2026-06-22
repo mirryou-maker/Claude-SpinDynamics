@@ -46,3 +46,11 @@ notebooks/dw_profile_*.csv
 # mumax3 auto-generated run-output directories (gui/log.txt/references.bib/table.txt)
 *.out/
 _mxout/
+
+# Benchmark transients (logs, temp scripts, scratch output dirs)
+*.log
+Todo_list.gdoc
+benchmarks/_throughput_out/
+benchmarks/**/_*.mx3
+benchmarks/**/_*.out/
+benchmarks/results/logs/

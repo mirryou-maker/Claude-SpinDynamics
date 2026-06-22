@@ -1,0 +1,50 @@
+{
+  "S1 pow2 128\u00d7128\u00d74": {
+    "cells": 65536,
+    "ms_step": 24.147783250009525,
+    "ms_eval": 6.036945812502381
+  },
+  "S2 nonpow2 200\u00d750\u00d71": {
+    "cells": 10000,
+    "ms_step": 24.45274124998832,
+    "ms_eval": 6.11318531249708
+  },
+  "S3 nonpow2 300\u00d7300\u00d76": {
+    "cells": 540000,
+    "ms_step": 21.4564104999954,
+    "ms_eval": 5.36410262499885
+  },
+  "S5 large 500\u00d7500\u00d710": {
+    "cells": 2500000,
+    "ms_step": 97.1313333332849,
+    "ms_eval": 24.282833333321225
+  },
+  "S4 SP#4 switch 1ns": {
+    "wall_ms": 29399.54119999311,
+    "ms_per_ns": 29399.54119999311,
+    "ok": true,
+    "n_steps": null,
+    "t_sim_ns": 1.0
+  },
+  "S6 Medium switch 0.3ns": {
+    "wall_ms": 31605.583000011393,
+    "ms_per_ns": 105351.94333337131,
+    "ok": true,
+    "n_steps": null,
+    "t_sim_ns": 0.3
+  },
+  "S7 DW motion 2ns": {
+    "wall_ms": 85358.14789999858,
+    "ms_per_ns": 42679.07394999929,
+    "ok": true,
+    "n_steps": null,
+    "t_sim_ns": 2.0
+  },
+  "S8 Precession 1ns \u03b1=5e-3": {
+    "wall_ms": 10392.01039999898,
+    "ms_per_ns": 10392.01039999898,
+    "ok": true,
+    "n_steps": null,
+    "t_sim_ns": 1.0
+  }
+}

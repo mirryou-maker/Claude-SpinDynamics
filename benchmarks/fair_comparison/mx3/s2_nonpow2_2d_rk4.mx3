@@ -1,0 +1,17 @@
+// S2: Non-pow2 thin film (SP#4 grid) — fixed-step RK4
+// Grid 200×50×1 → CS pads 400×100×1; mumax3 pads 400×100×1 (IDENTICAL)
+// mumax3 uses 2N padding (not next_pow2). FFT sizes match exactly.
+// Differentiators: VkFFT algorithm vs cuFFT for non-pow2 size 400×100
+// Expected: CS VkFFT wins (better mixed-radix; cuFFT already tested in existing bench)
+// Fair: RK4 (4 eval/step), dt=5e-14, f32
+
+SetGridSize(200, 50, 1)
+SetCellSize(5e-9, 5e-9, 20e-9)
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.02
+setsolver(4)
+FixDt = 5e-14
+m = uniform(1, 0.05, 0)
+B_ext = vector(0, 0, 0)
+steps(NSTEPS_PLACEHOLDER)

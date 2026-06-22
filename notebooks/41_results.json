@@ -1,0 +1,47 @@
+{
+  "scenario": "SP#4 Field A 1ns",
+  "cs": [
+    {
+      "build": "cuFFT_f64",
+      "wall_ms": 3967.025800026022,
+      "n_steps": 3290,
+      "mx_1ns": -0.9794611601251528,
+      "err_pct": 0.6833137167762255,
+      "t_switch_ps": null,
+      "t_log": [],
+      "mx_log": [],
+      "ms_per_ns": 3967.025800026022
+    },
+    {
+      "build": "cuFFT_f32",
+      "wall_ms": 4037.4814000097103,
+      "n_steps": 3290,
+      "mx_1ns": -0.9794611601251756,
+      "err_pct": 0.6833137167739177,
+      "t_switch_ps": null,
+      "t_log": [],
+      "mx_log": [],
+      "ms_per_ns": 4037.4814000097103
+    },
+    {
+      "build": "VkFFT_f32",
+      "wall_ms": 3886.4865000068676,
+      "n_steps": 3290,
+      "mx_1ns": -0.9794611601251607,
+      "err_pct": 0.6833137167754262,
+      "t_switch_ps": null,
+      "t_log": [],
+      "mx_log": [],
+      "ms_per_ns": 3886.4865000068676
+    }
+  ],
+  "mumax3_wall_ms": 5060.8537000080105,
+  "mumax3_mx_fin": null,
+  "mumaxplus": {
+    "label": "mumax+",
+    "ok": true,
+    "wall_ms": 6800.07320002187,
+    "mx_1ns": -0.9802160859107971,
+    "err_pct": 0.6067647626447826
+  }
+}

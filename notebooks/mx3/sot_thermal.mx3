@@ -1,20 +1,34 @@
-// SOT thermal switching: Pt/Co 3nm PMA macrospin, T=300K (timing only)
-// Heun stochastic integrator, 0.1ns, single trial
-SetGridSize(1, 1, 1)
+// SOT-driven magnetization at finite T -- PMA macrospin, T=300K (timing + run).
+// SOT is emulated via the Slonczewski STT with FixedLayer = spin-polarisation
+// axis sigma (mumax3 has no native SOT). Matches notebook 43 reconfigured params:
+//   softer PMA Ku1=0.2 MJ/m^3 (H_k=0.69 T), sigma=(0,1,0) perp to the in-plane
+//   assist field B_ext = 40 mT along x, Heun (solver 2), FixDt = 50 fs, 2 ns.
+// 2x1x1 (not 1x1x1): mumax3 thermal (Temp>0) needs an EVEN cell count or
+// cuRAND panics (CURAND_STATUS_LENGTH_NOT_MULTIPLE). Strong exchange keeps the
+// two cells locked -> still a macrospin. (CS handles 1 cell directly.)
+SetGridSize(2, 1, 1)
 SetCellSize(3e-9, 3e-9, 3e-9)
+
 Msat  = 580e3
 Aex   = 15e-12
-Ku1   = 0.5e6
+Ku1   = 0.2e6
 AnisU = vector(0, 0, 1)
-alpha = 0.02
+alpha = 0.05
 Temp  = 300
-pol          = 0.35
-lambda       = 1.0
-epsilonprime = 0.0
-FixedLayer   = vector(1, 0, 0)
-Jc := 2e12
-setsolver(2)
+
+B_ext = vector(40e-3, 0, 0)        // in-plane assist along the current
+
+// Slonczewski STT emulating SOT: spin polarisation along sigma=(0,1,0)
+pol                = 0.35
+lambda             = 1.0
+epsilonprime       = 0.0
+FixedLayer         = vector(0, 1, 0)
+FreeLayerThickness = 3e-9
+
+setsolver(2)                        // Heun (matches CS HeunIntegratorGPU)
 FixDt = 5e-14
+
 m = uniform(0.01, 0.01, 0.9999)
-run(1e-10)
+J = vector(-4e12, 0, 0)            // in-plane current -> SOT (representative point)
+run(2e-9)
 save(m)

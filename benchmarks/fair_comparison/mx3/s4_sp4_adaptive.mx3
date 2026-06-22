@@ -1,0 +1,18 @@
+// S4: SP#4 field reversal — adaptive DOPRI5
+// Grid 200×50×1, field A, simulate 1 ns (switching dynamics)
+// Both use Dormand-Prince 5th-order, same tolerance rtol≈1e-4
+// Expected winner: CS (3-6× fewer accepted steps per our prior measurement)
+// Fair: same integrator (DOPRI5), same physics, MaxErr=1e-4 ↔ CS rtol=1e-4
+// Metric: total wall time to reach t=1ns
+
+SetGridSize(200, 50, 1)
+SetCellSize(5e-9, 5e-9, 20e-9)
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.02
+setsolver(5)           // DormandPrince (DOPRI5), adaptive
+MaxErr = 1e-4          // matches CS rtol=1e-4
+m = uniform(1, 0.1, 0.01)
+// SP#4 Field A: μ₀Hx = -24.6 mT, μ₀Hy = 4.3 mT
+B_ext = vector(-24.6e-3, 4.3e-3, 0)
+run(1e-9)              // simulate 1 ns, then exit — wall time is the metric

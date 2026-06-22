@@ -1,0 +1,25 @@
+// S7: Domain wall motion in strip — adaptive DOPRI5
+// Grid 400×20×1 → FFT 800×40×1 (IDENTICAL 2N for both)
+// Physics: initial 180° Bloch DW driven by field Hx past Walker breakdown
+// Walker breakdown creates oscillatory Vx(t) → adaptive must track oscillations
+// More demanding than monotonic switching: step size varies with DW phase
+// Fair: both DOPRI5, MaxErr=1e-4, f32, simulate 2 ns
+
+SetGridSize(400, 20, 1)
+SetCellSize(4e-9, 4e-9, 20e-9)
+Msat  = 860e3
+Aex   = 13e-12
+Ku1   = 1e4            // weak PMA to stabilise DW
+AnisU = vector(0, 0, 1)
+alpha = 0.02
+
+// Create head-to-head DW along x at centre
+m = twodomain(1, 0, 0, 0, 1, 0, -1, 0, 0)   // two-domain: +x | DW | -x
+setsolver(5)
+MaxErr = 1e-4
+
+// Drive DW rightward at ~1.7× Walker field (oscillatory Walker regime)
+// H_Walker ≈ alpha*Ku1/(mu0*Msat) ≈ 0.02*1e4/(4π×10⁻⁷*860e3) ≈ 0.185 mT
+// Use H = 3 × H_Walker ≈ 0.6 mT
+B_ext = vector(0.6e-3, 0, 0)
+run(2e-9)

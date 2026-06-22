@@ -1,0 +1,18 @@
+// S3: Non-pow2 3D medium — fixed-step RK4
+// Grid 300×300×6 → CS pads 600×600×12; mumax3 pads 600×600×12 (IDENTICAL)
+// mumax3 uses 2N for Z=6 (>SMALL_N=5). All three sizes are identical.
+// 600 = 2^3 × 3 × 5^2,  12 = 2^2 × 3  — non-pow2, 7-smooth.
+// VkFFT vs cuFFT for these non-pow2 sizes (VkFFT 1.36× faster in prior bench)
+// Expected: CS VkFFT f32 wins (VkFFT algorithm + fused kernel)
+// Fair: RK4 (4 eval/step), dt=5e-14, f32
+
+SetGridSize(300, 300, 6)
+SetCellSize(3e-9, 3e-9, 4e-9)
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.02
+setsolver(4)
+FixDt = 5e-14
+m = uniform(1, 0.05, 0)
+B_ext = vector(0, 0, 0)
+steps(NSTEPS_PLACEHOLDER)

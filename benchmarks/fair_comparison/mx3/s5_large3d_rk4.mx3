@@ -1,0 +1,18 @@
+// S5: Large non-pow2 3D — fixed-step RK4
+// Grid 500×500×10 → CS pads 1000×1000×20; mumax3 pads 1000×1000×20 (IDENTICAL)
+// mumax3 uses 2N for Z=10 (>SMALL_N=5). FFT sizes match exactly.
+// 1000 = 2^3 × 5^3,  20 = 2^2 × 5  — non-pow2, 7-smooth.
+// At this scale: f32 gives ~6× FFT bandwidth vs f64 (1000-size > L1 cache)
+// Expected: CS VkFFT f32 wins (VkFFT + f32 combined; mumax3 is also f32 but cuFFT)
+// Fair: RK4 (4 eval/step), dt=5e-14, f32
+
+SetGridSize(500, 500, 10)
+SetCellSize(2e-9, 2e-9, 3e-9)
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.02
+setsolver(4)
+FixDt = 5e-14
+m = uniform(1, 0.05, 0)
+B_ext = vector(0, 0, 0)
+steps(NSTEPS_PLACEHOLDER)

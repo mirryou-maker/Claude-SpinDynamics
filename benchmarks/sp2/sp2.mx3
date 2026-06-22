@@ -1,0 +1,35 @@
+// µMAG Standard Problem 2 — mumax3 / MuMax-CO
+// Remanence + coercivity along the body diagonal [1,1,1] of an L:d:t = 5:1:0.1
+// prism, parameterised by d/lex.  Geometry placeholders are substituted by the
+// benchmark harness (run_mumax_bench.py): NX/NY/NZ cells, DX/DY/DZ cell sizes.
+//
+// Protocol (matches Claude-SD benchmarks/sp2/run_sp2_claude_sd.py):
+//   1. Saturate m = uniform(1,1,1).
+//   2. Descend B_ext along [1,1,1] from +0.5*mu0*Ms to 0 in steps, relax() each
+//      -> H=0 endpoint is the remanent <mx>/Ms, <my>/Ms, <mz>/Ms.
+//   3. Continue to -0.5*mu0*Ms; the [111]-projection zero crossing = coercivity.
+
+Msat  = 8e5
+Aex   = 13e-12
+alpha = 0.5
+
+SetGridSize(NX, NY, NZ)
+SetCellSize(DX, DY, DZ)
+
+m = uniform(1, 1, 1)
+
+mu0 := 4 * pi * 1e-7
+Bsat := 0.5 * mu0 * Msat
+u    := 1.0 / sqrt(3.0)
+
+NPTS := 25
+TableAdd(B_ext)
+TableAddVar(0.0, "Bproj", "T")   // amplitude along [111] for post-processing
+
+for i := 0; i < NPTS; i++ {
+    // descend +Bsat -> -Bsat along [111]
+    amp := Bsat - 2.0*Bsat*float64(i)/float64(NPTS-1)
+    B_ext = vector(amp*u, amp*u, amp*u)
+    relax()
+    tablesave()
+}

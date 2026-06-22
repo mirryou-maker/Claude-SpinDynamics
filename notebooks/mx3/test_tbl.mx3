@@ -1,0 +1,5 @@
+setgridsize(4,4,1)
+setcellsize(5e-9,5e-9,5e-9)
+Msat=860e3; Aex=13e-12; alpha=0.5
+m = uniform(1,0,0)
+tablesave()

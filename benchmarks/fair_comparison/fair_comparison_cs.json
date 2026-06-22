@@ -1,0 +1,161 @@
+{
+  "cuFFT_f64": {
+    "S1 pow2 128\u00d7128\u00d74": {
+      "cells": 65536,
+      "ms_step": 3.81845775002148,
+      "ms_eval": 0.95461443750537
+    },
+    "S2 nonpow2 200\u00d750\u00d71": {
+      "cells": 10000,
+      "ms_step": 0.6340937499771826,
+      "ms_eval": 0.15852343749429565
+    },
+    "S3 nonpow2 300\u00d7300\u00d76": {
+      "cells": 540000,
+      "ms_step": 78.99655200002599,
+      "ms_eval": 19.749138000006496
+    },
+    "S5 large 500\u00d7500\u00d710": {
+      "cells": 2500000,
+      "ms_step": 345.5754866678035,
+      "ms_eval": 86.39387166695087
+    },
+    "S4 SP#4 switch 1ns": {
+      "cells": 10000,
+      "wall_ms": 967.8201000060653,
+      "ms_per_ns": 967.8201000060653,
+      "n_steps": 831,
+      "ms_eval": 0.2329290252722179
+    },
+    "S6 Medium switch 0.3ns": {
+      "error": "__setitem__(): incompatible function arguments. The following argument types are supported:\n    1. (self: _micromag.VectorField3D, idx: typing.SupportsInt, v: _micromag.Vec3) -> None\n\nInvoked with: <_micromag.VectorField3D object at 0x0000015194B81130>, (0, 0, 0), (np.float64(0.9949879346007117), np.float64(0.09949879346007116), np.float64(0.009949879346007117))"
+    },
+    "S7 DW motion 2ns": {
+      "cells": 8000,
+      "wall_ms": 2531.380900007207,
+      "ms_per_ns": 1265.6904500036035,
+      "n_steps": 2609,
+      "ms_eval": 0.19404989651262605
+    },
+    "S8 Precession 1ns \u03b1=5e-3": {
+      "cells": 10000,
+      "wall_ms": 1175.2483999880496,
+      "ms_per_ns": 1175.2483999880496,
+      "n_steps": 1018,
+      "ms_eval": 0.23089359528252448
+    },
+    "S6 Medium switch 0.03ns": {
+      "cells": 540000,
+      "wall_ms": 7583.483400012483,
+      "ms_per_ns": 252782.7800004161,
+      "n_steps": 74,
+      "ms_eval": 20.49590108111482
+    }
+  },
+  "cuFFT_f32": {
+    "S1 pow2 128\u00d7128\u00d74": {
+      "cells": 65536,
+      "ms_step": 4.9485379999896395,
+      "ms_eval": 1.2371344999974099
+    },
+    "S2 nonpow2 200\u00d750\u00d71": {
+      "cells": 10000,
+      "ms_step": 0.7504367499859654,
+      "ms_eval": 0.18760918749649136
+    },
+    "S3 nonpow2 300\u00d7300\u00d76": {
+      "cells": 540000,
+      "ms_step": 93.03670674999012,
+      "ms_eval": 23.25917668749753
+    },
+    "S5 large 500\u00d7500\u00d710": {
+      "cells": 2500000,
+      "ms_step": 313.000006666213,
+      "ms_eval": 78.25000166655325
+    },
+    "S4 SP#4 switch 1ns": {
+      "cells": 10000,
+      "wall_ms": 975.097000002279,
+      "ms_per_ns": 975.097000002279,
+      "n_steps": 831,
+      "ms_eval": 0.23468038507876748
+    },
+    "S6 Medium switch 0.3ns": {
+      "error": "__setitem__(): incompatible function arguments. The following argument types are supported:\n    1. (self: _micromag.VectorField3D, idx: typing.SupportsInt, v: _micromag.Vec3) -> None\n\nInvoked with: <_micromag.VectorField3D object at 0x000001519720C870>, (0, 0, 0), (np.float64(0.9949879346007117), np.float64(0.09949879346007116), np.float64(0.009949879346007117))"
+    },
+    "S7 DW motion 2ns": {
+      "cells": 8000,
+      "wall_ms": 2515.4658000101335,
+      "ms_per_ns": 1257.7329000050668,
+      "n_steps": 2609,
+      "ms_eval": 0.19282988118130576
+    },
+    "S8 Precession 1ns \u03b1=5e-3": {
+      "cells": 10000,
+      "wall_ms": 1176.092100009555,
+      "ms_per_ns": 1176.092100009555,
+      "n_steps": 1018,
+      "ms_eval": 0.23105935167181826
+    },
+    "S6 Medium switch 0.03ns": {
+      "cells": 540000,
+      "wall_ms": 7592.898000002606,
+      "ms_per_ns": 253096.60000008688,
+      "n_steps": 74,
+      "ms_eval": 20.521345945952987
+    }
+  },
+  "VkFFT_f32": {
+    "S1 pow2 128\u00d7128\u00d74": {
+      "cells": 65536,
+      "ms_step": 4.360221000024467,
+      "ms_eval": 1.0900552500061167
+    },
+    "S2 nonpow2 200\u00d750\u00d71": {
+      "cells": 10000,
+      "ms_step": 0.7357020000199554,
+      "ms_eval": 0.18392550000498886
+    },
+    "S3 nonpow2 300\u00d7300\u00d76": {
+      "cells": 540000,
+      "ms_step": 69.3290157500087,
+      "ms_eval": 17.332253937502173
+    },
+    "S5 large 500\u00d7500\u00d710": {
+      "cells": 2500000,
+      "ms_step": 316.3167666663261,
+      "ms_eval": 79.07919166658152
+    },
+    "S4 SP#4 switch 1ns": {
+      "cells": 10000,
+      "wall_ms": 972.4007999902824,
+      "ms_per_ns": 972.4007999902824,
+      "n_steps": 831,
+      "ms_eval": 0.23403148014206557
+    },
+    "S6 Medium switch 0.3ns": {
+      "error": "__setitem__(): incompatible function arguments. The following argument types are supported:\n    1. (self: _micromag.VectorField3D, idx: typing.SupportsInt, v: _micromag.Vec3) -> None\n\nInvoked with: <_micromag.VectorField3D object at 0x000001519714D970>, (0, 0, 0), (np.float64(0.9949879346007117), np.float64(0.09949879346007116), np.float64(0.009949879346007117))"
+    },
+    "S7 DW motion 2ns": {
+      "cells": 8000,
+      "wall_ms": 2539.740799998981,
+      "ms_per_ns": 1269.8703999994905,
+      "n_steps": 2609,
+      "ms_eval": 0.1946907474127237
+    },
+    "S8 Precession 1ns \u03b1=5e-3": {
+      "cells": 10000,
+      "wall_ms": 1175.5432999925688,
+      "ms_per_ns": 1175.5432999925688,
+      "n_steps": 1018,
+      "ms_eval": 0.230951532415043
+    },
+    "S6 Medium switch 0.03ns": {
+      "cells": 540000,
+      "wall_ms": 7600.814799996442,
+      "ms_per_ns": 253360.49333321475,
+      "n_steps": 74,
+      "ms_eval": 20.542742702693086
+    }
+  }
+}

@@ -1,0 +1,17 @@
+// S1: Pow2-friendly thin film — fixed-step RK4
+// Grid 128×128×4 → CS pads to 256×256×8 (all 2^N)
+//             → mumax3 pads to 256×256×7 (Z: 2*4-1=7 since Z<=SMALL_N=5)
+// FFT sizes: essentially same size, CS Z-size slightly better (8 vs 7)
+// Expected winner: mumax3 (f32+Heun historically faster; pure impl battle)
+// Fair: RK4 (4 eval/step) for BOTH, same dt=5e-14, same f32
+
+SetGridSize(128, 128, 4)
+SetCellSize(4e-9, 4e-9, 4e-9)
+Msat  = 860e3
+Aex   = 13e-12
+alpha = 0.02
+setsolver(4)          // RK4, 4 evals/step — same as CS RK4IntegratorGPU
+FixDt = 5e-14
+m = uniform(1, 0.05, 0)
+B_ext = vector(0, 0, 0)
+steps(NSTEPS_PLACEHOLDER)
