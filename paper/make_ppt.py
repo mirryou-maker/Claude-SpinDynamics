@@ -72,6 +72,24 @@ def bullets_slide(title, bullets, foot=None):
     return s
 
 
+def two_image_slide(title, img_left, img_right, caption=None):
+    s = prs.slides.add_slide(BLANK); header(s, title)
+    half = SW / 2
+    top = Inches(1.4); maxh = Inches(5.0)
+    for k, img in enumerate((img_left, img_right)):
+        pic = s.shapes.add_picture(str(img), int(half*k) + Inches(0.3), top,
+                                   width=int(half - Inches(0.6)))
+        if pic.height > maxh:
+            pic.height = maxh; pic.width = int(pic.height * (pic.width/pic.height))
+        # center within its half
+        pic.left = int(half*k + (half - pic.width)/2)
+    if caption:
+        tf = _tb(s, Inches(0.7), Inches(6.7), Inches(12.0), Inches(0.6))
+        p = tf.paragraphs[0]; p.text = caption
+        p.font.size = Pt(15); p.font.color.rgb = GREY; p.alignment = PP_ALIGN.CENTER
+    return s
+
+
 def image_slide(title, img, bullets=None, img_frac=0.62):
     s = prs.slides.add_slide(BLANK); header(s, title)
     iw = SW * img_frac
@@ -135,6 +153,10 @@ image_slide("Validation: µMAG standard problems SP#1–5", FIG / "Fig2_umag_val
     "SP#2 (new): CS = mumax3 to ≤0.006",
 ], img_frac=0.6)
 
+two_image_slide("SP#2 remanence — cross-solver agreement",
+                FIG / "FigS3_sp2.png", FIG / "FigS3b_sp2_crosssolver.png",
+                caption="Remanent ⟨m⟩/M_s and coercivity vs d/ℓ_ex; Claude-SD vs mumax3 (≤0.006).")
+
 image_slide("Performance: a precision/size trade-off", FIG / "Fig5_landscape.png", [
     "Crossover ~0.1–0.5 M cells",
     "Small / 2-D: CS f32 fastest (5.3× vs mumax3) — CUDA-Graph",
@@ -142,6 +164,10 @@ image_slide("Performance: a precision/size trade-off", FIG / "Fig5_landscape.png
     "f32 = 4–6× f64 (Blackwell Tensor-Core)",
     "No single code wins everywhere",
 ], img_frac=0.6)
+
+two_image_slide("Performance: cross-solver throughput",
+                FIG / "Fig3a_throughput.png", FIG / "Fig3b_scenario_bars.png",
+                caption="Throughput vs cell count (crossover ~0.1–0.5 M) and per-scenario ms/eval bars.")
 
 bullets_slide("The key result: a hidden defect", [
     ("Relax a seeded skyrmion across the DMI boundary; record topological charge Q", 0),
