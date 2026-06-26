@@ -60,3 +60,16 @@ benchmarks/results/logs/
 *.restart
 benchmarks/oommf/*.omf
 benchmarks/sensitivity/_*.mx3
+
+# Paper / manuscript material — kept locally, re-add to repo on publication
+paper/
+
+# Root-level scratch & simulation outputs (not needed to compile or use)
+/hello.cpp
+/hello.cu
+*.vtu
+/sp3_hysteresis.csv
+/sp4_gpu_1ns.csv
+
+# mumax3 run-output dirs under notebooks (regenerated on run)
+notebooks/**/*.out/
