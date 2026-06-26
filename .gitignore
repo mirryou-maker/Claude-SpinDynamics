@@ -73,3 +73,7 @@ paper/
 
 # mumax3 run-output dirs under notebooks (regenerated on run)
 notebooks/**/*.out/
+
+# Internal/dev docs — keep only the user-facing guide in the repo
+docs/*.md
+!docs/USER_GUIDE.md
