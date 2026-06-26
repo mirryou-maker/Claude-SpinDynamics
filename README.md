@@ -145,6 +145,15 @@ Claude-SpinDynamics/
 
 ---
 
+## Authors & Acknowledgements
+
+- **Chun-Yeol You** (DGIST) — author, physics direction, validation.
+- **Claude Code** (Anthropic; Claude Opus) — AI pair-programmer. Claude-SD was designed,
+  implemented, tested, and benchmarked end-to-end with Claude Code under a specification-and-test
+  workflow; commits carry `Co-Authored-By: Claude`. See [CONTRIBUTORS.md](CONTRIBUTORS.md).
+
+---
+
 ## License
 
 GNU General Public License v3.0 (GPLv3) — see [LICENSE](LICENSE).
