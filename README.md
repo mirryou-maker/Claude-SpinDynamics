@@ -103,7 +103,7 @@ print(f"⟨mx⟩(1 ns) = {mx:.4f}")   # expect ~ -0.982
 
 | Document | Description |
 |----------|-------------|
-| [`docs/user_manual.md`](docs/user_manual.md) | Full user manual: theory, API reference, examples, validation |
+| [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | User guide & reference manual: getting started, theory, full API, µMAG validation, benchmarks, extending with Claude Code |
 | [`CLAUDE.md`](CLAUDE.md) | Developer reference: build commands, architecture, GPU internals |
 | [`notebooks/`](notebooks/) | Jupyter-compatible Python notebooks (SP#4, SP#1, thermal, GPU, hysteresis, STT) |
 
@@ -119,7 +119,7 @@ Claude-SpinDynamics/
 ├── tests/              # Catch2 unit tests (CPU + GPU)
 ├── python/             # pybind11 bindings + micromag package
 ├── notebooks/          # Example notebooks (07-09: mumax3 replications)
-└── docs/               # User manual and design documents
+└── docs/               # User guide & reference manual + design documents
 ```
 
 ---
