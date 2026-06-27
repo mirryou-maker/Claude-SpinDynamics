@@ -3,9 +3,10 @@
 **C++20/CUDA micromagnetic simulator with Python bindings**
 
 Claude-SpinDynamics is an open-source micromagnetics library that solves the
-Landau–Lifshitz–Gilbert (LLG) equation on structured grids using CPU (FFTW)
-and GPU (cuFFT/CUDA) backends.  It is validated against the µMAG standard
-problems and designed for research-scale simulations of nanomagnetic devices.
+Landau–Lifshitz–Gilbert (LLG) equation on structured grids using a CPU (FFTW)
+backend and GPU (cuFFT / VkFFT) backends in **single and double precision**. It
+is validated against the µMAG standard problems and cross-checked against
+mumax3, mumax+, MuMax-CO and OOMMF.
 
 📖 **New here? Start with the [User Guide](docs/USER_GUIDE.md)** — advantages, installation,
 beginner & advanced tutorials, and how to extend Claude-SD with Claude Code.
@@ -16,13 +17,14 @@ beginner & advanced tutorials, and how to extend Claude-SD with Claude Code.
 
 | Category | Feature |
 |----------|---------|
-| **Physics** | LLG, SLLG (stochastic), Slonczewski STT, Spin-Orbit Torque |
-| **Effective fields** | Zeeman, Exchange (Neumann/Periodic BC), Demag (open BC), Demag (periodic BC), Uniaxial anisotropy |
+| **Physics** | LLG, SLLG (stochastic), Slonczewski STT, Spin-Orbit Torque, Zhang–Li |
+| **Effective fields** | Zeeman, Exchange (Neumann/Periodic), Demag (open & periodic BC), Uniaxial/Cubic/Surface anisotropy, DMI (bulk & interfacial), RKKY, magnetoelastic |
+| **Precision / FFT** | float32 **and** float64; cuFFT **and** VkFFT demag backends |
 | **CPU integrators** | RK4 (fixed-step), RK45/DOPRI5 (adaptive, FSAL), Heun (Stratonovich SLLG) |
-| **GPU integrators** | RK4GPU, RK45GPU (adaptive DOPRI5/FSAL), HeunGPU (cuRAND noise) |
-| **GPU fields** | DemagFieldGPU (cuFFT), ExchangeFieldGPU, ZeemanFieldGPU, UniaxialAnisotropyFieldGPU |
-| **Python API** | Full pybind11 bindings + NumPy bridge + Jupyter notebooks |
-| **Validation** | µMAG SP#1, SP#3, SP#4 (< 0.4 % error vs. reference) |
+| **GPU integrators** | RK4GPU, RK45GPU (adaptive DOPRI5/FSAL), HeunGPU (cuRAND), Relax/Minimize |
+| **GPU fields** | all effective fields on GPU (cuFFT/VkFFT demag); per-cell materials, geometry masks, region maps |
+| **Python API** | Full pybind11 bindings + NumPy bridge + mx3 runner + `recommend_integrator()` |
+| **Validation** | µMAG SP#1–5; cross-checked vs mumax3 / mumax+ / MuMax-CO / OOMMF |
 
 ---
 
@@ -43,12 +45,17 @@ GPU adaptive RK45 vs. fixed-step RK4 on SP#4 (0.3 ns):
 
 ## µMAG Validation
 
-| Standard Problem | Quantity | Claude-SpinDynamics | µMAG Reference | Error |
+| Standard Problem | Quantity | Claude-SpinDynamics | Reference | Note |
 |-----------------|---------|-----------------|---------------|-------|
-| SP#4 Field A | ⟨mx⟩ (1 ns) | −0.982 | −0.9862 | **0.4 %** |
-| SP#4 Field A | t_switch | 175 ps | 174–176 ps | < 1 % |
-| SP#1 (t=10 nm) | L_c | 115 nm | 110–120 nm | < 5 % |
-| SP#3 (512×128 nm) | H_sw | −25 mT | −20 to −30 mT | within range |
+| SP#4 Field A | ⟨mx⟩ (1 ns) | −0.982 | µMAG −0.9862 | **0.4 %** |
+| SP#4 Field A | t_switch | 175 ps | µMAG 174–176 ps | < 1 % |
+| SP#1 (t = 10 nm) | L_c | ~100–115 nm | 110–120 nm | within range |
+| SP#2 | remanent ⟨mx⟩/Ms | matches mumax3 | mumax3 | ≤ 0.006 across sweep |
+| SP#3 | H_sw (energy-min.) | −13.8 mT | mumax3 −13.3 mT | protocol-consistent |
+| SP#5 | vortex-core gyration | reproduced | mumax3 | ✓ |
+
+Full cross-solver numbers (incl. OOMMF f64 anchor) are in
+[`benchmarks/RESULTS_2026.md`](benchmarks/RESULTS_2026.md) and [User Guide §9](docs/USER_GUIDE.md).
 
 ---
 
@@ -58,21 +65,38 @@ GPU adaptive RK45 vs. fixed-step RK4 on SP#4 (0.3 ns):
 ```powershell
 cmake --preset windows-msvc
 cmake --build build/windows-msvc --config Release
-ctest --preset windows-msvc   # 224 tests
+ctest --preset windows-msvc   # 232 tests
 ```
 
 ### GPU build (CUDA required)
 ```powershell
 cmake --preset windows-msvc-cuda
 cmake --build build/windows-msvc-cuda --config Release
-.\build\windows-msvc-cuda\bin\Release\unit_tests_gpu.exe   # 100 tests
+.\build\windows-msvc-cuda\bin\Release\unit_tests_gpu.exe   # 113 tests
 ```
+
+### Build variants (CPU / GPU · precision · FFT backend)
+
+The build is chosen at **configure time** by a CMake preset — precision and FFT backend are compile-time,
+not run-time. Full guidance: [User Guide §2.5](docs/USER_GUIDE.md).
+
+| Preset | Target | Precision | FFT | Pick it for |
+|--------|--------|-----------|-----|-------------|
+| `windows-msvc` | CPU | f64 | FFTW | development, portability, reference (no GPU) |
+| `windows-msvc-cuda` | GPU | f64 | cuFFT | reference accuracy, topology-sensitive (skyrmion *Q*) |
+| `windows-msvc-cuda-f32` | GPU | f32 | cuFFT | fastest small / 2-D runs |
+| `windows-msvc-cuda-vkfft` | GPU | f64 | VkFFT | large 3-D, f64 accuracy |
+| `windows-msvc-cuda-vkfft-f32` | GPU | f32 | VkFFT | fastest large 3-D production |
+
+Rule of thumb: CPU for portability, GPU for production; f64 for accuracy, f32 for speed; cuFFT for
+small / power-of-two, VkFFT for large 3-D / non-power-of-two. In Python, select a build by pointing
+`sys.path` at its `build/<preset>/python/` directory (CPU vs GPU is confirmed by `mm.cuda_available()`).
 
 ### Python (minimal example)
 ```python
 import sys
 sys.path.insert(0, 'build/windows-msvc/python')
-import _micromag as mm
+import micromag as mm
 import numpy as np
 
 grid   = mm.StructuredGrid(200, 50, 1, 2.5e-9, 2.5e-9, 3.0e-9)

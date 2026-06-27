@@ -123,6 +123,81 @@ print(mm.cuda_available())   # True for a GPU build
 
 > Tip: if your system Python's NumPy is broken, use a clean interpreter (e.g. Anaconda).
 
+### 2.5 Choosing a build (CPU / GPU · precision · FFT backend)
+
+Claude-SD ships one CPU build and four GPU variants. The build is fixed at **configure time** by a CMake
+preset — precision and FFT backend are *not* run-time switches. Three independent axes decide it:
+
+1. **Compute target** — CPU (FFTW) vs GPU (CUDA).
+2. **Precision** — `float64` (default, reference-grade) vs `float32` (`MICROMAG_FLOAT32`, faster).
+3. **FFT backend (GPU only)** — cuFFT (default) vs VkFFT (`MICROMAG_VKFFT`).
+
+| Preset | Target | Precision | FFT | Needs |
+|---|---|---|---|---|
+| `windows-msvc` | **CPU** | f64 | FFTW | MSVC + vcpkg (no GPU) |
+| `windows-msvc-debug` | CPU (Debug) | f64 | FFTW | same; for debugging |
+| `windows-msvc-cuda` | **GPU** | f64 | cuFFT | CUDA 13.x + NVIDIA GPU |
+| `windows-msvc-cuda-f32` | GPU | **f32** | cuFFT | — |
+| `windows-msvc-cuda-vkfft` | GPU | f64 | **VkFFT** | VkFFT headers at `C:/vkfft` |
+| `windows-msvc-cuda-vkfft-f32` | GPU | **f32** | **VkFFT** | VkFFT at `C:/vkfft` |
+
+Build any of them with `cmake --preset <name>` then `cmake --build build/<name> --config Release`.
+Executables land in `build/<name>/bin/Release/`, the Python module in `build/<name>/python/`. The four
+CUDA builds use separate directories, so you can keep them side by side.
+
+**Which one?**
+
+| Situation | Preset | Why |
+|---|---|---|
+| No NVIDIA GPU / development / max portability | `windows-msvc` (CPU) | only FFTW + MSVC runtime; runs anywhere |
+| GPU, need **reference accuracy** or topology-sensitive results (skyrmion charge *Q*, DMI near a phase boundary) | `windows-msvc-cuda` (f64 cuFFT) | double precision; the validation reference |
+| GPU, **small / 2-D** problems or the fastest small runs | `windows-msvc-cuda-f32` (f32 cuFFT) | cuFFT + CUDA-Graph wins on small grids (~5× mumax3 at SP#4) |
+| GPU, **large 3-D production** (≳0.1–0.5 M cells) | `windows-msvc-cuda-vkfft-f32` | VkFFT wins on big FFTs; f32 = 4–6× f64 on Blackwell |
+| Large 3-D but need f64 accuracy | `windows-msvc-cuda-vkfft` | VkFFT for size, double precision |
+| **Non-power-of-two** cell counts | either `*-vkfft*` | VkFFT handles non-pow2 better than cuFFT |
+| Debugging a crash / asserts | `windows-msvc-debug` | unoptimized + checks |
+
+Rule of thumb: **CPU** for portability/development/reference, **GPU** for production; **f64** for accuracy
+(topology, near metastability), **f32** for speed at scale; **cuFFT** for small/power-of-two, **VkFFT** for
+large-3-D / non-power-of-two.
+
+#### Selecting the build from Python
+
+Each build compiles its own `micromag` module into its own `build/<preset>/python/` directory. You "select"
+a build by pointing `sys.path` at that directory (and, for GPU builds, adding the CUDA DLLs first).
+Precision and FFT backend are baked in at compile time — there is no run-time flag.
+
+```python
+import os, sys
+
+BUILD = "windows-msvc-cuda-f32"          # the build you compiled
+ROOT  = r"D:/Claude-Code-R/Claude-SpinDynamics"
+
+if "cuda" in BUILD:                       # GPU builds need the CUDA runtime DLLs FIRST
+    os.add_dll_directory(r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64")
+sys.path.insert(0, rf"{ROOT}/build/{BUILD}/python")
+
+import micromag as mm
+print(mm.cuda_available())                # True for any *-cuda* build, False for the CPU build
+```
+
+- To switch builds, point `sys.path` at a different `build/<preset>/python/` in a **fresh interpreter**
+  (a module already imported stays loaded for that process).
+- `mm.cuda_available()` confirms CPU vs GPU; the precision/FFT backend are whatever you compiled — they
+  follow the build directory you selected (there is no `mm`-level switch).
+
+**Performance & accuracy** (measured; full numbers in `benchmarks/RESULTS_2026.md`):
+
+- Crossover with mumax3 / MuMax-CO is ~0.1–0.5 M cells — below it CS `f32` (CUDA-Graph) is fastest; above it
+  the mumax family edges ahead, with CS within ~1.1×.
+- `f32` is 4–6× faster than `f64` at large 3-D sizes but its relative error plateaus near 1e-6 — validate
+  topology-sensitive observables (skyrmion charge *Q*) against an `f64` run.
+- All builds reproduce the µMAG standard problems; they differ in speed and last-bit precision, not physics.
+
+**Caveats:** GPU builds need an NVIDIA GPU + CUDA 13.x and `os.add_dll_directory(...)` before import; VkFFT
+builds expect headers at `C:/vkfft` (`MICROMAG_VKFFT_PATH`); presets target VS 2026 (edit the generator for
+VS 2022); `windows-msvc-debug` is CPU-only and not a performance build.
+
 ---
 
 ## 3. Beginner guide
@@ -245,13 +320,13 @@ res = mm.gpu_hysteresis_loop(rk4, mat, demag, fields, zeeman, H_list, m_cpu)
 > criterion never converges for flux-closure/vortex states. For stiff DMI skyrmion textures, prefer
 > `MinimizeGPU` (BB/FIRE) or raise `max_steps`; the fixed-step damped-LLG relaxer converges slowly there.
 
-### 4.5 Precision & FFT backend — choosing a build
+### 4.5 Precision & FFT backend
 
-- **Small / 2D, or you need a reference:** `cuda` (f64 cuFFT) or `cuda-f32` (fast, CUDA-Graph).
-- **Large 3D production:** `cuda-vkfft` / `cuda-vkfft-f32` (VkFFT wins on big FFTs).
-- `f32` gives 4–6× over `f64` on Blackwell but plateaus at ~1e-6 relative error — validate against an
-  `f64` run for topology-sensitive observables (skyrmion charge *Q* is precision-sensitive near a
-  metastability boundary).
+See [§2.5 Choosing a build](#25-choosing-a-build-cpu--gpu--precision--fft-backend) for the full preset
+matrix, selection guidance, and how to point Python at a given build. In short: `f32` is 4–6× faster than
+`f64` on Blackwell but plateaus at ~1e-6 relative error — validate topology-sensitive observables (skyrmion
+charge *Q*) against an `f64` run; pick **cuFFT** for small / power-of-two grids and **VkFFT** for large 3-D
+or non-power-of-two sizes.
 
 ### 4.6 Running mumax3 `.mx3` scripts
 
