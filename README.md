@@ -123,6 +123,25 @@ print(f"⟨mx⟩(1 ns) = {mx:.4f}")   # expect ~ -0.982
 
 ---
 
+## Recommended: drive Claude-SD with Claude Code
+
+Claude-SD was built end-to-end with **[Claude Code](https://claude.com/claude-code)** and is designed to be
+*used* with it too. The repo ships a [`CLAUDE.md`](CLAUDE.md) playbook (architecture, SI conventions,
+build/test commands, the full API surface) that an agent reads first, so it stays consistent with the
+codebase from the start. Typical things to ask Claude Code:
+
+- **Run & script simulations** — *"relax a 256 nm Permalloy disk and plot the vortex core"*, or *"sweep DMI
+  from 2–5 mJ/m² and report the skyrmion charge"* — it writes the Python, runs it, and shows the result.
+- **Pick the right build & integrator** — it knows the preset matrix and `recommend_integrator()`.
+- **Explain & debug** — *"how does the periodic demag kernel work?"*, or diagnose a run that won't converge.
+- **Extend the engine** — add an effective-field term / standard problem / kernel with a CPU reference and a
+  test, verified across all four CUDA builds.
+
+You don't need Claude Code to use Claude-SD, but it is the fastest path from a physics question to a running,
+validated simulation. See [User Guide §5](docs/USER_GUIDE.md) for the workflow and guardrails.
+
+---
+
 ## Documentation
 
 | Document | Description |

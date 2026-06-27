@@ -12,7 +12,7 @@ Landau–Lifshitz–Gilbert dynamics, spin torques, DMI, and the µMAG standard 
 > 2. [Installation](#2-installation)
 > 3. [Beginner guide](#3-beginner-guide)
 > 4. [Advanced guide](#4-advanced-guide)
-> 5. [Extending Claude-SD with Claude Code](#5-extending-claude-sd-with-claude-code)
+> 5. [Using & extending Claude-SD with Claude Code](#5-using--extending-claude-sd-with-claude-code)
 >
 > **Part B — Reference**
 > 6. [Physical model](#6-physical-model)
@@ -22,6 +22,9 @@ Landau–Lifshitz–Gilbert dynamics, spin torques, DMI, and the µMAG standard 
 > 10. [Performance benchmarks](#10-performance-benchmarks)
 > 11. [Example gallery](#11-example-gallery)
 > 12. [Troubleshooting](#12-troubleshooting)
+>
+> **Appendix**
+> - [A. mumax3 `.mx3` API coverage](#appendix-a--mumax3-mx3-api-coverage)
 
 ---
 ---
@@ -328,12 +331,29 @@ matrix, selection guidance, and how to point Python at a given build. In short: 
 charge *Q*) against an `f64` run; pick **cuFFT** for small / power-of-two grids and **VkFFT** for large 3-D
 or non-power-of-two sizes.
 
-### 4.6 Running mumax3 `.mx3` scripts
+### 4.6 Running mumax3-syntax `.mx3` scripts (on the Claude-SD engine)
+
+`micromag.mx3` is an **interpreter**: it parses a `.mx3` file written in the mumax3 scripting *language* and
+executes it **entirely on the Claude-SD (micromag) engine** — GPU if available, else CPU. **It does not call
+the mumax3 program** and mumax3 does not need to be installed; only the input syntax is mumax3-compatible, the
+computation is 100 % Claude-SD. (Only a practical subset of the language is supported; unsupported statements
+warn and are skipped.) This is distinct from the benchmark scripts under `benchmarks/` and notebooks 41–50,
+which *do* invoke the real mumax3 executable for cross-validation.
+
+Ready-made scripts live in [`examples/mx3/`](../examples/mx3/) (`sp4`, `disk`, `regions`, `relax_demo`,
+`loop_test`, `bext_ac`); see `examples/mx3/README.md` for the supported commands.
 
 ```python
-import micromag.mx3 as mx3
-mx3.run("myscript.mx3")        # CPU or GPU; a large mumax3 subset is supported
+import micromag as mm
+eng = mm.run_mx3("examples/mx3/sp4.mx3", outdir="out")   # CPU or GPU (auto-selected)
+print(mm.mean_magnetization(eng.m))                       # final <m>
 ```
+
+Or from the command line: `python -m micromag.mx3 examples/mx3/sp4.mx3 [out_dir]`. Supported subset:
+grid/cell, `Msat`/`Aex`/`alpha`/`Ku1`/`Dind`, `m` init, regions, time-dependent `B_ext`,
+`relax`/`minimize`/`run`/`steps`, `save`/`tableSave`, and Go-style `for`/`if`. For the complete list of
+supported and **unsupported** mumax3 API, see
+[Appendix A — mumax3 `.mx3` API coverage](#appendix-a--mumax3-mx3-api-coverage).
 
 ### 4.7 Benchmarking your own setup
 
@@ -343,11 +363,24 @@ The `benchmarks/` suite is reproducible: `run_throughput_cs.py`, `run_throughput
 
 ---
 
-## 5. Extending Claude-SD with Claude Code
+## 5. Using & extending Claude-SD with Claude Code
 
-Claude-SD was itself **built and optimized with [Claude Code](https://claude.com/claude-code)**, and the
-repository is structured so you can keep extending it the same way. (The sibling project *MuMax-CO* is a
-published case study of optimizing mumax3 with Claude Code.)
+Claude-SD was **built and optimized with [Claude Code](https://claude.com/claude-code)** — and we recommend
+*using* it with Claude Code too. The repo ships a `CLAUDE.md` playbook (architecture, SI conventions,
+build/test commands, the full API surface) that an agent reads first, so it stays consistent with the
+codebase from the start. Typical things to ask:
+
+- **Run & script simulations** — *"relax a 256 nm Permalloy disk and plot the vortex core"*, or *"sweep DMI
+  from 2–5 mJ/m² and report the skyrmion charge Q"*: it writes the Python (correct build, fields, integrator),
+  runs it, and shows the result.
+- **Pick the right build & integrator** — it knows the preset matrix (§2.5) and `recommend_integrator()`.
+- **Explain & debug** — *"how does the periodic demag kernel work?"*, or diagnose a run that won't converge.
+- **Analyze results** — compute the topological charge, domain-wall width, FMR spectrum, or plot a sweep.
+- **Extend the engine** — add a field / standard problem / kernel with a CPU reference and a test (§5.1–5.4).
+
+You don't need Claude Code to use Claude-SD, but it is the fastest path from a physics question to a running,
+validated simulation. (The sibling project *MuMax-CO* is a published case study of optimizing mumax3 with
+Claude Code.)
 
 ### 5.1 Why the repo is "agent-friendly"
 
@@ -905,6 +938,47 @@ See the `notebooks/` folder for the full set; mumax3 `.mx3` equivalents live in 
 | GPU hangs / wrong results | Verify CUDA DLLs on path; check VRAM (200 K cells ≈ 200 MB, 2.5 M ≈ 2.4 GB); a `cudaDeviceSynchronize` error means VRAM exhaustion or launch failure. |
 | mumax3 thermal run panics (`CURAND_LENGTH_NOT_MULTIPLE`) | mumax3 needs an even cell count for `Temp>0`; Claude-SD handles a single cell directly. |
 | FFTW plan creation fails (CPU) | Ensure nx, ny, nz ≥ 2; FFTW_ESTIMATE + FFTW_UNALIGNED are used. |
+
+---
+
+## Appendix A — mumax3 `.mx3` API coverage
+
+`micromag.mx3` (§4.6) interprets a **practical subset** of the mumax3 scripting language on the Claude-SD
+engine — it does **not** run mumax3. This appendix lists the mumax3 API the interpreter **does not (yet)
+implement**, and whether the capability is available through the Claude-SD **Python API** instead.
+Unsupported script statements emit a `[mx3 warning]` and are skipped, so a partially-covered script still
+runs as far as it can.
+
+### Supported (for reference)
+
+Grid / `SetPBC`; `Msat` / `Aex` / `alpha` / `Ku1` / `anisU` / `Dind` / `Dbulk` / `B_ext` / `EnableDemag`;
+`m` init (`uniform` / `vortex` / `random` / `twodomain` / `neelskyrmion` / `blochskyrmion`); regions
+(`defregion`, `*.SetRegion`); spin-torque params (`J`, `Pol`, `xi`); shapes + `setgeom` (CPU); solver
+(`MaxErr` / `MaxDt` / `MinDt` / `SetSolver`); `relax` / `minimize` / `run` / `steps`; output
+(`save` / `saveas` / `tableSave` / `tableAdd` / `autosave` / `tableAutoSave`); `for` / `if`-`else`; `print`.
+(Full list: [`examples/mx3/README.md`](../examples/mx3/README.md).)
+
+### Not implemented (or partial) in the `.mx3` interpreter
+
+| mumax3 API | Status in `micromag.mx3` | Available via Claude-SD Python API? |
+|---|---|---|
+| `setgeom(...)` on the **GPU** backend | Partial — **CPU backend only** | Yes — geometry masks (`set_mask`) on CPU & GPU |
+| `ext_makegrains` / grain generation in script | Not implemented | Yes — `voronoi_grains()`, `poisson_disk_grains()` |
+| `Crop`, `Resize`, `Expand` (geometry transforms) | Not implemented | No |
+| `Temp` (finite temperature inside a script) | Not implemented in the runner | Yes — `HeunIntegrator(GPU)` with `T_K` (SLLG) |
+| Full `Slonczewski` params (`FixedLayer`, `Lambda`, `EpsilonPrime`, field-like) | Partial — basic STT / Zhang-Li via `J` / `Pol` / `xi` | Yes — `SlonczewskiSTT`, `SpinOrbitTorque`, `ZhangLiTorque` |
+| VCMA / `VoltageController` anisotropy | Not implemented | No |
+| `AddFieldTerm` / `AddEdensTerm` (custom field/energy terms) | Not implemented | Via C++ (`IEffectiveField`) + binding |
+| `ext_*` extensions (`ext_topologicalcharge`, `ext_centerWall`, `ext_bubble`, `ext_rotate`, …) | Not implemented in the runner | Topological charge: yes (Python helper); others: no |
+| Per-region `alpha` / `xi` / `Pol` on the **GPU** integrators | Not implemented (CPU OK) | Partial (CPU per-region) |
+| `RunWhile(cond)` / advanced run controls | Not implemented | Loop in Python instead |
+| `for … range`, user-defined `func`, `expect` / `expectV` | Not implemented (use C-style `for`) | N/A |
+| Output options: `OutputFormat`, `SnapshotFormat`, save-`Crop` / slices | Not implemented (OVF 2.0 + `.txt` table only) | Use the Python API + NumPy |
+
+> The Claude-SD **Python API** (§8) is the recommended route for anything the script interpreter doesn't
+> cover — it exposes the full engine (all effective fields, spin torques, integrators, per-cell materials,
+> geometry, and analysis helpers). For features absent from both (e.g. VCMA, geometry transforms), see
+> [§5 — extending the engine with Claude Code](#5-using--extending-claude-sd-with-claude-code).
 
 ---
 
