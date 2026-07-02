@@ -17,6 +17,17 @@ eng = mm.run_mx3("examples/mx3/sp4.mx3", outdir="out")
 print(mm.mean_magnetization(eng.m))     # final <m>
 ```
 
+A ready-to-run script (auto-selects the GPU or CPU build) is
+[`examples/run_mx3_example.py`](../run_mx3_example.py):
+
+```bash
+python examples/run_mx3_example.py                 # runs sp4.mx3
+python examples/run_mx3_example.py examples/mx3/disk.mx3
+```
+
+> `micromag.mx3` runs these mumax3-syntax scripts **on the Claude-SD engine** — it does not call the
+> mumax3 program, and mumax3 need not be installed.
+
 (GPU module: call `os.add_dll_directory(r"...CUDA/vXX.Y/bin/x64")` before
 `import micromag`.)
 

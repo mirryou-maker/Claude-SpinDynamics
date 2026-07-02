@@ -351,8 +351,9 @@ print(mm.mean_magnetization(eng.m))                       # final <m>
 
 Or from the command line: `python -m micromag.mx3 examples/mx3/sp4.mx3 [out_dir]`. Supported subset:
 grid/cell, `Msat`/`Aex`/`alpha`/`Ku1`/`Dind`, `m` init, regions, time-dependent `B_ext`,
-`relax`/`minimize`/`run`/`steps`, `save`/`tableSave`, and Go-style `for`/`if`. For the complete list of
-supported and **unsupported** mumax3 API, see
+`relax`/`minimize`/`run`/`steps`, `save`/`tableSave`, and Go-style `for`/`if`. A ready-to-run script is
+[`examples/run_mx3_example.py`](../examples/run_mx3_example.py) (auto-selects GPU/CPU). For the complete
+list of supported and **unsupported** mumax3 API, see
 [Appendix A — mumax3 `.mx3` API coverage](#appendix-a--mumax3-mx3-api-coverage).
 
 ### 4.7 Benchmarking your own setup
