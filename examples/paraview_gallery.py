@@ -93,12 +93,12 @@ _SBAR = dict(title="mz", color=INK, vertical=True, position_x=0.87,
              position_y=0.28, height=0.46, width=0.045, n_labels=5, title_font_size=18)
 
 
-def render_3d(slug, title, vtk_path, zscale=1.0):
+def render_3d(slug, title, vtk_path, zscale=1.0, gfactor=3.0):
     if not HAVE_PV:
         return None
     mesh = pv.read(str(vtk_path))
     sp = mesh.spacing
-    glyph = mesh.glyph(orient="m", scale=False, factor=max(sp) * 3.0,
+    glyph = mesh.glyph(orient="m", scale=False, factor=max(sp) * gfactor,
                        tolerance=0.02, geom=pv.Arrow())
     p = pv.Plotter(off_screen=True, window_size=(950, 820))
     p.set_background("white")
@@ -162,8 +162,8 @@ def render_tube_thickness(slug, vtk_path, arr, zfac=12):
                        specular=0.4, specular_power=15)
     except Exception:
         pass
-    gl = mesh.glyph(orient="m", scale=False, factor=mesh.spacing[0] * 2.6,
-                    tolerance=0.07, geom=pv.Arrow())
+    gl = mesh.glyph(orient="m", scale=False, factor=mesh.spacing[0] * 0.65,
+                    tolerance=0.07, geom=pv.Arrow())   # ~1/4 arrow size
     p.add_mesh(gl, scalars="mz", cmap="RdBu_r", clim=[-1, 1], opacity=0.45, show_scalar_bar=False)
     p.set_scale(zscale=zfac)
     p.add_mesh(mesh.outline(), color="#c8c8c8", line_width=1)
@@ -196,7 +196,8 @@ def main():
         line = f"  {title:24s} -> {vtk.name}, {p2.name}"
         if three_d:
             zs = 6.0 if slug == "skyrmion_tube" else 1.0
-            p3 = render_3d(slug, title, vtk, zscale=zs)
+            gf = 0.75 if slug == "skyrmion_tube" else 3.0   # tube: ~1/4 arrow size
+            p3 = render_3d(slug, title, vtk, zscale=zs, gfactor=gf)
             if p3: line += f", {p3.name}"
         if slug == "skyrmion_tube":
             extra = render_tube_thickness(slug, vtk, mm.to_numpy(m))
