@@ -83,3 +83,6 @@ docs/*.py
 
 # ParaView demo outputs (regenerate via examples/paraview_gallery.py)
 paraview_demo/
+
+# mumax3 comparison run outputs
+benchmarks/skyrmion_compare/*.out/

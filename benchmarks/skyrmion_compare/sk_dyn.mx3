@@ -1,0 +1,29 @@
+// Skyrmion SOT dynamics — same parameters as examples/skyrmion_dynamics.py
+SetGridSize(120, 84, 1)
+SetCellSize(3.5e-9, 3.5e-9, 1e-9)
+
+Msat  = 6.0e5
+Aex   = 1.5e-11
+Ku1   = 0.6e6
+anisU = vector(0, 0, 1)
+alpha = 0.20
+Dind  = 3.0e-3
+EnableDemag = true
+
+// initial Neel skyrmion (charge=1, pol=-1), centred
+m = neelskyrmion(1, -1)
+
+// relax to a clean skyrmion, save frame 0
+relax()
+save(m)
+
+// spin-orbit torque: sigma along y (FixedLayer), damping-like (Lambda=1, eps'=0)
+Pol          = 0.25
+Lambda       = 1
+EpsilonPrime = 0
+FixedLayer   = vector(0, 1, 0)
+J            = vector(0, 0, 3.5e11)
+
+// dynamics: snapshot every 0.1 ns for 0.9 ns
+autosave(m, 0.1e-9)
+run(0.9e-9)
