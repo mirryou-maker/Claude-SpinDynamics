@@ -175,6 +175,35 @@ def render_tube_thickness(slug, vtk_path, arr, zfac=12):
     return outs
 
 
+def render_fig4_warp(slug, title, vtk_path, g):
+    """Fig-4-of Kammerer et al. Nat. Commun. 2:279 (2011) style: a circular
+    platelet whose out-of-plane magnetization m_z is shown as both colour AND
+    surface height (warp), so the skyrmion core rises as a spike out of the disc."""
+    if not HAVE_PV:
+        return None
+    mesh = pv.read(str(vtk_path))
+    cx = g.nx * g.dx * 0.5; cy = g.ny * g.dy * 0.5
+    R = 0.44 * min(g.nx * g.dx, g.ny * g.dy)
+    pts = mesh.points
+    mesh["radius"] = np.sqrt((pts[:, 0] - cx) ** 2 + (pts[:, 1] - cy) ** 2)
+    disc = mesh.threshold([0.0, R], scalars="radius")          # circular platelet
+    warped = disc.warp_by_scalar("mz", factor=0.9 * R)         # m_z -> height (spike)
+    p = pv.Plotter(off_screen=True, window_size=(950, 820)); p.set_background("white")
+    p.add_mesh(warped, scalars="mz", cmap="turbo", clim=[-1, 1], smooth_shading=True,
+               scalar_bar_args=dict(title="mz (out-of-plane)", color=INK,
+                                    vertical=True, position_x=0.86, position_y=0.28,
+                                    height=0.46, width=0.045, n_labels=5))
+    try:
+        rim = disc.extract_feature_edges(boundary_edges=True, feature_edges=False)
+        p.add_mesh(rim, color="#888888", line_width=1)          # disc rim
+    except Exception:
+        pass
+    p.add_text(f"{title} — Fig.4-style m_z warp (core spike)", font_size=12, color=INK)
+    p.camera_position = "iso"; p.camera.elevation -= 12; p.camera.zoom(1.15)
+    o = OUT / f"3d_fig4_{slug}.png"; p.screenshot(str(o)); p.close()
+    return o
+
+
 def overview(states, imgs2d):
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
     for ax, (slug, title, *_), img in zip(axes.flat, states, imgs2d):
@@ -202,6 +231,9 @@ def main():
         if slug == "skyrmion_tube":
             extra = render_tube_thickness(slug, vtk, mm.to_numpy(m))
             line += "".join(f", {e.name}" for e in extra)
+        if slug in ("neel_skyrmion", "bloch_skyrmion"):
+            pf = render_fig4_warp(slug, title, vtk, g)
+            if pf: line += f", {pf.name}"
         print(line)
     ov = overview(states, imgs2d)
     print(f"\noverview: {ov.name}   (all files in {OUT})")
