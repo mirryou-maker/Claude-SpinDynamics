@@ -42,10 +42,12 @@ VectorField3D neel_skyrmion(const StructuredGrid& g, Real r,
         const Real sin_t = std::sin(theta);
         // Néel: in-plane component is radial (φ_in = charge*φ)
         const Real phi_in = static_cast<Real>(charge) * phi;
+        // mz core = pol (θ=π at centre → cos=-1, so use -pol·cos θ);
+        // pol=+1 → core up, pol=-1 → core down (mumax3 convention).
         m[g.linear_index(ix, iy, iz)] = {
             sin_t * std::cos(phi_in),
             sin_t * std::sin(phi_in),
-            static_cast<Real>(pol) * std::cos(theta)
+            -static_cast<Real>(pol) * std::cos(theta)
         };
     }
     return m;
@@ -69,10 +71,11 @@ VectorField3D bloch_skyrmion(const StructuredGrid& g, Real r,
         const Real sin_t = std::sin(theta);
         // Bloch: in-plane component is tangential (φ_in = charge*φ + π/2)
         const Real phi_in = static_cast<Real>(charge) * phi + kPi_2;
+        // mz core = pol (mumax3 convention: pol=+1 → core up, pol=-1 → core down)
         m[g.linear_index(ix, iy, iz)] = {
             sin_t * std::cos(phi_in),
             sin_t * std::sin(phi_in),
-            static_cast<Real>(pol) * std::cos(theta)
+            -static_cast<Real>(pol) * std::cos(theta)
         };
     }
     return m;

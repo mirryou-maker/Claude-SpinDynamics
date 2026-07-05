@@ -573,6 +573,10 @@ Interfacial and bulk DMI are provided (`InterfacialDMIFieldGPU`, `BulkDMIFieldGP
 **D** [J/m²]. Interfacial DMI stabilizes Néel skyrmions for D below the critical
 `D_c = 4√(AK)/π`. The GPU kernels are per-cell gather (race-free) and honour single-stream composition.
 
+> **Convention.** The interfacial-DMI sign and the skyrmion-seed polarity follow the mumax3 /
+> Rohart–Thiaville convention: `mm.neel_skyrmion(grid, r, charge, pol)` sets **`pol = +1` → core up**,
+> **`pol = −1` → core down** (so DMI values and skyrmion chirality are directly comparable with mumax3).
+
 #### 6.2.7 RKKY, magnetoelastic, surface
 
 - **RKKY** interlayer exchange couples spins across a spacer (region-pair coupling).

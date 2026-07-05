@@ -22,7 +22,7 @@ Pol          = 0.25
 Lambda       = 1
 EpsilonPrime = 0
 FixedLayer   = vector(0, 1, 0)
-J            = vector(0, 0, 3.5e11)
+J            = vector(0, 0, -3.5e11)
 
 // dynamics: snapshot every 0.1 ns for 0.9 ns
 autosave(m, 0.1e-9)

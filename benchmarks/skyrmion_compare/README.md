@@ -1,7 +1,7 @@
 # SOT-driven skyrmion dynamics — Claude-SD vs mumax3
 
 Same parameters, same-condition snapshots. Reproduces `examples/skyrmion_dynamics.py`
-in mumax3 and compares.
+in mumax3 and compares. **Both codes use the same skyrmion convention** (see note).
 
 ## Parameters (identical in both codes)
 
@@ -11,8 +11,8 @@ in mumax3 and compares.
 | Ms / Aex / Ku1 | 6.0×10⁵ A/m / 1.5×10⁻¹¹ J/m / 6.0×10⁵ J/m³ (z easy axis) |
 | α | 0.20 |
 | interfacial DMI | D = 3.0×10⁻³ J/m² |
-| initial state | Néel skyrmion (charge = 1, pol = −1), centred, relaxed |
-| drive | SOT, σ̂ = ŷ, J = 3.5×10¹¹ A/m², θ_SH / Pol = 0.25, damping-like |
+| initial state | Néel skyrmion (charge = 1, pol = −1) → **core down**, relaxed |
+| drive | SOT, σ̂ = ŷ, J = 3.5×10¹¹ A/m² (magnitude), θ_SH / Pol = 0.25, damping-like |
 | capture | every 0.1 ns for 0.9 ns |
 
 ## Run
@@ -23,26 +23,27 @@ D:/Mumax3/mumax3-convert.exe -numpy sk_dyn.out/*.ovf
 python compare.py        # -> compare_montage.png, compare_curves.png
 ```
 
-## Result
+## Result — the two codes agree
 
 ![montage](compare_montage.png)
 ![curves](compare_curves.png)
 
-Both codes reproduce the **same dynamics**: the skyrmion translates, deflects
-transversely (skyrmion-Hall effect), and **deforms identically** — round →
-teardrop → crescent — then compresses against a boundary and annihilates on the
-same ~0.8–0.9 ns timescale. The **core-area (deformation) curves overlap closely**.
+With identical parameters, Claude-SD (top) and mumax3 (bottom) produce the **same
+skyrmion**: same core polarity (core-down, Q ≈ −0.9 in both), the same up-right
+trajectory (skyrmion-Hall deflection), and the **same deformation** — round →
+teardrop → crescent — compressing against the boundary and annihilating on the
+same ≈0.8–0.9 ns timescale. The core-area (deformation) curves overlap closely;
+Claude-SD's computed |Q| decays marginally earlier as the skyrmion elongates.
 
-Two differences are **convention**, not physics:
+## Convention notes
 
-1. **Chirality / polarity.** mumax3's `neelskyrmion(1,-1)` relaxes to the opposite
-   topological charge and background polarity (**Q ≈ −0.87** vs Claude-SD **+0.95**),
-   so the m_z colours are inverted and the **skyrmion-Hall deflection is mirrored**
-   (Claude-SD → up/right, mumax3 → down/left). Matching it (flip the seed or the
-   sign of `Dind`) mirrors the two runs into agreement.
-2. **|Q| decay timing.** Claude-SD's computed |Q| drops earlier (≈0.4 ns) as the
-   skyrmion elongates, while mumax3 holds a compact |Q| until edge annihilation
-   (≈0.9 ns); the deformation (area) itself tracks closely between the two.
-
-Net: with identical parameters the two independent codes agree on the skyrmion's
-motion and deformation, differing only by the DMI/skyrmion chirality convention.
+- **Skyrmion polarity (fixed in this repo).** Claude-SD's `neel_skyrmion` /
+  `bloch_skyrmion` now follow the **mumax3 convention**: `pol = +1 → core up`,
+  `pol = −1 → core down` (`m_z = −pol·cos θ`, since θ = π at the core). Previously
+  `pol` was inverted, which flipped the topological charge sign and mirrored the
+  skyrmion-Hall direction. The DMI sign convention follows Rohart–Thiaville /
+  Sampaio, as in mumax3.
+- **SOT current sign** is a drive-direction choice, not a skyrmion property: mumax3's
+  `J = (0,0,−3.5×10¹¹)` here reproduces the same longitudinal push as Claude-SD's
+  `J_c = +3.5×10¹¹` with `σ̂ = ŷ`. (Flipping the sign flips the direction of motion in
+  either code.)

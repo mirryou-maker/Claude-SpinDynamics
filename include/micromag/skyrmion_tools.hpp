@@ -16,8 +16,8 @@ namespace micromag {
 
 // Find the position of the skyrmion/vortex core by locating the cell with
 // extremal mz.
-//   find_max=false → minimum mz (pol=+1 skyrmion: mz_core = -1)
-//   find_max=true  → maximum mz (pol=-1 skyrmion: mz_core = +1)
+//   find_max=false → minimum mz (locate a core-down / pol=-1 skyrmion)
+//   find_max=true  → maximum mz (locate a core-up   / pol=+1 skyrmion)
 // Returns (cx, cy) in box-centred metres.
 std::pair<Real, Real> skyrmion_corepos(const VectorField3D& m, bool find_max = false);
 

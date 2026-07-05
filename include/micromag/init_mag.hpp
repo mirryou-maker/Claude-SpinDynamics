@@ -17,11 +17,11 @@ VectorField3D uniform_mag(const StructuredGrid& g, Vec3 dir);
 
 // Néel skyrmion — radial in-plane texture, out-of-plane core.
 //   Profile: θ(ρ) = 2*atan(r/ρ) for ρ>0, π at ρ=0.
-//   mx = sin(θ)*cos(charge*φ), my = sin(θ)*sin(charge*φ), mz = pol*cos(θ)
-//   At core (ρ=0): mz = -pol (core pointing antiparallel to far-field).
+//   mx = sin(θ)*cos(charge*φ), my = sin(θ)*sin(charge*φ), mz = -pol*cos(θ)
+//   At core (ρ=0): mz = +pol (core along pol; far-field along -pol).
 //   r      : skyrmion radius [m]
-//   charge : topological charge ±1
-//   pol    : polarity (+1 = far-field along +z, core along -z)
+//   charge : topological winding ±1
+//   pol    : core polarity (+1 = core up, -1 = core down) — mumax3 convention
 //   cx, cy : offset of skyrmion centre from box centre [m]
 VectorField3D neel_skyrmion(const StructuredGrid& g, Real r,
                              int charge = 1, int pol = 1,
