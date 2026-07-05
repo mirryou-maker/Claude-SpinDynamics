@@ -112,6 +112,55 @@ def render_3d(slug, title, vtk_path):
     return out
 
 
+def render_tube_thickness(slug, vtk_path, arr, zfac=12):
+    """Extra views that emphasize the 8-layer thickness of the skyrmion tube."""
+    nz = arr.shape[0]
+    outs = []
+    # (C) matplotlib small-multiples: mz on every z-layer -------------------
+    ncol = 4; nrow = int(np.ceil(nz / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(3.0 * ncol, 3.0 * nrow))
+    for k in range(nrow * ncol):
+        ax = axes.flat[k]
+        if k < nz:
+            ax.imshow(arr[k, :, :, 2], origin="lower", cmap="RdBu_r", vmin=-1, vmax=1)
+            ax.set_title(f"z-layer {k}", fontsize=10, fontweight="bold")
+        ax.set_xticks([]); ax.set_yticks([])
+        if k >= nz: ax.axis("off")
+    fig.suptitle("Skyrmion tube — $m_z$ through the 8 layers (core at the same (x,y) in every layer)",
+                 fontsize=12, y=1.0)
+    fig.tight_layout()
+    o = OUT / f"2d_{slug}_layers.png"; fig.savefig(o, dpi=140, bbox_inches="tight", facecolor="white")
+    plt.close(fig); outs.append(o)
+    if not HAVE_PV:
+        return outs
+    mesh = pv.read(str(vtk_path))
+    # (A) stacked z-slices, thickness exaggerated ---------------------------
+    p = pv.Plotter(off_screen=True, window_size=(950, 820)); p.set_background("white")
+    slices = mesh.slice_along_axis(n=nz, axis="z")
+    p.add_mesh(slices, scalars="mz", cmap="RdBu_r", clim=[-1, 1],
+               scalar_bar_args=dict(title="mz", color=INK))
+    p.set_scale(zscale=zfac)
+    p.add_text(f"{nz} z-layers stacked  (z ×{zfac})", font_size=13, color=INK)
+    p.camera_position = "iso"; p.camera.elevation -= 18; p.camera.zoom(1.2)
+    o = OUT / f"3d_{slug}_slices.png"; p.screenshot(str(o)); p.close(); outs.append(o)
+    # (B) core isosurface as a column, thickness exaggerated, side view -----
+    p = pv.Plotter(off_screen=True, window_size=(950, 820)); p.set_background("white")
+    try:
+        core = mesh.contour([0.0], scalars="mz")
+        if core.n_points:
+            p.add_mesh(core, color="#d94a3d", opacity=0.9, smooth_shading=True)
+    except Exception:
+        pass
+    gl = mesh.glyph(orient="m", scale=False, factor=mesh.spacing[0] * 3.0, tolerance=0.04, geom=pv.Arrow())
+    p.add_mesh(gl, scalars="mz", cmap="RdBu_r", clim=[-1, 1], opacity=0.35, show_scalar_bar=False)
+    p.set_scale(zscale=zfac)
+    p.add_text(f"core isosurface ($m_z$=0) as a column through {nz} layers  (z ×{zfac})",
+               font_size=12, color=INK)
+    p.camera_position = "xz"; p.camera.azimuth += 25; p.camera.elevation += 8; p.camera.zoom(1.1)
+    o = OUT / f"3d_{slug}_column.png"; p.screenshot(str(o)); p.close(); outs.append(o)
+    return outs
+
+
 def overview(states, imgs2d):
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
     for ax, (slug, title, *_), img in zip(axes.flat, states, imgs2d):
@@ -134,6 +183,9 @@ def main():
         if three_d:
             p3 = render_3d(slug, title, vtk)
             if p3: line += f", {p3.name}"
+        if slug == "skyrmion_tube":
+            extra = render_tube_thickness(slug, vtk, mm.to_numpy(m))
+            line += "".join(f", {e.name}" for e in extra)
         print(line)
     ov = overview(states, imgs2d)
     print(f"\noverview: {ov.name}   (all files in {OUT})")
