@@ -151,7 +151,7 @@ __all__ = [
     # Grid / fields
     "Vec3", "StructuredGrid", "VectorField3D", "ScalarField3D",
     "to_numpy", "to_numpy_scalar", "from_numpy", "mean_magnetization",
-    "write_vtk_legacy", "make_gaussian_field",
+    "write_vtk_legacy", "make_gaussian_field", "save_paraview", "save_paraview_series",
     # Geometry / Shape API (Phase B1 + E)
     "GeomMask", "union_", "sub_", "intersect_",
     "ellipse", "circle", "rect", "cylinder",
@@ -3519,3 +3519,18 @@ def run_mx3(*args, **kwargs):
     """Parse and execute a mumax3-style .mx3 script. See micromag.mx3."""
     from .mx3 import run_mx3 as _run
     return _run(*args, **kwargs)
+
+
+# ParaView export (lazy import). See micromag.paraview.
+def save_paraview(*args, **kwargs):
+    """Write a magnetization field to a ParaView-ready .vtk (vector m + scalar
+    mx/my/mz/|m|/q_topo). See micromag.paraview.save_paraview."""
+    from .paraview import save_paraview as _f
+    return _f(*args, **kwargs)
+
+
+def save_paraview_series(*args, **kwargs):
+    """Write a time series (.vtk frames + .pvd) for ParaView animation.
+    See micromag.paraview.save_paraview_series."""
+    from .paraview import save_paraview_series as _f
+    return _f(*args, **kwargs)

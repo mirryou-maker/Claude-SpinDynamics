@@ -259,6 +259,19 @@ arr = mm.to_numpy(m0)          # shape (nz, ny, nx, 3)
 # matplotlib quiver / imshow of arr[0, :, :, 2] (the mz component)
 ```
 
+**ParaView export.** `mm.save_paraview` writes a `.vtk` that ParaView opens directly, carrying the vector
+`m` plus scalars `mx`/`my`/`mz`/`m_norm`/`q_topo` — so you can *Glyph* the spins, colour by `mz`, or
+*Contour* `q_topo` to isolate a skyrmion. For a time series use `mm.save_paraview_series` (writes `.vtk`
+frames + a `.pvd` collection ParaView animates):
+
+```python
+mm.save_paraview(m0, "state.vtk")                       # single state
+mm.save_paraview_series(frames, "run", dt=5e-12)        # -> run.pvd (+ run_NNNN.vtk)
+```
+
+A runnable gallery (Néel/Bloch skyrmions, domain wall, vortex, a 3-D skyrmion tube) is
+[`examples/paraview_gallery.py`](../examples/paraview_gallery.py).
+
 µMAG SP#4 and friends are pre-built apps: `sp4_gpu.exe`, `sp4_rk45_gpu.exe`, `bloch_dw.exe`.
 
 ---
