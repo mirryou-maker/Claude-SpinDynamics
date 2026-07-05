@@ -80,3 +80,6 @@ docs/*.md
 
 # Dev-only script in docs (transcript extractor)
 docs/*.py
+
+# ParaView demo outputs (regenerate via examples/paraview_gallery.py)
+paraview_demo/

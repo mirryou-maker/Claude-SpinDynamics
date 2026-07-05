@@ -270,7 +270,8 @@ mm.save_paraview_series(frames, "run", dt=5e-12)        # -> run.pvd (+ run_NNNN
 ```
 
 A runnable gallery (Néel/Bloch skyrmions, domain wall, vortex, a 3-D skyrmion tube) is
-[`examples/paraview_gallery.py`](../examples/paraview_gallery.py).
+[`examples/paraview_gallery.py`](../examples/paraview_gallery.py); it writes the `.vtk` files, 2-D previews
+(walls cropped around the transition), and — if `pyvista` is installed — 3-D glyph renders of each state.
 
 µMAG SP#4 and friends are pre-built apps: `sp4_gpu.exe`, `sp4_rk45_gpu.exe`, `bloch_dw.exe`.
 
