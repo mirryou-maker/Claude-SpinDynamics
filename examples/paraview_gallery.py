@@ -89,7 +89,11 @@ def render_2d(slug, title, g, m, sub, crop):
     plt.close(fig); return out
 
 
-def render_3d(slug, title, vtk_path):
+_SBAR = dict(title="mz", color=INK, vertical=True, position_x=0.87,
+             position_y=0.28, height=0.46, width=0.045, n_labels=5, title_font_size=18)
+
+
+def render_3d(slug, title, vtk_path, zscale=1.0):
     if not HAVE_PV:
         return None
     mesh = pv.read(str(vtk_path))
@@ -98,8 +102,7 @@ def render_3d(slug, title, vtk_path):
                        tolerance=0.02, geom=pv.Arrow())
     p = pv.Plotter(off_screen=True, window_size=(950, 820))
     p.set_background("white")
-    p.add_mesh(glyph, scalars="mz", cmap="RdBu_r", clim=[-1, 1],
-               scalar_bar_args=dict(title="mz", color=INK))
+    p.add_mesh(glyph, scalars="mz", cmap="RdBu_r", clim=[-1, 1], scalar_bar_args=_SBAR)
     try:
         iso = mesh.contour([0.0], scalars="mz")
         if iso.n_points:
@@ -107,7 +110,11 @@ def render_3d(slug, title, vtk_path):
     except Exception:
         pass
     p.add_text(title, font_size=13, color=INK)
-    p.camera_position = "iso"; p.camera.elevation += 12; p.camera.zoom(1.3)
+    if zscale != 1.0:
+        p.set_scale(zscale=zscale)
+        p.add_mesh(mesh.outline(), color="#c8c8c8", line_width=1)
+    p.camera_position = "iso"; p.camera.elevation += 12
+    p.reset_camera(); p.camera.zoom(1.25)
     out = OUT / f"3d_{slug}.png"; p.screenshot(str(out)); p.close()
     return out
 
@@ -135,28 +142,35 @@ def render_tube_thickness(slug, vtk_path, arr, zfac=12):
         return outs
     mesh = pv.read(str(vtk_path))
     # (A) stacked z-slices, thickness exaggerated ---------------------------
-    p = pv.Plotter(off_screen=True, window_size=(950, 820)); p.set_background("white")
+    p = pv.Plotter(off_screen=True, window_size=(960, 900)); p.set_background("white")
+    p.enable_parallel_projection()
     slices = mesh.slice_along_axis(n=nz, axis="z")
-    p.add_mesh(slices, scalars="mz", cmap="RdBu_r", clim=[-1, 1],
-               scalar_bar_args=dict(title="mz", color=INK))
+    p.add_mesh(slices, scalars="mz", cmap="RdBu_r", clim=[-1, 1], scalar_bar_args=_SBAR)
     p.set_scale(zscale=zfac)
-    p.add_text(f"{nz} z-layers stacked  (z ×{zfac})", font_size=13, color=INK)
-    p.camera_position = "iso"; p.camera.elevation -= 18; p.camera.zoom(1.2)
+    p.add_mesh(mesh.outline(), color="#c8c8c8", line_width=1)
+    p.add_text(f"{nz} z-layers stacked  (z x{zfac})", font_size=13, color=INK)
+    p.camera_position = "iso"; p.camera.azimuth += 20; p.camera.elevation -= 10
+    p.reset_camera(); p.camera.zoom(1.1)
     o = OUT / f"3d_{slug}_slices.png"; p.screenshot(str(o)); p.close(); outs.append(o)
-    # (B) core isosurface as a column, thickness exaggerated, side view -----
-    p = pv.Plotter(off_screen=True, window_size=(950, 820)); p.set_background("white")
+    # (B) core isosurface as a column, thickness exaggerated, oblique view --
+    p = pv.Plotter(off_screen=True, window_size=(960, 900)); p.set_background("white")
+    p.enable_parallel_projection()
     try:
         core = mesh.contour([0.0], scalars="mz")
         if core.n_points:
-            p.add_mesh(core, color="#d94a3d", opacity=0.9, smooth_shading=True)
+            p.add_mesh(core, color="#d94a3d", opacity=0.9, smooth_shading=True,
+                       specular=0.4, specular_power=15)
     except Exception:
         pass
-    gl = mesh.glyph(orient="m", scale=False, factor=mesh.spacing[0] * 3.0, tolerance=0.04, geom=pv.Arrow())
-    p.add_mesh(gl, scalars="mz", cmap="RdBu_r", clim=[-1, 1], opacity=0.35, show_scalar_bar=False)
+    gl = mesh.glyph(orient="m", scale=False, factor=mesh.spacing[0] * 2.6,
+                    tolerance=0.07, geom=pv.Arrow())
+    p.add_mesh(gl, scalars="mz", cmap="RdBu_r", clim=[-1, 1], opacity=0.45, show_scalar_bar=False)
     p.set_scale(zscale=zfac)
-    p.add_text(f"core isosurface ($m_z$=0) as a column through {nz} layers  (z ×{zfac})",
+    p.add_mesh(mesh.outline(), color="#c8c8c8", line_width=1)
+    p.add_text(f"core isosurface (mz=0) — column through {nz} layers  (z x{zfac})",
                font_size=12, color=INK)
-    p.camera_position = "xz"; p.camera.azimuth += 25; p.camera.elevation += 8; p.camera.zoom(1.1)
+    p.camera_position = "iso"; p.camera.azimuth += 15; p.camera.elevation -= 8
+    p.reset_camera(); p.camera.zoom(0.95)
     o = OUT / f"3d_{slug}_column.png"; p.screenshot(str(o)); p.close(); outs.append(o)
     return outs
 
@@ -181,7 +195,8 @@ def main():
         p2 = render_2d(slug, title, g, m, sub, crop); imgs2d.append(p2)
         line = f"  {title:24s} -> {vtk.name}, {p2.name}"
         if three_d:
-            p3 = render_3d(slug, title, vtk)
+            zs = 6.0 if slug == "skyrmion_tube" else 1.0
+            p3 = render_3d(slug, title, vtk, zscale=zs)
             if p3: line += f", {p3.name}"
         if slug == "skyrmion_tube":
             extra = render_tube_thickness(slug, vtk, mm.to_numpy(m))
