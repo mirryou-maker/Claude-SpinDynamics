@@ -283,6 +283,13 @@ writes the `.vtk` file **and** renders previews into `paraview_demo/`:
 `pyvista` is an optional dependency: without it the `.vtk` export and 2-D previews still work (open the `.vtk`
 in ParaView itself for full 3-D interaction — Glyph the `m` vector, colour by `mz`, Contour `q_topo`).
 
+**Dynamics → ParaView time series.** [`examples/skyrmion_dynamics.py`](../examples/skyrmion_dynamics.py)
+drives a DMI-stabilized Néel skyrmion with a spin–orbit torque; it captures the magnetization at a sequence
+of times and writes `run.pvd` (+ `run_NNNN.vtk`) with `mm.save_paraview_series` — press **Play** in ParaView
+to animate. The skyrmion translates, deflects transversely (skyrmion-Hall effect), and **deforms**
+(round → teardrop → crescent) as it is pushed into a boundary; a snapshot montage and trajectory/`Q`/area
+curves are rendered alongside.
+
 **Adjusting the visualization — key ParaView parameters.** Open a `.vtk` in ParaView; the main controls are:
 
 | Goal | ParaView filter / control | Key parameter |
