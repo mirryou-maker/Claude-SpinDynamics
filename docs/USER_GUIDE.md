@@ -283,6 +283,26 @@ writes the `.vtk` file **and** renders previews into `paraview_demo/`:
 `pyvista` is an optional dependency: without it the `.vtk` export and 2-D previews still work (open the `.vtk`
 in ParaView itself for full 3-D interaction — Glyph the `m` vector, colour by `mz`, Contour `q_topo`).
 
+**Adjusting the visualization — key ParaView parameters.** Open a `.vtk` in ParaView; the main controls are:
+
+| Goal | ParaView filter / control | Key parameter |
+|------|---------------------------|---------------|
+| Spins as arrows | **Glyph** → Arrow | Orientation Array = `m`; **Scale Factor** (arrow length); **Glyph Mode** = *Uniform Spatial Distribution* or *Every Nth Point* + **Maximum Number of Sample Points** (arrow density) |
+| Colour map | *Coloring* toolbar | field `mz` / `mx` / `my` / `m_norm` / `q_topo`; **Rescale** to −1…1; preset *Cool to Warm* (diverging) |
+| Skyrmion core / wall | **Contour** | scalar `mz`, **Isosurface** value `0` (core boundary) — or contour `q_topo` |
+| Slice a 3-D body | **Slice** | plane **Origin / Normal** |
+| Exaggerate thickness | **Transform** | **Scale** = (1, 1, N) on the z-axis |
+| Time series | open the `.pvd` | **Play** (animation / VCR controls) |
+
+The same knobs are exposed for scripted (PyVista) rendering in
+[`examples/paraview_gallery.py`](../examples/paraview_gallery.py): `glyph(..., factor=…, tolerance=…)`
+(arrow size / density), `contour([iso], scalars=…)` (isosurface), and `set_scale(zscale=…)` (thickness
+exaggeration).
+
+> **Visualization credit.** The `.vtk` / `.pvd` files are **ParaView-native**, and the previews rendered into
+> `paraview_demo/` are produced with **ParaView's VTK rendering engine via [PyVista](https://pyvista.org)**.
+> Open the files in **ParaView** for full interactive control.
+
 µMAG SP#4 and friends are pre-built apps: `sp4_gpu.exe`, `sp4_rk45_gpu.exe`, `bloch_dw.exe`.
 
 ---
