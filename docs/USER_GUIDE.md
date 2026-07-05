@@ -269,9 +269,19 @@ mm.save_paraview(m0, "state.vtk")                       # single state
 mm.save_paraview_series(frames, "run", dt=5e-12)        # -> run.pvd (+ run_NNNN.vtk)
 ```
 
-A runnable gallery (Néel/Bloch skyrmions, domain wall, vortex, a 3-D skyrmion tube) is
-[`examples/paraview_gallery.py`](../examples/paraview_gallery.py); it writes the `.vtk` files, 2-D previews
-(walls cropped around the transition), and — if `pyvista` is installed — 3-D glyph renders of each state.
+A runnable gallery is [`examples/paraview_gallery.py`](../examples/paraview_gallery.py) — Néel/Bloch
+skyrmions, a Bloch domain wall, a two-domain wall, an SP#1 vortex, and a 3-D skyrmion tube. For each state it
+writes the `.vtk` file **and** renders previews into `paraview_demo/`:
+
+- **2-D previews** (`2d_<state>.png`) — `mz` colour + in-plane arrows; the domain-wall / two-domain views are
+  cropped around the transition.
+- **3-D renders** (`3d_<state>.png`), if [`pyvista`](https://pyvista.org) is installed (`pip install
+  pyvista`) — glyph arrows coloured by `mz` with the `mz`=0 isosurface.
+- **Thickness views for the tube** — `mz` on all 8 z-layers, the 8 slices stacked with the z-axis
+  exaggerated, and the core `mz`=0 isosurface drawn as a column through the layers.
+
+`pyvista` is an optional dependency: without it the `.vtk` export and 2-D previews still work (open the `.vtk`
+in ParaView itself for full 3-D interaction — Glyph the `m` vector, colour by `mz`, Contour `q_topo`).
 
 µMAG SP#4 and friends are pre-built apps: `sp4_gpu.exe`, `sp4_rk45_gpu.exe`, `bloch_dw.exe`.
 
