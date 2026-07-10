@@ -23,7 +23,31 @@ import _micromag as mm
 # ## 1. Load Simulation Data
 
 # %%
-data = np.loadtxt('../sp3_hysteresis.csv', delimiter=',', skiprows=1)
+# The hysteresis table is produced by sp3.exe. Generate the CSV on first run
+# (parse the fixed-width stdout table: H(mT) <mx> <my> |<m>| State steps).
+CSV = '../sp3_hysteresis.csv'
+if not os.path.exists(CSV):
+    import subprocess, re
+    exe = '../build/windows-msvc/bin/Release/sp3.exe'
+    print(f"{CSV} missing -> running {exe} ...", flush=True)
+    r = subprocess.run([exe], capture_output=True, text=True,
+                       encoding='utf-8', errors='replace')
+    rows = []
+    for line in r.stdout.splitlines():
+        toks = line.split()
+        if len(toks) >= 4:
+            try:                       # data rows: first 4 tokens are floats
+                H, mx_, my_, mag_ = (float(toks[i]) for i in range(4))
+            except ValueError:
+                continue
+            rows.append((H, mx_, my_, mag_))
+    if not rows:
+        raise RuntimeError("sp3.exe produced no parseable table:\n" + r.stdout[-800:])
+    np.savetxt(CSV, np.array(rows), delimiter=',',
+               header='H_mT,mx,my,mag', comments='')
+    print(f"  wrote {CSV}  ({len(rows)} field points)")
+
+data = np.loadtxt(CSV, delimiter=',', skiprows=1)
 H_mT = data[:, 0]
 mx   = data[:, 1]
 my   = data[:, 2]

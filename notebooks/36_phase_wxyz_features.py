@@ -76,14 +76,23 @@ if not mm.cuda_available():
     print("  [SKIP] CUDA not available")
 else:
     g2 = mm.StructuredGrid(8, 8, 1, 5e-9, 5e-9, 5e-9)
+    # Uniaxial easy axis along x makes this a Stoner-Wohlfarth switch: the loop is
+    # square and reverses near the anisotropy field H_K = 2K/(µ0 Ms). With K=5e4
+    # J/m³ -> µ0 H_K ≈ 0.12 T, so switching happens inside the ±300 mT sweep.
     mat2 = mm.Material.permalloy()
+    mat2.K_uniaxial = 5e4
+    mat2.easy_axis  = mm.Vec3(1, 0, 0)
+    mat2.alpha      = 0.5          # high damping -> fast settle for a quasistatic loop
+                                   # (permalloy's default α≈0.01 precesses, won't switch in 50 ns)
 
     # Set up GPU field stack
     exch2  = mm.ExchangeFieldGPU(g2)
     zee2   = mm.ZeemanFieldGPU(g2, mm.Vec3(0, 0, 0))
+    ani2   = mm.UniaxialAnisotropyFieldGPU(g2)
     fsum2  = mm.FieldSumGPU()
     fsum2.add(exch2)
     fsum2.add(zee2)
+    fsum2.add(ani2)
     demag2 = mm.DemagFieldGPU(g2)
 
     m0_2 = mm.uniform_mag(g2, mm.Vec3(1.0, 0.0, 0.0))
@@ -92,16 +101,31 @@ else:
 
     m_cpu2 = mm.VectorField3D(g2)
 
-    # Sweep +300 mT -> -300 mT
+    # Sweep +300 mT -> -300 mT, field tilted 5° off x so the macrospin switches
+    # deterministically (an exactly axial field leaves m∥H at an unstable
+    # equilibrium with zero torque -> it never reverses). H_list accepts (N,3) vectors.
     H_sat = 300e-3 / mu0
-    H_sweep = np.linspace(H_sat, -H_sat, 7)
+    H_mags = np.linspace(H_sat, -H_sat, 7)
+    # 45° off the easy axis: the field's x-component (±0.71·H > H_K) selects the
+    # +x/−x well while its large transverse component drives a fast, unambiguous
+    # reversal — anisotropy pins m to ±x so the flip is never the slow, near-
+    # antiparallel creep that a purely axial field produces (which stalls the
+    # tol_deg convergence check at the unstable point).
+    _tilt = np.radians(45.0)
+    H_sweep = np.column_stack([H_mags * np.cos(_tilt),
+                               H_mags * np.sin(_tilt),
+                               np.zeros_like(H_mags)])
 
+    # reset_m: relax each field point from the +x saturated state (the descending
+    # branch from saturation). Without it the carried-over state sits ~antiparallel
+    # to the reversed field (both lie on the 45° line) and stalls at the unstable
+    # equilibrium; from +x the reversed field is 135° away -> deterministic switch.
     res = mm.gpu_hysteresis_loop(integ2, mat2, demag2, fsum2, zee2, H_sweep,
                                   m_cpu2,
-                                  axis='x',
                                   tol_deg=2.0,
-                                  max_steps=30_000,
+                                  max_steps=100_000,
                                   check_interval=200,
+                                  reset_m=m0_2,
                                   verbose=True)
 
     print(f"\n  H sweep: {len(H_sweep)} points")
@@ -110,8 +134,10 @@ else:
     assert sorted(res.keys()) == sorted(["H", "Hvec", "mx", "my", "mz"])
     assert res["mx"][0] > 0.5, f"mx at +300mT: {res['mx'][0]}"
     assert res["mx"][-1] < -0.5, f"mx at -300mT: {res['mx'][-1]}"
-    corr = float(np.corrcoef(res["H"], res["mx"])[0, 1])
-    print(f"  Pearson corr(H,mx) = {corr:.3f}  (expect > 0.8)")
+    # correlate mx with the SIGNED field component (res["H"] is the magnitude for
+    # a vector sweep, i.e. a symmetric V — use Hvec_x, the actual signed drive).
+    corr = float(np.corrcoef(res["Hvec"][:, 0], res["mx"])[0, 1])
+    print(f"  Pearson corr(Hx,mx) = {corr:.3f}  (expect > 0.8)")
     assert corr > 0.8
     print("  gpu_hysteresis_loop OK")
 
@@ -119,6 +145,7 @@ else:
     print("\n  run_until_converged_gpu standalone:")
     m0_3 = mm.uniform_mag(g2, mm.Vec3(0.9, 0.1, 0.0))
     zee2.H_ext = mm.Vec3(400e3, 0, 0)   # 400 kA/m = 500 mT >> shape anisotropy
+    integ2.invalidate_graph()           # H_ext changed -> re-capture the CUDA graph
     integ2.upload(m0_3)
     m_cpu3 = mm.VectorField3D(g2)
     info = mm.run_until_converged_gpu(integ2, mat2, demag2, fsum2, m_cpu3,

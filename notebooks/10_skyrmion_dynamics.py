@@ -134,7 +134,6 @@ axes[0].set_title("Skyrmion trajectory (SOT-driven)")
 axes[0].legend()
 
 # topological charge from table
-t_vals = [float(r) for r in open(os.path.join(out_dir, "table_skyrmion.csv")).readlines()[1:] if r.strip()]
 import csv
 with open(os.path.join(out_dir, "table_skyrmion.csv")) as f:
     reader = csv.DictReader(f)

@@ -142,6 +142,7 @@ try:
         SurfaceAnisotropyFieldGPU,
         # ZeemanFieldSpatialGPU — per-cell spatial external field GPU drop-in
         ZeemanFieldSpatialGPU,
+        RKKYFieldGPU,               # interlayer RKKY coupling GPU drop-in
     )
     _GPU_AVAILABLE = True
 except ImportError:
@@ -247,7 +248,7 @@ __all__ = [
     "DemagFieldGPU", "DemagFieldPeriodicGPU",
     "BulkDMIFieldGPU", "InterfacialDMIFieldGPU",
     "RelaxGPU", "RelaxGPUOptions", "MinimizeGPU", "MinimizeGPUOptions",
-    "ExchangeFieldGPU", "ZeemanFieldGPU", "ZeemanFieldSpatialGPU",
+    "ExchangeFieldGPU", "ZeemanFieldGPU", "ZeemanFieldSpatialGPU", "RKKYFieldGPU",
     "UniaxialAnisotropyFieldGPU", "CubicAnisotropyFieldGPU",
     "RK4IntegratorGPU", "RK45IntegratorGPU", "RK45GPUOptions",
     "HeunIntegratorGPU",
@@ -2354,6 +2355,11 @@ def gpu_hysteresis_loop(integ, mat, demag, fsum, zee_gpu, H_list,
             else:             hz = float(H_arr[i])
 
         zee_gpu.H_ext = Vec3(hx, hy, hz)
+        # The FieldSumGPU CUDA-graph path bakes H_ext into the captured launch
+        # args and its staleness test omits H_ext, so a bare H_ext change would
+        # replay the stale field (silent wrong physics). Force a re-capture.
+        if hasattr(integ, "invalidate_graph"):
+            integ.invalidate_graph()
 
         if reset_m is not None:
             from_numpy(m_cpu, reset_np)

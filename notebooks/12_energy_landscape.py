@@ -54,7 +54,7 @@ heff.add(zeeman)
 print("Relaxing SP#4 element...")
 m = mm.uniform_mag(g, mm.Vec3(1, 0, 0))
 opts = mm.RelaxOptions()
-opts.tol = 1e-7
+opts.threshold = 1.0          # |m×H|_max [A/m] (mumax3-like default); .tol was removed
 mm.relax(m, mat, heff, opts)
 
 mx_avg, my_avg, mz_avg = mm.mean_magnetization(m)
@@ -72,7 +72,7 @@ def sf_to_np(sf, ny, nx):
     arr = np.zeros((ny, nx))
     for iy in range(ny):
         for ix in range(nx):
-            arr[iy, ix] = sf[g.linear_index(ix, iy, 0)]
+            arr[iy, ix] = sf[ix + nx*iy]   # x-fastest linear index (nz=1)
     return arr
 
 Ed_exch  = sf_to_np(ed_exch,  ny, nx)

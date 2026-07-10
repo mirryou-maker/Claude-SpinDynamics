@@ -97,7 +97,7 @@ if GPU:
     relax = mm.RelaxGPU(g)
     relax.upload(m0)
 
-    opts = mm.RelaxGPU.Options()
+    opts = mm.RelaxGPUOptions()
     opts.threshold  = 500.0
     opts.max_steps  = 50000
     opts.check_every = 500

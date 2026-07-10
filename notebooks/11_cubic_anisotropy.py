@@ -57,7 +57,7 @@ heff.add(cubic)
 print("Relaxing Fe film (cubic anisotropy Kc1=48 kJ/m³)...")
 m = mm.random_mag(g, seed=42)
 opts = mm.RelaxOptions()
-opts.tol = 1e-6
+opts.threshold = 1.0          # |m×H|_max [A/m] (mumax3-like default); .tol was removed
 mm.relax(m, mat, heff, opts)
 
 # ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ def field_to_np(sf):
     arr = np.zeros((ny, nx))
     for iy in range(ny):
         for ix in range(nx):
-            arr[iy, ix] = sf[g.linear_index(ix, iy, 0)]
+            arr[iy, ix] = sf[ix + nx*iy]   # x-fastest linear index (nz=1)
     return arr
 
 ed_exch_np  = field_to_np(ed_exch)

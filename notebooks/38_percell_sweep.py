@@ -39,16 +39,21 @@ nx, ny, nz = 64, 64, 1
 dx = 5e-9
 g = mm.StructuredGrid(nx, ny, nz, dx, dx, 3e-9)
 
-# Generate random polycrystalline grains (12 grains, seed=42)
-grain_id = mm.voronoi_grains(g, n_grains=12, seed=42)
-
-# Build MaterialField3D: each grain gets a random easy-axis tilt ±30° from z
+# Random polycrystalline grain IDs via a Voronoi tessellation (12 seed points).
+# (mm.voronoi_grains now returns a MaterialField3D with per-grain K directly; here
+#  we need the raw grain-id map to assign per-grain easy-axis tilts and DMI below.)
 rng = np.random.default_rng(42)
 N = nx * ny * nz
+num_grains = 12
+seeds_xy = rng.uniform([0, 0], [nx, ny], size=(num_grains, 2))
+_i = np.arange(N)
+_pts = np.stack([_i % nx, (_i // nx) % ny], axis=1).astype(float)   # x-fastest (ix,iy)
+_d2 = ((_pts[:, None, :] - seeds_xy[None, :, :]) ** 2).sum(axis=2)  # (N, num_grains)
+grain_ids_arr = _d2.argmin(axis=1).astype(np.int32)
+
+# Build MaterialField3D: each grain gets a random easy-axis tilt ±30° from z
 matf = mm.MaterialField3D(g)
 mat_co = mm.Material.cobalt()
-grain_ids_arr = np.asarray(grain_id, dtype=np.int32)
-num_grains = int(grain_ids_arr.max()) + 1
 grain_axes = []
 for _ in range(num_grains):
     theta = rng.uniform(0, 30 * math.pi / 180)  # tilt angle from z
@@ -98,7 +103,7 @@ if GPU:
     fields.add(exch)
     fields.add(ani)
 
-    opts = mm.RelaxGPU.Options()
+    opts = mm.RelaxGPUOptions()
     opts.threshold  = 2000.0
     opts.max_steps  = 100000
     opts.check_every = 500
@@ -172,7 +177,7 @@ if GPU:
     relax2 = mm.RelaxGPU(g)
     relax2.upload(m_sky)
 
-    opts2 = mm.RelaxGPU.Options()
+    opts2 = mm.RelaxGPUOptions()
     opts2.threshold  = 5000.0
     opts2.max_steps  = 200000
     opts2.check_every = 1000
@@ -266,7 +271,7 @@ if GPU:
         rel = mm.RelaxGPU(g_s)
         rel.upload(m_s)
 
-        opts_s = mm.RelaxGPU.Options()
+        opts_s = mm.RelaxGPUOptions()
         opts_s.threshold  = 5000.0
         opts_s.max_steps  = 200000
         opts_s.check_every = 1000
