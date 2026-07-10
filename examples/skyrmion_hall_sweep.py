@@ -87,25 +87,36 @@ for al in alphas:
     print(f"  alpha={al:.2f}  hall={a:+.0f}  v={v:.1f}", flush=True)
 thA = np.array(thA)
 
+# save raw sweep data (so the figure can be regenerated without re-running)
+np.savetxt(OUT / "hall_sweep_data.txt",
+           np.column_stack([np.r_[Js, np.full(len(alphas), np.nan)],
+                            np.r_[vJ, np.full(len(alphas), np.nan)],
+                            np.r_[np.full(len(Js), np.nan), alphas],
+                            np.r_[np.full(len(Js), np.nan), thA]]),
+           header="J v_ofJ  alpha thH_ofAlpha")
+
 # ---- plot -------------------------------------------------------------------
 fig, ax = plt.subplots(1, 2, figsize=(12, 4.6))
-# (a) v vs J
+# (a) v vs J  (linear mobility)
 cf = np.polyfit(Js, vJ, 1)
 ax[0].plot(Js/1e11, vJ, "o", ms=8, color=BLUE)
 xx = np.linspace(0, Js.max()*1.05, 50)
 ax[0].plot(xx/1e11, np.polyval(cf, xx), "-", color=BLUE, lw=1.6,
-           label=f"linear fit ({cf[0]*1e11*1e-11:.0f} m/s per 10¹¹)")
+           label=f"linear fit: {cf[0]*1e11:.1f} m/s per 10¹¹ A/m²")
 ax[0].set_xlabel("current density J  (×10¹¹ A/m²)", fontsize=11)
 ax[0].set_ylabel("skyrmion speed |v|  (m/s)", fontsize=11)
 ax[0].set_title("(a)  velocity vs current  (α = 0.30)", fontsize=12, fontweight="bold")
 ax[0].legend(fontsize=9); ax[0].grid(alpha=.3); ax[0].set_xlim(0, None); ax[0].set_ylim(0, None)
-# (b) hall angle vs alpha + Thiele  tan(theta)=C/alpha
-C = np.median(np.tan(np.radians(thA)) * alphas)         # fit C from tan(th)*alpha
-al_fine = np.linspace(alphas.min()*0.9, alphas.max()*1.05, 100)
+# (b) hall angle vs alpha + Thiele  tan(theta)=C/alpha  (valid points only)
+ok = np.isfinite(thA)
+al_v, th_v = alphas[ok], thA[ok]
+C = np.nanmedian(np.tan(np.radians(th_v)) * al_v)       # fit C from tan(th)*alpha
+al_fine = np.linspace(al_v.min()*0.85, al_v.max()*1.05, 100)
 th_th = np.degrees(np.arctan(C / al_fine))
-ax[1].plot(alphas, thA, "s", ms=8, color=RED, label="simulation")
+ax[1].plot(al_v, th_v, "s", ms=8, color=RED, label="simulation")
 ax[1].plot(al_fine, th_th, "-", color=INK, lw=1.6,
-           label=r"Thiele  $\tan\theta_{sk}=\mathcal{G}/(\alpha\mathcal{D})$")
+           label=r"Thiele  $\tan\theta_{sk}=\mathcal{G}/(\alpha\mathcal{D})$" +
+                 f"\n" + r"$\mathcal{G}/\mathcal{D}=$" + f"{C:.2f}")
 ax[1].set_xlabel("Gilbert damping α", fontsize=11)
 ax[1].set_ylabel("skyrmion-Hall angle  θ$_{sk}$  (deg)", fontsize=11)
 ax[1].set_title("(b)  Hall angle vs damping  (J = 2×10¹¹)", fontsize=12, fontweight="bold")
