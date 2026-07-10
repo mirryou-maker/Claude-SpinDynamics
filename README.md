@@ -13,6 +13,21 @@ beginner & advanced tutorials, and how to extend Claude-SD with Claude Code.
 
 ---
 
+## ⬇️ Download & run — no build, no source required (Windows x64)
+
+Don't want to compile? **Download only the prebuilt binary** (not the source) from the
+**[Releases page](https://github.com/mirryou-maker/Claude-SpinDynamics/releases/latest)**, unzip, and run:
+
+- **Standalone apps — no Python needed:** run `bin\sp4.exe`, `bin\bloch_dw.exe`, `bin\sp1.exe`, … — every
+  µMAG problem, demo, and thermal app from the build is included, plus `unit_tests.exe` to self-check.
+- **Python API:** `py -3.13 -m pip install numpy matplotlib`, then point `sys.path` at the `python\` folder
+  and `import micromag`. See the zip's `README.txt` for a copy-paste quick start.
+
+Requires **Windows 10/11 x64** (+ **Python 3.13** for the Python API). This is the **CPU build** — it runs on
+any machine, no GPU/CUDA. For GPU/CUDA speed, build from source (see [Quick Start](#quick-start)).
+
+---
+
 ## Key Features
 
 | Category | Feature |
