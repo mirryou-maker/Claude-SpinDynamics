@@ -1,0 +1,109 @@
+"""Assemble a paper/manual-ready validation-overview montage from the figures
+produced by the example notebooks, and write a gallery catalog (GALLERY.md).
+
+    python notebooks/make_gallery.py
+-> notebooks/notebook_validation_gallery.png
+-> notebooks/GALLERY.md
+"""
+import pathlib
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+
+HERE = pathlib.Path(__file__).parent
+
+# (file, caption) — representative validated physics across the notebook suite
+PANELS = [
+    ("sp1_phase_diagram.png",          "µMAG SP#1 — vortex/flower phase diagram"),
+    ("sp3_hysteresis.png",             "µMAG SP#3 — hysteresis & switching field"),
+    ("sp4_switching.png",              "µMAG SP#4 — field-A switching ⟨m⟩(t)"),
+    ("fmr_thinfilm.png",               "FMR — thin-film resonance spectrum"),
+    ("spinwave_dispersion.png",        "Spin-wave dispersion ω(k)"),
+    ("21_skyrmion_phase_diagram_gpu.png", "Skyrmion D×K stability phase diagram (GPU)"),
+    ("24_zhangli_dw_gpu.png",          "Zhang–Li current-driven domain-wall motion (GPU)"),
+    ("sp4_thermal_gpu.png",            "Finite-T SP#4 — stochastic LLG (GPU)"),
+    ("29_walker_breakdown_gpu.png",    "Walker breakdown — DW velocity vs drive (GPU)"),
+]
+
+fig, axes = plt.subplots(3, 3, figsize=(18, 11))
+for ax, (fname, cap) in zip(axes.ravel(), PANELS):
+    p = HERE / fname
+    if p.exists():
+        ax.imshow(mpimg.imread(p))
+        ax.set_title(cap, fontsize=11, fontweight="bold")
+    else:
+        ax.text(0.5, 0.5, f"missing:\n{fname}", ha="center", va="center")
+    ax.axis("off")
+fig.suptitle("Claude-SpinDynamics — example-notebook validation gallery "
+             "(µMAG standard problems, dynamics, thermal, skyrmions)",
+             fontsize=15, fontweight="bold", y=0.995)
+fig.tight_layout(rect=[0, 0, 1, 0.98])
+out = HERE / "notebook_validation_gallery.png"
+fig.savefig(out, dpi=130, bbox_inches="tight", facecolor="white")
+print("wrote", out)
+
+# ---- GALLERY.md catalog ----------------------------------------------------
+CATALOG = [
+    ("µMAG standard problems", [
+        ("01_sp4_dynamics.py",        "sp4_switching.png, sp4_magnetization.png"),
+        ("02_sp1_phase_diagram.py",   "sp1_phase_diagram.png, sp1_states.png, sp1_thickness_scaling.png"),
+        ("06_sp3_hysteresis.py",      "sp3_hysteresis.png, sp3_transition.png, sp3_relaxation.png, sp3_magnetization_map.png"),
+        ("04_sp4_gpu.py",             "sp4_gpu_switching.png, sp4_gpu_magnetization.png"),
+        ("28_sp4_gpu_validation.py",  "28_sp4_gpu_validation.png"),
+    ]),
+    ("Static / hysteresis / energy", [
+        ("07_hysteresis.py",          "hysteresis_loop.png, hysteresis_remanence.png"),
+        ("09_initial_magnetization.py","initial_magnetization.png, initial_magnetization_energies.png"),
+        ("12_energy_landscape.py",    "energy_landscape_sp4.png"),
+        ("11_cubic_anisotropy.py",    "cubic_domains_mx.png, cubic_energy_map.png"),
+    ]),
+    ("Dynamics — FMR, spin waves, domain walls", [
+        ("13_fmr_spectrum.py",        "fmr_thinfilm.png, fmr_macrospin.png"),
+        ("15_spinwave_dispersion.py", "spinwave_dispersion.png"),
+        ("24_zhangli_dw_gpu.py",      "24_zhangli_dw_gpu.png"),
+        ("27_zhangli_subwalker_gpu.py","27_zhangli_subwalker_gpu.png"),
+        ("29_walker_breakdown_gpu.py","29_walker_breakdown_gpu.png"),
+    ]),
+    ("Spin-transfer / spin-orbit torque", [
+        ("08_stt_switching.py",       "stt_switching.png, stt_critical_current.png"),
+        ("22_stt_switching_gpu.py",   "22_stt_switching_gpu.png"),
+        ("26_sot_skyrmion_motion_gpu.py","26_sot_skyrmion_motion_gpu.png"),
+        ("26_sot_skyrmion_nucleation_gpu.py","26_sot_skyrmion_nucleation_gpu.png"),
+    ]),
+    ("Skyrmions", [
+        ("10_skyrmion_dynamics.py",   "skyrmion_trajectory.png"),
+        ("20_skyrmion_gpu_relax.py",  "20_skyrmion_gpu_relax.png"),
+        ("21_skyrmion_phase_diagram_gpu.py","21_skyrmion_phase_diagram_gpu.png"),
+    ]),
+    ("Finite temperature (SLLG)", [
+        ("03_thermal_sp4.py",         "sp4_thermal_comparison.png, sp4_thermal_realizations.png"),
+        ("05_thermal_gpu.py",         "sp4_thermal_gpu.png, sp4_thermal_gpu_realizations.png"),
+        ("23_stt_thermal_sllg_gpu.py","23_stt_thermal_sllg_gpu.png"),
+        ("23_sot_thermal_switching_gpu.py","23_sot_thermal_switching_gpu.png"),
+        ("30_thermal_stt_statistics_gpu.py","30_thermal_stt_statistics_gpu.png"),
+    ]),
+    ("Geometry / multi-region / performance", [
+        ("14_inter_exchange_and_rotating_geometry.py","inter_exchange.png, rotating_geometry.png"),
+        ("16_spinning_hard_disk.py",  "hard_disk.png"),
+        ("17_afm_and_zhangli.py",     "afm_and_zhangli.png"),
+        ("18_periodic_demag_gpu_bench.py","14_periodic_demag_gpu_bench.png"),
+        ("19_periodic_gpu_llg_loop.py","19_periodic_gpu_llg_loop.png"),
+        ("25_stt_gpu_bench.py",       "25_stt_gpu_bench.png"),
+    ]),
+]
+
+lines = ["# Example-notebook figure gallery\n",
+         "All figures below are regenerated by running the example notebooks against",
+         "the current build (`python notebooks/run_all_examples.py`). They are suitable",
+         "for the user manual and as paper source figures.\n",
+         "**Overview montage:** `notebook_validation_gallery.png`\n"]
+for section, rows in CATALOG:
+    lines.append(f"## {section}\n")
+    lines.append("| Notebook | Figures |")
+    lines.append("|---|---|")
+    for nb, figs in rows:
+        lines.append(f"| `{nb}` | {figs} |")
+    lines.append("")
+(HERE / "GALLERY.md").write_text("\n".join(lines), encoding="utf-8")
+print("wrote", HERE / "GALLERY.md")
