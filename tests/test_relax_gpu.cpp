@@ -319,7 +319,7 @@ TEST_CASE("InterfacialDMIFieldGPU: lower energy for Neel skyrmion than uniform",
     mat.easy_axis  = {0, 0, 1};
     mat.alpha      = 0.5;
 
-    // Neel skyrmion initial state (Q ≈ -1)
+    // Neel skyrmion initial state (core up -> |Q| ≈ 1)
     VectorField3D m_sky(g);
     init_neel_skyrmion(m_sky, g, 10e-9);
 

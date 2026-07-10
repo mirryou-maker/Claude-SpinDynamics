@@ -246,26 +246,27 @@ TEST_CASE("InitMag: uniform_mag produces unit vectors", "[init_mag]") {
         REQUIRE_THAT(mv[i].norm(), WithinAbs(1.0, 1e-12));
 }
 
-TEST_CASE("InitMag: neel_skyrmion mz=-1 at core, +1 far", "[init_mag]") {
+TEST_CASE("InitMag: neel_skyrmion mz=+1 at core, -1 far", "[init_mag]") {
     // Fine grid for skyrmion profile test
     StructuredGrid g(21, 21, 1, 5e-9, 5e-9, 5e-9);
     const Real r_sky = 25e-9;
     VectorField3D mv = neel_skyrmion(g, r_sky, 1, 1);
 
-    // Centre cell: mz = -pol = -1  (θ=π at ρ=0)
+    // Centre cell: mz = +pol = +1  (mumax3 convention: pol=+1 -> core up)
     const Index centre = g.linear_index(10, 10, 0);
-    REQUIRE_THAT(mv[centre].z, WithinAbs(-1.0, 0.1));
+    REQUIRE_THAT(mv[centre].z, WithinAbs(+1.0, 0.1));
 
-    // Corner cell (ρ≈71nm >> r=25nm): mz approaching +pol=+1
+    // Corner cell (ρ≈71nm >> r=25nm): mz approaching -pol=-1
     const Index corner = g.linear_index(0, 0, 0);
-    REQUIRE(mv[corner].z > 0.7);
+    REQUIRE(mv[corner].z < -0.7);
 }
 
 TEST_CASE("InitMag: bloch_skyrmion mz at core", "[init_mag]") {
     StructuredGrid g(21, 21, 1, 5e-9, 5e-9, 5e-9);
     VectorField3D mv = bloch_skyrmion(g, 25e-9, 1, 1);
     const Index centre = g.linear_index(10, 10, 0);
-    REQUIRE_THAT(mv[centre].z, WithinAbs(-1.0, 0.1));
+    // pol=+1 -> core up (+1)
+    REQUIRE_THAT(mv[centre].z, WithinAbs(+1.0, 0.1));
 }
 
 TEST_CASE("InitMag: two_domain splits correctly in x", "[init_mag]") {
@@ -483,15 +484,15 @@ TEST_CASE("TopoCharge: uniform m → Q=0", "[topo]") {
     REQUIRE_THAT(Q, WithinAbs(0.0, 1e-10));
 }
 
-TEST_CASE("TopoCharge: Neel skyrmion Q ≈ -1 (charge=1, pol=1)", "[topo]") {
-    // 21×21 grid, r=25nm, dx=5nm → 105nm box
-    // skyrmion centre at origin, topological charge should be ≈ ±1
+TEST_CASE("TopoCharge: Neel skyrmion Q ≈ +1 (charge=1, pol=1)", "[topo]") {
+    // 61×61 grid, r=20nm, dx=5nm; skyrmion centred at origin.
+    // New convention (pol=+1 -> core up): Q = -p·w = +1 for charge=1, pol=1.
     StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
     VectorField3D mv = neel_skyrmion(g, 20e-9, 1, 1);
     const Real Q = topological_charge_Q(mv);
-    // Discrete grid discretisation error: expect Q within 0.1 of -1
-    REQUIRE(Q < -0.8);
-    REQUIRE(Q > -1.2);
+    // Discrete grid discretisation error: expect Q within ~0.2 of +1
+    REQUIRE(Q > 0.8);
+    REQUIRE(Q < 1.2);
 }
 
 TEST_CASE("TopoCharge: density field sums to Q (within dA factor)", "[topo]") {
@@ -524,19 +525,19 @@ TEST_CASE("TopoCharge: Bloch skyrmion Q same sign as Neel", "[topo]") {
 TEST_CASE("SkyrmionTools: corepos near box centre for centred skyrmion", "[skyrmion]") {
     // 61×61×1 grid, 5 nm cells → 305 nm × 305 nm box
     StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
-    // pol=+1: mz_core = -1 (find_max=false finds min mz)
+    // pol=+1: mz_core = +1 (find_max=true finds the max-mz core)
     VectorField3D m = neel_skyrmion(g, 20e-9, 1, 1);
-    auto [cx, cy] = skyrmion_corepos(m, false);
+    auto [cx, cy] = skyrmion_corepos(m, true);
     // Core should be within ±1 cell of box centre (origin)
     REQUIRE_THAT(cx, WithinAbs(0.0, 5e-9));
     REQUIRE_THAT(cy, WithinAbs(0.0, 5e-9));
 }
 
-TEST_CASE("SkyrmionTools: corepos finds pol=-1 core with find_max=true", "[skyrmion]") {
+TEST_CASE("SkyrmionTools: corepos finds pol=-1 core with find_max=false", "[skyrmion]") {
     StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
-    // pol=-1: mz_core = +1
+    // pol=-1: mz_core = -1 (find_max=false finds the min-mz core)
     VectorField3D m = neel_skyrmion(g, 20e-9, 1, -1);
-    auto [cx, cy] = skyrmion_corepos(m, true);
+    auto [cx, cy] = skyrmion_corepos(m, false);
     REQUIRE_THAT(cx, WithinAbs(0.0, 5e-9));
     REQUIRE_THAT(cy, WithinAbs(0.0, 5e-9));
 }
@@ -544,7 +545,7 @@ TEST_CASE("SkyrmionTools: corepos finds pol=-1 core with find_max=true", "[skyrm
 TEST_CASE("SkyrmionTools: bubble_pos matches corepos for centred skyrmion", "[skyrmion]") {
     StructuredGrid g(61, 61, 1, 5e-9, 5e-9, 5e-9);
     VectorField3D m = neel_skyrmion(g, 20e-9, 1, 1);
-    auto [cpx, cpy] = skyrmion_corepos(m, false);
+    auto [cpx, cpy] = skyrmion_corepos(m, true);   // pol=+1 core is max-mz
     auto [bpx, bpy] = bubble_pos(m);
     // Q-centroid should be close to mz-extremum position (within 1 cell)
     REQUIRE_THAT(bpx, WithinAbs(cpx, 5e-9));
