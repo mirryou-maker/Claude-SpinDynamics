@@ -16,15 +16,24 @@ beginner & advanced tutorials, and how to extend Claude-SD with Claude Code.
 ## ⬇️ Download & run — no build, no source required (Windows x64)
 
 Don't want to compile? **Download only the prebuilt binary** (not the source) from the
-**[Releases page](https://github.com/mirryou-maker/Claude-SpinDynamics/releases/latest)**, unzip, and run:
+**[Releases page](https://github.com/mirryou-maker/Claude-SpinDynamics/releases/latest)**, unzip, and run —
+two packages:
 
-- **Standalone apps — no Python needed:** run `bin\sp4.exe`, `bin\bloch_dw.exe`, `bin\sp1.exe`, … — every
-  µMAG problem, demo, and thermal app from the build is included, plus `unit_tests.exe` to self-check.
+| Package | For | Size |
+|---------|-----|------|
+| `Claude-SD-…-cpu-py313.zip` | **CPU** — runs on any x64 Windows, no GPU | ~3 MB |
+| `Claude-SD-…-gpu-py313.zip` | **GPU (CUDA)** — needs an NVIDIA GPU; all four variants (cuFFT/VkFFT × f32/f64), CUDA runtime **bundled** (no CUDA Toolkit install) | ~280 MB |
+
+Each package contains **every executable from the build** plus the `micromag` Python module:
+
+- **Standalone apps — no Python needed:** run `bin\sp4.exe` / `bin\sp4_gpu.exe`, `bloch_dw.exe`, … (every
+  µMAG problem, demo, and thermal app), plus `unit_tests.exe` to self-check. (GPU: run `add_dll_to_path.bat`
+  first.)
 - **Python API:** `py -3.13 -m pip install numpy matplotlib`, then point `sys.path` at the `python\` folder
-  and `import micromag`. See the zip's `README.txt` for a copy-paste quick start.
+  and `import micromag`. See each zip's `README.txt` for a copy-paste quick start.
 
-Requires **Windows 10/11 x64** (+ **Python 3.13** for the Python API). This is the **CPU build** — it runs on
-any machine, no GPU/CUDA. For GPU/CUDA speed, build from source (see [Quick Start](#quick-start)).
+Requires **Windows 10/11 x64** (+ **Python 3.13** for the Python API; **NVIDIA GPU + driver** for the GPU
+package). To build from source instead, see [Quick Start](#quick-start).
 
 ---
 
