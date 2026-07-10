@@ -7,8 +7,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
+#include "micromag/ovf_io.hpp"
+#include "micromag/vtk_writer.hpp"
 #include "micromag/exchange.hpp"
 #include "micromag/exchange_gpu.hpp"
 #include "micromag/field.hpp"
@@ -331,6 +334,59 @@ TEST_CASE("RKKYFieldGPU: energy sign (AFM antiparallel < FM parallel)", "[api][g
     const double E_fm = rkky_fm.energy(m1, mat);
 
     REQUIRE(E_afm < E_fm);  // AFM favours antiparallel
+}
+
+// ---------------------------------------------------------------------------
+// OVF/VTK (regression): on the CUDA-linked build the C++ std::ofstream /
+// std::ifstream filebuf flush/close/read deadlocked, so save_ovf / load_ovf /
+// write_vtk_legacy HUNG (this test would have timed out). They now use C stdio.
+// Runs inside unit_tests_gpu (the CUDA-linked binary), so reaching the asserts
+// at all proves the hang is gone; the asserts also check a lossless round-trip.
+// ---------------------------------------------------------------------------
+TEST_CASE("OVF/VTK: write/read round-trip on the CUDA build (no filebuf hang)",
+          "[ovf][gpu][regression]") {
+    StructuredGrid g(6, 4, 2, 5e-9, 5e-9, 5e-9);
+    VectorField3D m(g);
+    // Fill with a distinctive, per-cell-varying pattern
+    for (Index i = 0; i < g.size(); ++i) {
+        double t = static_cast<double>(i) / static_cast<double>(g.size());
+        double x = std::cos(6.28318530718 * t);
+        double y = std::sin(6.28318530718 * t);
+        double n = std::sqrt(x * x + y * y + 0.25);
+        m[i] = { x / n, y / n, 0.5 / n };
+    }
+
+    const char* ovf = "_regression_ovf.ovf";
+    const char* vtk = "_regression_vtk.vtk";
+
+    // Binary8 (lossless) round-trip
+    save_ovf(ovf, m, "m", OVFFormat::Binary8);
+    VectorField3D m2 = load_ovf(ovf);
+    REQUIRE(m2.grid().nx() == g.nx());
+    REQUIRE(m2.grid().ny() == g.ny());
+    REQUIRE(m2.grid().nz() == g.nz());
+    double maxdiff = 0.0;
+    for (Index i = 0; i < g.size(); ++i) {
+        maxdiff = std::max(maxdiff, std::abs(m2[i].x - m[i].x));
+        maxdiff = std::max(maxdiff, std::abs(m2[i].y - m[i].y));
+        maxdiff = std::max(maxdiff, std::abs(m2[i].z - m[i].z));
+    }
+    INFO("Binary8 round-trip max diff = " << maxdiff);
+    REQUIRE(maxdiff < 1e-12);
+
+    // Text round-trip (parses %.15e)
+    save_ovf(ovf, m, "m", OVFFormat::Text);
+    VectorField3D m3 = load_ovf(ovf);
+    double td = 0.0;
+    for (Index i = 0; i < g.size(); ++i)
+        td = std::max(td, std::abs(m3[i].z - m[i].z));
+    REQUIRE(td < 1e-9);
+
+    // VTK writer must also complete (no filebuf hang)
+    write_vtk_legacy(vtk, m, "m");
+
+    std::remove(ovf);
+    std::remove(vtk);
 }
 
 #endif // MICROMAG_CUDA

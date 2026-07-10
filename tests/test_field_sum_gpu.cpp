@@ -213,4 +213,78 @@ TEST_CASE("FieldSumGPU: clear() resets field list", "[field_sum][gpu]") {
     REQUIRE(fields.size() == 0);
 }
 
+// ---------------------------------------------------------------------------
+// FS6 (regression): changing a ZeemanFieldGPU's H_ext inside a FieldSumGPU must
+// take effect between RK4 steps. The step() FieldSumGPU CUDA-graph path used to
+// bake H_ext into the captured graph and omit it from the staleness test, so a
+// field change replayed the stale field (silent wrong physics). A revision()
+// counter on the field now forces a graph re-capture. Here we align m to +x
+// under a strong +x field, then switch the field to +y (90° away, unambiguous)
+// and require m to follow to +y — it only can if the new field reached the GPU.
+// ---------------------------------------------------------------------------
+TEST_CASE("FieldSumGPU: H_ext change updates the CUDA-graph field (no stale replay)",
+          "[field_sum][gpu][regression]") {
+    StructuredGrid g(4, 4, 1, 5e-9, 5e-9, 5e-9);
+    Material mat = Material::permalloy();
+    mat.alpha = 0.6;                          // high damping -> fast alignment
+
+    DemagFieldGPU  demag(g);
+    ZeemanFieldGPU zee(g, Vec3{0, 0, 0});
+    FieldSumGPU    fields;
+    fields.add(zee);
+
+    VectorField3D m0(g);
+    m0.set_uniform(Vec3{0, 0, 1});            // start along +z
+
+    RK4IntegratorGPU integ(g, 5e-14);
+    integ.upload(m0);
+
+    const double H = 5.0e6;                    // >> Ms so Zeeman dominates demag
+    VectorField3D out(g);
+
+    // Field along +x -> m should align to +x
+    zee.set_H_ext(Vec3{H, 0, 0});
+    for (int k = 0; k < 40000; ++k) integ.step(mat, demag, fields);
+    integ.download(out);
+    const double mx1 = out[g.linear_index(0, 0, 0)].x;
+    INFO("after +x: mx = " << mx1);
+    REQUIRE(mx1 > 0.9);
+
+    // Switch field to +y -> m must follow to +y (stale replay would keep it at +x)
+    zee.set_H_ext(Vec3{0, H, 0});
+    for (int k = 0; k < 40000; ++k) integ.step(mat, demag, fields);
+    integ.download(out);
+    const double mx2 = out[g.linear_index(0, 0, 0)].x;
+    const double my2 = out[g.linear_index(0, 0, 0)].y;
+    INFO("after +y: mx = " << mx2 << "  my = " << my2);
+    REQUIRE(my2 > 0.9);      // followed the new field
+    REQUIRE(mx2 < 0.3);      // left the old field direction
+}
+
+// ---------------------------------------------------------------------------
+// FS7 (regression): FieldSumGPU::revision() changes when a member field's
+// mutable parameter changes, and when the field set changes.
+// ---------------------------------------------------------------------------
+TEST_CASE("FieldSumGPU: revision() reflects field mutations", "[field_sum][gpu][regression]") {
+    StructuredGrid g(4, 4, 1, 5e-9, 5e-9, 5e-9);
+    ZeemanFieldGPU zee(g, Vec3{0, 0, 0});
+    ExchangeFieldGPU exch(g);
+    FieldSumGPU fields;
+    fields.add(exch);
+    fields.add(zee);
+
+    const auto r0 = fields.revision();
+    zee.set_H_ext(Vec3{1.0e5, 0, 0});
+    const auto r1 = fields.revision();
+    REQUIRE(r1 != r0);                 // H_ext change is observable
+
+    zee.set_H_ext(Vec3{1.0e5, 0, 0});  // same value, but still a set -> bump
+    const auto r2 = fields.revision();
+    REQUIRE(r2 != r1);
+
+    fields.clear();
+    const auto r3 = fields.revision();
+    REQUIRE(r3 != r2);                 // field-set change is observable
+}
+
 #endif // MICROMAG_CUDA
