@@ -26,6 +26,14 @@ endif()
 # Position-independent code (needed for pybind11) ---------------------------
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# MSVC runtime: force the dynamic CRT (/MD) for ALL targets, including nvcc host
+# compilation. nvcc defaults its host compiler to the STATIC CRT (/MT -> LIBCMT),
+# which mixes two C runtimes in the CUDA Python module — iostream/locale globals
+# get duplicated with separate locks, deadlocking std::ofstream (save_ovf /
+# write_vtk_legacy hung on the GPU build). CMP0091 (NEW since cmake 3.24) makes
+# this apply to CUDA host code too, so there is a single /MD runtime.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+
 # Output directories --------------------------------------------------------
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -187,6 +195,7 @@ if(MICROMAG_USE_CUDA)
     if(MSVC)
         target_compile_options(micromag_cuda PRIVATE
             $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/MD>          # dynamic CRT (match /MD host)
             $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>)
     endif()
     # Propagate the MICROMAG_CUDA flag so headers can guard GPU code

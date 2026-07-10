@@ -342,7 +342,12 @@ void HeunIntegratorGPU::step(
 
     // T=0: try CUDA Graph replay
     if (!thermal) {
-        bool stale = !gs2_.valid || !heun_mat_eq(gs2_.mat, mat) || gs2_.dt != dt_;
+        // Include the FieldSumGPU revision so a field parameter change (e.g. a
+        // ZeemanFieldGPU H_ext sweep) forces a graph re-capture instead of
+        // replaying the stale baked-in field.
+        const unsigned long long fs_rev = extra_fields.revision();
+        bool stale = !gs2_.valid || !heun_mat_eq(gs2_.mat, mat) || gs2_.dt != dt_
+                  || gs2_.fs_rev != fs_rev;
         if (stale) {
             auto body = [&] {
                 run_half(mat, state_.d_m(), state_.d_H(), state_.d_ki(),
@@ -355,9 +360,10 @@ void HeunIntegratorGPU::step(
                                       h * 0.5, N, sv);
                 launch_normalize(state_.d_m(), N, sv);
             };
-            gs2_.valid = heun_do_capture(s, gs2_.exec, body);
-            gs2_.mat   = mat;
-            gs2_.dt    = dt_;
+            gs2_.valid  = heun_do_capture(s, gs2_.exec, body);
+            gs2_.mat    = mat;
+            gs2_.dt     = dt_;
+            gs2_.fs_rev = fs_rev;
             if (!gs2_.valid) { state_.sync(); return; }
         }
         CUDA_CHECK(cudaGraphLaunch(static_cast<cudaGraphExec_t>(gs2_.exec), s));

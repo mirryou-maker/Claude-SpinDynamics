@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -62,7 +63,11 @@ void save_ovf(const std::string& filename,
     const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
     const Real  dx = g.dx(), dy = g.dy(), dz = g.dz();
 
-    std::ofstream f(filename, std::ios::binary | std::ios::trunc);
+    // Use C stdio (FILE*) rather than std::ofstream: on the CUDA-linked build
+    // the C++ filebuf flush/close deadlocks (a runtime interaction specific to
+    // the GPU module), while plain stdio writes and closes cleanly. Number
+    // formatting still uses std::ostringstream (in-memory, unaffected).
+    FILE* f = std::fopen(filename.c_str(), "wb");
     if (!f) throw std::runtime_error("save_ovf: cannot open '" + filename + "'");
 
     // Helper: format a double in scientific notation for the OVF header
@@ -72,8 +77,8 @@ void save_ovf(const std::string& filename,
         return ss.str();
     };
 
-    // Write header as text
-    auto hdr = [&](const std::string& s){ f << s << "\n"; };
+    // Write header as text (each line + newline)
+    auto hdr = [&](const std::string& s){ std::fputs(s.c_str(), f); std::fputc('\n', f); };
     hdr("# OOMMF OVF 2.0");
     hdr("");
     hdr("# Segment count: 1");
@@ -105,14 +110,13 @@ void save_ovf(const std::string& filename,
 
     if (fmt == OVFFormat::Text) {
         hdr("# Begin: Data Text");
-        f << std::scientific;
-        f.precision(15);
         // Data order: z outer, y middle, x inner (x-fastest)
         for (Index iz = 0; iz < nz; ++iz)
         for (Index iy = 0; iy < ny; ++iy)
         for (Index ix = 0; ix < nx; ++ix) {
             const Vec3& v = m[g.linear_index(ix, iy, iz)];
-            f << v.x << " " << v.y << " " << v.z << "\n";
+            std::fprintf(f, "%.15e %.15e %.15e\n",
+                         (double)v.x, (double)v.y, (double)v.z);
         }
         hdr("# End: Data Text");
     } else if (fmt == OVFFormat::Binary4) {
@@ -120,7 +124,7 @@ void save_ovf(const std::string& filename,
         hdr("# Begin: Data Binary 4");
         // Check value: 1234567.0 as float (mumax3 convention for Binary 4)
         const float check4 = 1234567.0f;
-        f.write(reinterpret_cast<const char*>(&check4), 4);
+        std::fwrite(&check4, 4, 1, f);
         for (Index iz = 0; iz < nz; ++iz)
         for (Index iy = 0; iy < ny; ++iy)
         for (Index ix = 0; ix < nx; ++ix) {
@@ -128,7 +132,7 @@ void save_ovf(const std::string& filename,
             float buf[3] = { static_cast<float>(v.x),
                              static_cast<float>(v.y),
                              static_cast<float>(v.z) };
-            f.write(reinterpret_cast<const char*>(buf), 12);
+            std::fwrite(buf, 12, 1, f);
         }
         hdr("# End: Data Binary 4");
     } else {
@@ -136,28 +140,48 @@ void save_ovf(const std::string& filename,
         hdr("# Begin: Data Binary 8");
         // Write check value first (123456789012345.0 as double)
         const double check = 123456789012345.0;
-        f.write(reinterpret_cast<const char*>(&check), 8);
+        std::fwrite(&check, 8, 1, f);
         // Write data
         for (Index iz = 0; iz < nz; ++iz)
         for (Index iy = 0; iy < ny; ++iy)
         for (Index ix = 0; ix < nx; ++ix) {
             const Vec3& v = m[g.linear_index(ix, iy, iz)];
             double buf[3] = { v.x, v.y, v.z };
-            f.write(reinterpret_cast<const char*>(buf), 24);
+            std::fwrite(buf, 24, 1, f);
         }
         hdr("# End: Data Binary 8");
     }
 
     hdr("# End: Segment");
+    std::fclose(f);
 }
 
 // ---------------------------------------------------------------------------
 // load_ovf
 // ---------------------------------------------------------------------------
 
+// Read an entire file into a std::string via C stdio. std::ifstream's filebuf
+// deadlocks in the CUDA-linked build (see save_ovf), but stdio and in-memory
+// std::istringstream both work — so slurp the file, then parse from memory.
+static std::string slurp_file(const std::string& filename, const char* who) {
+    FILE* fp = std::fopen(filename.c_str(), "rb");
+    if (!fp) throw std::runtime_error(std::string(who) + ": cannot open '" + filename + "'");
+    std::fseek(fp, 0, SEEK_END);
+    long sz = std::ftell(fp);
+    std::fseek(fp, 0, SEEK_SET);
+    std::string data;
+    if (sz > 0) {
+        data.resize(static_cast<size_t>(sz));
+        size_t got = std::fread(&data[0], 1, static_cast<size_t>(sz), fp);
+        data.resize(got);
+    }
+    std::fclose(fp);
+    return data;
+}
+
 VectorField3D load_ovf(const std::string& filename) {
-    std::ifstream f(filename, std::ios::binary);
-    if (!f) throw std::runtime_error("load_ovf: cannot open '" + filename + "'");
+    std::string _contents = slurp_file(filename, "load_ovf");
+    std::istringstream f(_contents, std::ios::binary);
 
     // Parse header
     Index  nx = 0, ny = 0, nz = 0;
@@ -290,8 +314,8 @@ VectorField3D load_ovf(const std::string& filename) {
 }
 
 StructuredGrid load_ovf_grid(const std::string& filename) {
-    std::ifstream f(filename, std::ios::binary);
-    if (!f) throw std::runtime_error("load_ovf_grid: cannot open '" + filename + "'");
+    std::string _contents = slurp_file(filename, "load_ovf_grid");
+    std::istringstream f(_contents, std::ios::binary);
     Index  nx = 0, ny = 0, nz = 0;
     double dx = 0, dy = 0, dz = 0;
     std::string line, val;

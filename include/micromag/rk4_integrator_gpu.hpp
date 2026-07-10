@@ -95,6 +95,7 @@ private:
         Vec3     hext  = {};       // H_ext baked into the captured kernel args
         bool     exch_percell  = false;  // per-cell material mode at capture time
         bool     aniso_percell = false;  // (changing mode invalidates the graph)
+        unsigned long long fs_rev = ~0ull;  // FieldSumGPU revision at capture time
     };
     GraphState gs1_;  // step(mat, demag, exch, zeeman, aniso)
     GraphState gs2_;  // step(mat, demag, extra_fields)

@@ -42,6 +42,13 @@ public:
     // Redirect GPU kernels to an external stream (P2: single-stream refactor).
     // Default no-op; concrete classes override to redirect their private stream.
     virtual void set_stream(void* /*s*/) {}
+
+    // Monotonic revision counter of mutable parameters that a captured CUDA
+    // graph bakes into its launch args (e.g. ZeemanFieldGPU H_ext). Integrators
+    // include this in their graph-staleness test so a parameter change forces a
+    // re-capture instead of replaying the stale value (silent wrong physics).
+    // Default 0 = immutable field (never triggers a re-capture on its own).
+    virtual unsigned long long revision() const { return 0; }
 };
 
 // ---------------------------------------------------------------------------
@@ -81,6 +88,17 @@ public:
             f->accumulate_gpu_ptr(d_m, mat, d_H_out);
             if (!stream_) cudaDeviceSynchronize();
         }
+    }
+
+    // Aggregate revision of the composed fields, mixing in the field count and
+    // order so add()/clear() and any child parameter change alter the result.
+    // Integrators compare this against the value captured with the CUDA graph.
+    unsigned long long revision() const {
+        unsigned long long r = 1469598103934665603ull;   // FNV offset basis
+        r = (r ^ fields_.size()) * 1099511628211ull;
+        for (auto* f : fields_)
+            r = (r ^ f->revision()) * 1099511628211ull;
+        return r;
     }
 
 private:

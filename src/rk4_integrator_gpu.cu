@@ -325,7 +325,12 @@ void RK4IntegratorGPU::step(
     demag.set_stream(sv);
     extra_fields.set_stream(sv);
 
-    bool stale = !gs2_.valid || !mat_eq(gs2_.mat, mat) || gs2_.dt != dt_;
+    // Include the FieldSumGPU revision: a field parameter change (e.g. a
+    // ZeemanFieldGPU H_ext sweep) is baked into the captured graph's launch
+    // args, so it must force a re-capture — otherwise the stale field replays.
+    const unsigned long long fs_rev = extra_fields.revision();
+    bool stale = !gs2_.valid || !mat_eq(gs2_.mat, mat) || gs2_.dt != dt_
+              || gs2_.fs_rev != fs_rev;
 
     if (stale) {
         const double h = static_cast<double>(dt_);
@@ -341,9 +346,10 @@ void RK4IntegratorGPU::step(
             launch_normalize(state_.d_m(), static_cast<int>(state_.N()), sv);
         };
 
-        gs2_.valid = do_capture(s, gs2_.exec, body);
-        gs2_.mat   = mat;
-        gs2_.dt    = dt_;
+        gs2_.valid  = do_capture(s, gs2_.exec, body);
+        gs2_.mat    = mat;
+        gs2_.dt     = dt_;
+        gs2_.fs_rev = fs_rev;
 
         if (!gs2_.valid) {
             state_.sync();

@@ -65,14 +65,19 @@ public:
                              GReal* d_H_out) const;
 
     Vec3 H_ext() const            { return H_ext_; }
-    void set_H_ext(const Vec3& H) { H_ext_ = H; }
+    void set_H_ext(const Vec3& H) { H_ext_ = H; ++rev_; }
     void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
+
+    // H_ext is baked into the fused/Zeeman CUDA-graph launch args, so a change
+    // must force the integrator to re-capture the graph (see IEffectiveFieldGPU).
+    unsigned long long revision() const override { return rev_; }
 
 private:
     size_t N_;
     Vec3   H_ext_;
     void*  stream_       = nullptr;
     bool   stream_owned_ = true;
+    unsigned long long rev_ = 0;   // bumped on every set_H_ext
 };
 
 // ---------------------------------------------------------------------------
