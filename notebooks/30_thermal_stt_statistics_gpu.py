@@ -11,9 +11,9 @@ Material: Pt/Co PMA macrospin (1x1x1, dx=10nm)
   J_c0(T=0) ~ 0.7e12 A/m2 (Slonczewski perpendicular switching threshold)
 
 Three demos:
-  A) N=20 ensemble at J=0.95*J_c0, T=300K: shows stochastic switching distribution
+  A) N=20 ensemble at J=0.85*J_c0, T=300K: shows stochastic switching distribution
   B) P_sw vs J at T=300K: transition from P=0 to P=1 around J_c0
-  C) P_sw vs T at J=0.95*J_c0: thermal enhancement of switching
+  C) P_sw vs T at J=0.88*J_c0: thermal enhancement of switching
 """
 
 import os, sys, time
@@ -53,7 +53,15 @@ mu0_Heff = 2*K/Ms - mu0*Ms                  # net PMA field [T]  = 0.995 T
 # Torque balance: hbar*P*J/(2*e*Ms*d) = alpha * mu0*H_eff
 # -> J_c0 = 2*e*alpha*Ms*d * (mu0*H_eff) / (hbar*P)
 # mu0*H_eff [T] NOT H_eff [A/m] (would be off by mu0 = 1.26e-6)
-J_c0 = 2 * e_ch * alpha * Ms * d_F * abs(mu0_Heff) / (hbar * P)
+J_c0_analytic = 2 * e_ch * alpha * Ms * d_F * abs(mu0_Heff) / (hbar * P)
+# The analytic estimate assumes a thin film (demag Nz=1), but this macrospin is a
+# 10 nm CUBE (Nz=1/3); together with the O(1) prefactor convention in
+# SlonczewskiSTTGPU it underpredicts the SIMULATED deterministic threshold by ~3x.
+# Calibrate J_c0 to the measured switching current (this build: mz reverses
+# between 2.0 and 2.5e12 A/m² at T=0, threshold ≈ 2.35e12) so the 0.80–1.08·J_c0
+# ensemble sweeps bracket the transition (Jf≈0.94) instead of sitting entirely
+# below it (which gave P_sw≡0).
+J_c0 = 2.5e12
 
 # Thermal stability at 300K
 Delta_300K = K * V / (kB * 300)
@@ -124,14 +132,14 @@ def run_ensemble(J_val, T_K, N_trials, label=""):
     return P_sw, n_sw, sw_times, mz_finals, mz_trajs
 
 # ---------------------------------------------------------------------------
-# Part A: Ensemble at J=0.95*J_c0, T=300K  (N=20 trajectories)
+# Part A: Ensemble at J=0.85*J_c0, T=300K  (N=20 trajectories)
 # ---------------------------------------------------------------------------
-J_A   = 0.95 * J_c0
+J_A   = 0.85 * J_c0
 T_A   = 300.0
 N_A   = 20
 Delta_eff_A = Delta_300K * (1 - J_A/J_c0)**2
 
-print(f"\n--- Part A: Ensemble at J=0.95*J_c0={J_A/1e12:.3f}e12, T=300K (N={N_A}) ---")
+print(f"\n--- Part A: Ensemble at J=0.85*J_c0={J_A/1e12:.3f}e12, T=300K (N={N_A}) ---")
 print(f"  Delta_eff = Delta*(1-J/J_c0)^2 = {Delta_300K:.0f}*{(1-J_A/J_c0):.3f}^2 = {Delta_eff_A:.1f}")
 
 t0 = time.time()
@@ -170,19 +178,19 @@ for J_f, J_val in zip(J_factors_B, J_sweep_B):
 print(f"  Part B: {time.time()-t0:.1f} s")
 
 # ---------------------------------------------------------------------------
-# Part C: P_sw vs T at J=0.95*J_c0  (10 trials each)
+# Part C: P_sw vs T at J=0.88*J_c0  (10 trials each)
 # ---------------------------------------------------------------------------
-print(f"\n--- Part C: P_sw vs T at J=0.95*J_c0 (N=10 each, t_max={t_max*1e9:.0f}ns) ---")
+print(f"\n--- Part C: P_sw vs T at J=0.88*J_c0 (N=10 each, t_max={t_max*1e9:.0f}ns) ---")
 
 T_sweep_C = np.array([100, 200, 300, 400])
-J_C = 0.95 * J_c0
+J_C = 0.88 * J_c0
 N_C = 10
 
 P_sw_C = []
 t0 = time.time()
 for T_val in T_sweep_C:
     Delta_T = K * V / (kB * T_val)
-    Delta_eff = max(0, Delta_T * (1 - 0.95)**2)
+    Delta_eff = max(0, Delta_T * (1 - 0.88)**2)
     P_sw, n_sw, *_ = run_ensemble(J_C, float(T_val), N_C)
     P_sw_C.append(P_sw)
     print(f"  T={T_val:.0f}K  Delta={Delta_T:.0f}  Delta_eff={Delta_eff:.1f}  P_sw={P_sw:.1f} ({n_sw}/{N_C})")
@@ -209,7 +217,7 @@ try:
     ax.axhline(+1, color='C2', ls=':', lw=1, alpha=0.5, label='initial +z')
     ax.axhline(-1, color='C3', ls=':', lw=1, alpha=0.5, label='final -z')
     ax.set_xlabel('Time (ps)'); ax.set_ylabel('mz')
-    ax.set_title(f'mz(t) N={N_A} ensemble\nJ=0.95*J_c0, T=300K  P_sw={P_sw_A:.2f}')
+    ax.set_title(f'mz(t) N={N_A} ensemble\nJ=0.85*J_c0, T=300K  P_sw={P_sw_A:.2f}')
     ax.legend(fontsize=7); ax.grid(alpha=0.3)
     ax.set_ylim(-1.15, 1.15)
 
@@ -232,7 +240,7 @@ try:
     ax.errorbar(T_sweep_C, P_sw_C, yerr=yerr_C, fmt='none', color='C1', capsize=5)
     ax.axhline(0.5, color='k', ls='--', lw=1, alpha=0.5, label='P=0.5')
     ax.set_xlabel('Temperature (K)'); ax.set_ylabel('Switching probability')
-    ax.set_title(f'P_sw vs T (J=0.95*J_c0, t={t_max*1e9:.0f}ns)\nHigher T -> easier switching')
+    ax.set_title(f'P_sw vs T (J=0.88*J_c0, t={t_max*1e9:.0f}ns)\nHigher T -> easier switching')
     ax.set_ylim(-0.05, 1.15); ax.legend(fontsize=7.5); ax.grid(alpha=0.3)
 
     plt.suptitle(
@@ -249,6 +257,6 @@ except Exception as e:
 print("\n=== Summary ===")
 print(f"  Pt/Co PMA: {int(dx*1e9)}nm cell, K={K/1e6:.2f}MJ/m3, Delta(300K)={Delta_300K:.1f}")
 print(f"  J_c0 = {J_c0/1e12:.3f}e12 A/m2  (Slonczewski perpendicular)")
-print(f"  Part A: J=0.95*J_c0, T=300K, N={N_A}: P_sw={P_sw_A:.2f}")
+print(f"  Part A: J=0.85*J_c0, T=300K, N={N_A}: P_sw={P_sw_A:.2f}")
 print(f"  Part B: " + "  ".join([f"J={f:.2f}->P={p:.1f}" for f,p in zip(J_factors_B, P_sw_B)]))
 print(f"  Part C: " + "  ".join([f"T={t:.0f}K->P={p:.1f}" for t,p in zip(T_sweep_C, P_sw_C)]))
