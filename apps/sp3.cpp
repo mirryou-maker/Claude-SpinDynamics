@@ -1,15 +1,15 @@
-// sp3.cpp — µMAG Standard Problem #3: Hysteresis loop
+// sp3.cpp -- uMAG Standard Problem #3: Hysteresis loop
 //
 // Computes the magnetisation hysteresis loop for a square Permalloy element:
-//   Geometry   : 1 µm × 1 µm × 20 nm  (10 nm cells → 100×100×2 = 20 K cells)
-//   Protocol   : Sweep H_x from +150 mT → −150 mT in 5 mT steps.
-//                At each field: RK45 relax until |m×H_eff|_max < 1 kA/m or t > 2 ns.
+//   Geometry   : 1 um x 1 um x 20 nm  (10 nm cells -> 100x100x2 = 20 K cells)
+//   Protocol   : Sweep H_x from +150 mT -> -150 mT in 5 mT steps.
+//                At each field: RK45 relax until |mxH_eff|_max < 1 kA/m or t > 2 ns.
 //                Warm start: each field begins from the previous field's final state.
-//   Expected   : Vortex nucleation at H_nuc ≈ −15 to −30 mT (10 nm cells)
-//                Vortex annihilation (reversal) at H_ann ≈ −60 to −90 mT
+//   Expected   : Vortex nucleation at H_nuc ~ -15 to -30 mT (10 nm cells)
+//                Vortex annihilation (reversal) at H_ann ~ -60 to -90 mT
 //
-// Note: 10 nm cells give l_ex ≈ 1.8 dx — captures hysteresis qualitatively.
-//       For quantitative accuracy (µMAG SP#3 reference) use 5 nm cells.
+// Note: 10 nm cells give l_ex ~ 1.8 dx -- captures hysteresis qualitatively.
+//       For quantitative accuracy (uMAG SP#3 reference) use 5 nm cells.
 //
 // Run: .\build\windows-msvc\bin\Release\sp3.exe
 
@@ -49,7 +49,7 @@ static Vec3 mean_m(const VectorField3D& m) {
     return {s.x/N, s.y/N, s.z/N};
 }
 
-// Max pointwise |m × H_eff| — convergence diagnostic (A/m)
+// Max pointwise |m x H_eff| -- convergence diagnostic (A/m)
 static double max_torque(const VectorField3D& m, const Material& mat,
                           EffectiveFieldSum& heff)
 {
@@ -71,7 +71,7 @@ static int relax(VectorField3D& m, const Material& mat, EffectiveFieldSum& heff,
 {
     RK45Integrator::Options opts;
     opts.dt_init = 5e-14;
-    opts.dt_max  = 5e-12;   // 5 ps max step — stable for α=0.5 Permalloy
+    opts.dt_max  = 5e-12;   // 5 ps max step -- stable for alpha=0.5 Permalloy
     RK45Integrator integ(opts);
 
     double t = 0.0;
@@ -95,17 +95,17 @@ static const char* classify(double mx, double mag) {
 // ---------------------------------------------------------------------------
 int main() {
     const double mu_0     = constants::mu_0;
-    const double mT_to_Am = 1e-3 / mu_0;   // 1 mT → H in A/m
+    const double mT_to_Am = 1e-3 / mu_0;   // 1 mT -> H in A/m
 
-    // Grid: 1 µm × 1 µm × 20 nm, 10 nm cells → 100×100×2 = 20 K cells
+    // Grid: 1 um x 1 um x 20 nm, 10 nm cells -> 100x100x2 = 20 K cells
     const StructuredGrid grid(100, 100, 2, 10e-9, 10e-9, 10e-9);
 
     Material mat = Material::permalloy();
-    mat.alpha = 0.5;   // overdamped — fast convergence to local minimum
+    mat.alpha = 0.5;   // overdamped -- fast convergence to local minimum
 
     const double lex = std::sqrt(2.0 * mat.A_exchange / (mu_0 * mat.Ms * mat.Ms));
 
-    std::cout << "=== µMAG Standard Problem #3: Hysteresis Loop ===\n"
+    std::cout << "=== uMAG Standard Problem #3: Hysteresis Loop ===\n"
               << "Permalloy: Ms=" << std::fixed << std::setprecision(0)
               << mat.Ms/1e3 << " kA/m  "
               << "A=" << mat.A_exchange*1e12 << " pJ/m  "
@@ -120,7 +120,7 @@ int main() {
               << grid.nz()*grid.dz()*1e9 << " nm)\n\n";
 
     // -----------------------------------------------------------------------
-    // Build effective field (DemagField is expensive — construct once)
+    // Build effective field (DemagField is expensive -- construct once)
     // -----------------------------------------------------------------------
     std::cout << "Constructing DemagField... " << std::flush;
     auto t_ctor = Clock::now();
@@ -149,7 +149,7 @@ int main() {
     std::cout << elapsed_ms(t_pre) << " ms  (" << n_pre << " steps)\n\n";
 
     // -----------------------------------------------------------------------
-    // Field sweep: +150 → −150 mT in 5 mT steps
+    // Field sweep: +150 -> -150 mT in 5 mT steps
     // -----------------------------------------------------------------------
     const double H_max_mT  =  150.0;
     const double H_min_mT  = -150.0;
@@ -191,11 +191,11 @@ int main() {
         if (H_nuc > 1e8 && prev_mag > 0.75 && mag < 0.70)
             H_nuc = H_mT;
 
-        // Switching field: <mx> first crosses zero (positive → negative)
+        // Switching field: <mx> first crosses zero (positive -> negative)
         if (H_sw > 1e8 && prev_mx > 0 && avg.x < 0)
             H_sw = H_mT;
 
-        // Reversal complete: |<m>| recovers with mx < −0.70
+        // Reversal complete: |<m>| recovers with mx < -0.70
         if (H_sw < 1e8 && H_ann > 1e8 && avg.x < -0.70)
             H_ann = H_mT;
 
@@ -242,7 +242,7 @@ int main() {
         std::cout << "  Hysteresis window:  DeltaH = "
                   << std::abs(H_ann - H_nuc) << " mT\n";
     std::cout << "\n  Note: 10 nm cells (1.8 l_ex) under-resolve vortex core.\n"
-              << "        Use 5 nm cells for quantitative µMAG SP#3 accuracy.\n";
+              << "        Use 5 nm cells for quantitative uMAG SP#3 accuracy.\n";
 
     // Save CSV for notebook plotting
     std::ofstream csv("sp3_hysteresis.csv");

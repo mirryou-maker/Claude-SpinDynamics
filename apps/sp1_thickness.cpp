@@ -1,14 +1,14 @@
-// sp1_thickness.cpp — SP#1: critical size L_c vs element thickness
+// sp1_thickness.cpp -- SP#1: critical size L_c vs element thickness
 //
 // For each thickness t = 5, 10, 20, 40 nm:
 //   Scans element sizes L to bracket the vortex-nucleation critical size L_c(t).
 //   Compares E_vortex vs E_S-state; finds crossing by linear interpolation.
 //
-// Extracts scaling exponent β from  L_c ∝ t^β
-// Reference: Cowburn et al., PRL 83, 1042 (1999) — found β ≈ 1/3 experimentally.
+// Extracts scaling exponent beta from  L_c ~ t^beta
+// Reference: Cowburn et al., PRL 83, 1042 (1999) -- found beta ~ 1/3 experimentally.
 //
-// Material: Permalloy, Ms=800 kA/m, A=13 pJ/m, α=0.5
-// Cells:    5 nm cubic throughout (t=5nm → 1 cell in z; t=40nm → 8 cells in z)
+// Material: Permalloy, Ms=800 kA/m, A=13 pJ/m, alpha=0.5
+// Cells:    5 nm cubic throughout (t=5nm -> 1 cell in z; t=40nm -> 8 cells in z)
 
 #include <array>
 #include <chrono>
@@ -60,7 +60,7 @@ static double relax_energy(VectorField3D& m, const Material& mat,
     return heff.total_energy(m, mat);
 }
 
-// Returns ΔE/E_uniform (negative = vortex wins)
+// Returns DeltaE/E_uniform (negative = vortex wins)
 static double delta_E_frac(int nx, int nz, double d, const Material& mat) {
     StructuredGrid g(nx, nx, nz, d, d, d);
 
@@ -97,7 +97,7 @@ static double find_Lc(int nz, double d_m, const Material& mat,
 
         log << "    L=" << std::setw(5) << std::setprecision(0) << std::fixed << L_nm
             << " nm  (" << std::setw(5) << nx*nx*nz << " cells)"
-            << "  ΔE/E_u=" << std::setw(7) << std::setprecision(1) << std::fixed
+            << "  DeltaE/E_u=" << std::setw(7) << std::setprecision(1) << std::fixed
             << dE*100 << "%"
             << "  " << (dE < 0 ? "Vortex" : "S-state")
             << "  (" << std::setprecision(1) << w << " s)\n";
@@ -111,11 +111,11 @@ static double find_Lc(int nz, double d_m, const Material& mat,
         L_prev  = L_nm;
     }
     if (dE_prev < 0) {
-        log << "  (vortex already wins at smallest scanned size — L_c < "
+        log << "  (vortex already wins at smallest scanned size -- L_c < "
             << sizes_nm.front() << " nm)\n";
         return sizes_nm.front();
     }
-    log << "  (S-state still wins at largest scanned size — L_c > "
+    log << "  (S-state still wins at largest scanned size -- L_c > "
         << sizes_nm.back() << " nm)\n";
     return sizes_nm.back();
 }
@@ -131,8 +131,8 @@ int main() {
 
     std::cout << "=== SP#1: Critical Size L_c vs Thickness ===\n"
               << "Permalloy: Ms=" << mat.Ms/1e3 << " kA/m  A=" << mat.A_exchange*1e12
-              << " pJ/m  α=" << mat.alpha << "  l_ex=" << lex*1e9 << " nm\n"
-              << "Exchange + Demag, 5 nm cells, α=0.5\n\n";
+              << " pJ/m  alpha=" << mat.alpha << "  l_ex=" << lex*1e9 << " nm\n"
+              << "Exchange + Demag, 5 nm cells, alpha=0.5\n\n";
 
     // (thickness_nm, nz, size_scan_nm[])
     struct ThickCase {
@@ -142,11 +142,11 @@ int main() {
     };
 
     const std::vector<ThickCase> cases = {
-        // t=5 nm (1 cell): quasi-2D — L_c expected >200 nm
+        // t=5 nm (1 cell): quasi-2D -- L_c expected >200 nm
         {  5, 1, { 60, 100, 140, 180, 220, 250, 260, 280, 300 }},
-        // t=10 nm (2 cells): L_c ≈ 115 nm confirmed by sp1_phase
+        // t=10 nm (2 cells): L_c ~ 115 nm confirmed by sp1_phase
         { 10, 2, { 80, 100, 110, 120, 130, 150 }},
-        // t=20 nm (4 cells): scan from smaller sizes — L_c may be < 100 nm
+        // t=20 nm (4 cells): scan from smaller sizes -- L_c may be < 100 nm
         { 20, 4, { 50, 60, 70, 80, 90, 100, 120, 150 }},
         // t=40 nm (8 cells): start even smaller
         { 40, 8, { 50, 60, 70, 80, 90, 100, 120, 150 }},
@@ -164,7 +164,7 @@ int main() {
         double Lc = find_Lc(c.nz, d, mat, c.sizes_nm, std::cout);
         double wall_total = elapsed_s(t0_thick);
 
-        std::cout << "  → L_c ≈ " << std::setprecision(1) << Lc
+        std::cout << "  -> L_c ~ " << std::setprecision(1) << Lc
                   << " nm  (L_c/l_ex = " << Lc/(lex*1e9)
                   << ")  total: " << wall_total << " s\n\n";
 
@@ -173,7 +173,7 @@ int main() {
     }
 
     // -------------------------------------------------------------------
-    // Summary table + scaling fit  L_c = a * t^β
+    // Summary table + scaling fit  L_c = a * t^beta
     // -------------------------------------------------------------------
     std::cout << "=== Summary: L_c vs thickness ===\n\n";
     std::cout << std::setw(10) << "t (nm)"
@@ -192,7 +192,7 @@ int main() {
     }
     std::cout << std::string(46, '-') << "\n\n";
 
-    // Power-law fit: log(L_c) = β*log(t) + log(a)
+    // Power-law fit: log(L_c) = beta*log(t) + log(a)
     // Least-squares on log-log data
     if (t_vals.size() >= 2) {
         double sum_x=0, sum_y=0, sum_xx=0, sum_xy=0;
@@ -210,8 +210,8 @@ int main() {
         double a    = std::exp(loga);
 
         std::cout << "Power-law fit:  L_c = " << std::setprecision(1) << a
-                  << " × t^" << std::setprecision(3) << beta << " nm\n"
-                  << "(Cowburn 1999 experiment: β ≈ 0.33–0.5)\n\n";
+                  << " x t^" << std::setprecision(3) << beta << " nm\n"
+                  << "(Cowburn 1999 experiment: beta ~ 0.33-0.5)\n\n";
 
         // Predicted values
         std::cout << "Fit check:\n";

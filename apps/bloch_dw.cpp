@@ -1,12 +1,12 @@
-// bloch_dw.cpp — Bloch domain-wall width validation
+// bloch_dw.cpp -- Bloch domain-wall width validation
 //
 // Simulates a 1D strip with easy axis = z and uniaxial anisotropy K.
 // Initial state: two-domain (left=-z, right=+z).
 // Relaxes with Exchange + UniaxialAnisotropy (no Demag in 1D bulk).
-// Measures DW width via Lilley definition: λ = π / |dmz/dx|_max.
-// Compares to analytical: λ_theory = π × √(A/K).
+// Measures DW width via Lilley definition: lambda = pi / |dmz/dx|_max.
+// Compares to analytical: lambda_theory = pi x sqrt(A/K).
 //
-// For each K value, error < 10% is expected when dx ≪ Δ=√(A/K).
+// For each K value, error < 10% is expected when dx << Delta=sqrt(A/K).
 //
 // Run: .\build\windows-msvc\bin\Release\bloch_dw.exe
 
@@ -27,7 +27,7 @@
 
 using namespace micromag;
 
-// Measure Lilley DW width λ = π / max(|dmz/dx|) from a VectorField3D.
+// Measure Lilley DW width lambda = pi / max(|dmz/dx|) from a VectorField3D.
 static double measure_dw_width(const VectorField3D& m, double dx) {
     Index nx = m.grid().nx();
     double peak_grad = 0.0;
@@ -38,21 +38,21 @@ static double measure_dw_width(const VectorField3D& m, double dx) {
     return (peak_grad > 1e-20) ? M_PI / peak_grad : 0.0;
 }
 
-// Initialise an analytical Bloch DW profile: mz = tanh(x/Δ), my = sech(x/Δ).
+// Initialise an analytical Bloch DW profile: mz = tanh(x/Delta), my = sech(x/Delta).
 // This IS the LLG equilibrium for Exchange+UniaxialAnisotropy in 1D.
 static void set_analytical_dw(VectorField3D& m, double Delta, double dx) {
     Index nx = m.grid().nx();
     for (Index i = 0; i < nx; ++i) {
         double x   = (i + 0.5 - nx * 0.5) * dx;
         double mz  = std::tanh(x / Delta);
-        double my  = 1.0 / std::cosh(x / Delta);   // = sech(x/Δ), Bloch rotation
+        double my  = 1.0 / std::cosh(x / Delta);   // = sech(x/Delta), Bloch rotation
         m[i] = Vec3{0, my, mz};
     }
 }
 
 // Run two checks for a given (A, K, dx):
-//   1. Initialise analytical profile → measure width (tests measurement formula).
-//   2. Short RK45 evolution → verify DW width is preserved (tests LLG).
+//   1. Initialise analytical profile -> measure width (tests measurement formula).
+//   2. Short RK45 evolution -> verify DW width is preserved (tests LLG).
 // Returns error% of the initial measurement vs theory.
 static double run_bloch_dw(double A, double K, int nx, double dx) {
     StructuredGrid g(nx, 1, 1, dx, dx, dx);
@@ -95,15 +95,15 @@ int main() {
 
     struct Case { double K; int nx; double dx_nm; };
     const Case cases[] = {
-        {1e5, 512, 1.0},   // Δ=11.4nm, 11 cells/Δ — well resolved
-        {5e5, 512, 1.0},   // Δ= 5.1nm,  5 cells/Δ — marginal
-        {1e6, 512, 0.5},   // Δ= 3.6nm,  7 cells/Δ — resolved
-        {4e6, 512, 0.5},   // Δ= 1.8nm,  3.6 cells/Δ — coarse
+        {1e5, 512, 1.0},   // Delta=11.4nm, 11 cells/Delta -- well resolved
+        {5e5, 512, 1.0},   // Delta= 5.1nm,  5 cells/Delta -- marginal
+        {1e6, 512, 0.5},   // Delta= 3.6nm,  7 cells/Delta -- resolved
+        {4e6, 512, 0.5},   // Delta= 1.8nm,  3.6 cells/Delta -- coarse
     };
 
     std::cout << "\n=== Bloch DW width validation (no Demag, 1D) ===\n";
     std::cout << "  A = " << A * 1e12 << " pJ/m\n\n";
-    std::cout << std::setw(10) << "K [kJ/m³]"
+    std::cout << std::setw(10) << "K [kJ/m^3]"
               << std::setw(14) << "lambda_th [nm]"
               << std::setw(14) << "lambda_ms [nm]"
               << std::setw(10) << "err %"

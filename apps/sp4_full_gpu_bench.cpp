@@ -1,8 +1,8 @@
-// sp4_full_gpu_bench.cpp — G7: Full-GPU LLG benchmark
+// sp4_full_gpu_bench.cpp -- G7: Full-GPU LLG benchmark
 //
 // Compares CPU RK4Integrator vs GPU RK4IntegratorGPU for two grid sizes:
-//   SP#4   (200×50×1   =  10K cells)  — classic switching benchmark
-//   Medium (200×200×5  = 200K cells)  — research-scale comparison
+//   SP#4   (200x50x1   =  10K cells)  -- classic switching benchmark
+//   Medium (200x200x5  = 200K cells)  -- research-scale comparison
 //
 // Both integrators use a FIXED time step dt so the step count is identical
 // and the comparison is apples-to-apples.
@@ -62,10 +62,10 @@ static void benchmark(const char* label,
     m0.normalize();
 
     std::cout << "\n=== " << label << " ===\n"
-              << "Grid  : " << nx << "×" << ny << "×" << nz
+              << "Grid  : " << nx << "x" << ny << "x" << nz
               << " = " << ncells << " cells\n"
-              << "Steps : " << n_steps << " × dt=" << dt << " s"
-              << "  →  t_sim=" << n_steps*dt*1e9 << " ns\n";
+              << "Steps : " << n_steps << " x dt=" << dt << " s"
+              << "  ->  t_sim=" << n_steps*dt*1e9 << " ns\n";
 
     // ------------------------------------------------------------------
     // CPU benchmark
@@ -126,7 +126,7 @@ static void benchmark(const char* label,
                   << "  <mx>=" << std::setprecision(5) << avg.x << "\n";
 
         // Compute speedup from the line above (re-run CPU timing is cached from above scope)
-        // — just print the per-step times; speedup visible from comparison
+        // -- just print the per-step times; speedup visible from comparison
     }
 }
 
@@ -137,14 +137,14 @@ int main() {
 
     const Vec3 Hext{-24.6e3, 4.3e3, 0.0};   // SP#4 Field A
 
-    // SP#4 reference grid — 10K cells, 6000 steps = 0.3 ns
+    // SP#4 reference grid -- 10K cells, 6000 steps = 0.3 ns
     // (capture the switching event at ~175 ps)
-    benchmark("SP#4 reference  (200×50×1 = 10K cells)",
+    benchmark("SP#4 reference  (200x50x1 = 10K cells)",
               200, 50, 1, 2.5e-9, 2.5e-9, 3.0e-9,
               6000, 5e-14, Hext);
 
-    // Medium grid — 200K cells, 200 steps to measure per-step time
-    benchmark("Medium grid  (200×200×5 = 200K cells)",
+    // Medium grid -- 200K cells, 200 steps to measure per-step time
+    benchmark("Medium grid  (200x200x5 = 200K cells)",
               200, 200, 5, 2.0e-9, 2.0e-9, 2.0e-9,
               200, 5e-14, Hext);
 

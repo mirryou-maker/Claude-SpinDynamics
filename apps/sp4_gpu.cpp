@@ -67,7 +67,7 @@ static void run(const char* label, bool use_gpu,
     std::cout << std::fixed << std::setprecision(5);
     std::cout << label << "\n";
     std::cout << "  t_switch  = " << (switched ? std::to_string(t_sw) : "none") << " ns\n";
-    std::cout << "  <mx>_final= " << a.x << "  (ref ≈ -0.9862)\n";
+    std::cout << "  <mx>_final= " << a.x << "  (ref ~ -0.9862)\n";
     std::cout << "  wall time = " << std::setprecision(1) << wall << " s\n\n";
 }
 
@@ -85,7 +85,7 @@ int main() {
     constexpr int  N_steps = 4000;   // 0.2 ns  (enough to see switching)
 
     std::cout << "=== SP#4 GPU vs CPU benchmark ===\n";
-    std::cout << "Grid: 200×50×1  dt=" << dt*1e12 << " ps  steps=" << N_steps << "\n\n";
+    std::cout << "Grid: 200x50x1  dt=" << dt*1e12 << " ps  steps=" << N_steps << "\n\n";
 
     run("CPU (DemagField, FFTW)",         false, grid, mat, H_app, dt, N_steps);
     run("GPU (DemagFieldGPU, cuFFT)",     true,  grid, mat, H_app, dt, N_steps);

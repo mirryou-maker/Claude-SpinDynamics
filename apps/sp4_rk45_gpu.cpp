@@ -1,9 +1,9 @@
-// sp4_rk45_gpu.cpp — G9: GPU adaptive RK45 benchmark
+// sp4_rk45_gpu.cpp -- G9: GPU adaptive RK45 benchmark
 //
-// Compares three integrators on SP#4 Field A (200×50×1 = 10K cells):
-//   CPU RK45          — adaptive DOPRI5 reference
-//   GPU RK4 (fixed)   — fixed dt=5e-14 s, 6000 steps
-//   GPU RK45 (adaptive) — DOPRI5 with same rtol/atol as CPU
+// Compares three integrators on SP#4 Field A (200x50x1 = 10K cells):
+//   CPU RK45          -- adaptive DOPRI5 reference
+//   GPU RK4 (fixed)   -- fixed dt=5e-14 s, 6000 steps
+//   GPU RK45 (adaptive) -- DOPRI5 with same rtol/atol as CPU
 //
 // Expected: GPU RK45 takes fewer steps than GPU RK4 (same accuracy)
 //           and is faster than CPU RK45 (GPU evaluates H_eff faster).
@@ -55,7 +55,7 @@ int main() {
     m0.set_uniform({1.0, 0.1, 0.0});
     m0.normalize();
 
-    const double t_end = 3e-10;   // 0.3 ns — captures the switching event
+    const double t_end = 3e-10;   // 0.3 ns -- captures the switching event
 
     std::cout << "=== G9: GPU RK45IntegratorGPU vs RK4 vs CPU RK45 ===\n"
               << "SP#4 Field A  (200x50x1 = 10K cells,  t_sim = "
@@ -63,7 +63,7 @@ int main() {
     std::cout << std::fixed;
 
     // -----------------------------------------------------------------------
-    // 1. CPU RK45 — reference
+    // 1. CPU RK45 -- reference
     // -----------------------------------------------------------------------
     {
         EffectiveFieldSum heff;
@@ -98,7 +98,7 @@ int main() {
     ZeemanFieldGPU   zeeman(grid, Hext);
 
     // -----------------------------------------------------------------------
-    // 2. GPU RK4 (fixed step) — 6000 steps × 5e-14 s = 0.3 ns
+    // 2. GPU RK4 (fixed step) -- 6000 steps x 5e-14 s = 0.3 ns
     // -----------------------------------------------------------------------
     {
         const int n_steps = 6000;

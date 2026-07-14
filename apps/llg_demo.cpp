@@ -15,7 +15,7 @@
 int main() {
     using namespace micromag;
 
-    // 32 nm × 32 nm × 4 nm permalloy slab, 2 nm cells
+    // 32 nm x 32 nm x 4 nm permalloy slab, 2 nm cells
     StructuredGrid grid(16, 16, 2, 2e-9, 2e-9, 2e-9);
     VectorField3D m(grid);
     m.set_vortex(16e-9, 16e-9, 4e-9);

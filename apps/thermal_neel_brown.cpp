@@ -1,16 +1,16 @@
-// Néel-Brown thermal activation validation
+// Neel-Brown thermal activation validation
 //
 // VERIFIED:
-//   Part 1: Free-diffusion crossing time τ ∝ 1/T (K=0).
-//           This is the attempt-frequency component τ₀ of the Néel-Brown formula.
+//   Part 1: Free-diffusion crossing time tau ~ 1/T (K=0).
+//           This is the attempt-frequency component tau0 of the Neel-Brown formula.
 //
 // PHYSICAL LIMITATION:
-//   The full Néel-Brown barrier test (τ = τ₀ × exp(KV/k_BT)) requires
+//   The full Neel-Brown barrier test (tau = tau0 x exp(KV/k_BT)) requires
 //   the simulation to equilibrate thermally so the spin samples the
 //   Boltzmann distribution.  The equilibration time scales as:
-//       τ_eq ≈ τ₀ × (H_ani/σ)²
-//   For Permalloy at K=1e5 J/m³, T=30 MK, dt=100 ps:
-//       H_ani ≈ 200 kA/m,  σ ≈ 14 kA/m  →  τ_eq ≈ τ₀ × 200 ≈ 5 μs.
+//       tau_eq ~ tau0 x (H_ani/sigma)^2
+//   For Permalloy at K=1e5 J/m^3, T=30 MK, dt=100 ps:
+//       H_ani ~ 200 kA/m,  sigma ~ 14 kA/m  ->  tau_eq ~ tau0 x 200 ~ 5 us.
 //   This is impractical for a validation app.
 //
 //   The complete barrier validation is left to dedicated Monte Carlo /
@@ -70,11 +70,11 @@ int main() {
     const int max_s  = 2000;
     const double dt  = 1e-10;
 
-    std::cout << "=== Part 1: Attempt frequency τ ∝ 1/T (K=0, free diffusion) ===\n";
-    std::cout << "Néel-Brown: τ = τ₀·exp(κ).  This part validates τ₀ ∝ 1/T.\n\n";
+    std::cout << "=== Part 1: Attempt frequency tau ~ 1/T (K=0, free diffusion) ===\n";
+    std::cout << "Neel-Brown: tau = tau0.exp(kappa).  This part validates tau0 ~ 1/T.\n\n";
     std::cout << std::setw(12) << "T [K]"
-              << std::setw(16) << "τ_FPT [steps]"
-              << std::setw(14) << "τ/τ(prev)" << "\n";
+              << std::setw(16) << "tau_FPT [steps]"
+              << std::setw(14) << "tau/tau(prev)" << "\n";
     std::cout << std::string(42,'-') << "\n";
 
     std::vector<double> Tvec = {1e6,3e6,1e7,3e7,1e8};
@@ -90,15 +90,15 @@ int main() {
         std::cout << "\n";
         prev_tau = tau;
     }
-    std::cout << "\nVerified: τ decreases ~3× per 3× temperature increase ✓\n";
-    std::cout << "(Deviations ≈10-30%: statistical with N_real=" << N_real << ")\n\n";
+    std::cout << "\nVerified: tau decreases ~3x per 3x temperature increase OK\n";
+    std::cout << "(Deviations ~10-30%: statistical with N_real=" << N_real << ")\n\n";
 
-    std::cout << "=== Note on full Néel-Brown barrier test ===\n";
-    std::cout << "For Permalloy, K=1e5 J/m³, V=(5nm)³, T=300K:\n";
-    std::cout << "  κ = KV/k_BT = " << 1e5*125e-27/(1.38e-23*300) << "\n";
-    std::cout << "  τ₀ ≈ 1/(α gp H_ani) ≈ 57 ps\n";
-    std::cout << "  τ_Néel = τ₀·exp(κ) ≈ " << 57*std::exp(1e5*125e-27/(1.38e-23*300)) << " ps\n";
-    std::cout << "  BUT: H_ani/σ ≈ 460 → τ_equil ≈ 460² × τ₀ ≈ 1.2 ms!\n";
+    std::cout << "=== Note on full Neel-Brown barrier test ===\n";
+    std::cout << "For Permalloy, K=1e5 J/m^3, V=(5nm)^3, T=300K:\n";
+    std::cout << "  kappa = KV/k_BT = " << 1e5*125e-27/(1.38e-23*300) << "\n";
+    std::cout << "  tau0 ~ 1/(alpha gp H_ani) ~ 57 ps\n";
+    std::cout << "  tau_Neel = tau0.exp(kappa) ~ " << 57*std::exp(1e5*125e-27/(1.38e-23*300)) << " ps\n";
+    std::cout << "  BUT: H_ani/sigma ~ 460 -> tau_equil ~ 460^2 x tau0 ~ 1.2 ms!\n";
     std::cout << "  Observing switching requires ms-scale simulations.\n";
     std::cout << "  See Wernsdorfer (2001) or forward-flux sampling for barrier tests.\n";
     return 0;

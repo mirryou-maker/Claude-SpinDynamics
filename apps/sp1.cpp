@@ -1,23 +1,23 @@
-// sp1.cpp — µMAG Standard Problem #1
+// sp1.cpp -- uMAG Standard Problem #1
 //
 // Finds equilibrium magnetization states in thin Permalloy squares.
 // Only Exchange + Demag fields (no applied Zeeman).
-// High damping α=0.5 for fast convergence to local energy minima.
+// High damping alpha=0.5 for fast convergence to local energy minima.
 //
 // Two element sizes bracket the critical vortex-nucleation length:
-//   Small: 200×200×10 nm  →  S-state / flower expected
-//   Large: 500×500×10 nm  →  Vortex expected
+//   Small: 200x200x10 nm  ->  S-state / flower expected
+//   Large: 500x500x10 nm  ->  Vortex expected
 //
 // Each size tested with two initial conditions:
 //   A) Uniform +x (saturated)
 //   B) Explicit in-plane vortex
 //
-// Permalloy parameters (NIST µMAG standard):
-//   Ms = 860 kA/m,  A = 13 pJ/m,  K = 0,  α = 0.5
+// Permalloy parameters (NIST uMAG standard):
+//   Ms = 860 kA/m,  A = 13 pJ/m,  K = 0,  alpha = 0.5
 //
-// Exchange length: l_ex = sqrt(2A / (µ₀ Ms²)) ≈ 5.3 nm
-//   → Small element: 200 nm ≈ 38 l_ex  (borderline, S-state likely)
-//   → Large element: 500 nm ≈ 94 l_ex  (vortex expected)
+// Exchange length: l_ex = sqrt(2A / (u0 Ms^2)) ~ 5.3 nm
+//   -> Small element: 200 nm ~ 38 l_ex  (borderline, S-state likely)
+//   -> Large element: 500 nm ~ 94 l_ex  (vortex expected)
 //
 // Run: .\build\windows-msvc\bin\Release\sp1.exe
 
@@ -55,7 +55,7 @@ static Vec3 mean_m(const VectorField3D& m) {
     return {s.x / N, s.y / N, s.z / N};
 }
 
-// Max pointwise |m × H_eff| (LLG torque) — convergence diagnostic
+// Max pointwise |m x H_eff| (LLG torque) -- convergence diagnostic
 static double max_torque(const VectorField3D& m,
                           const Material& mat,
                           EffectiveFieldSum& heff) {
@@ -74,7 +74,7 @@ static double max_torque(const VectorField3D& m,
 // Stops when max torque < tol_Am (A/m) OR t_sim > t_max.
 static void relax(VectorField3D& m, const Material& mat,
                    EffectiveFieldSum& heff,
-                   double tol_Am = 1e3,    // stop when |m×H| < 1 kA/m
+                   double tol_Am = 1e3,    // stop when |mxH| < 1 kA/m
                    double t_max  = 5e-9,   // 5 ns hard limit
                    const char* vtk_out = nullptr)
 {
@@ -128,7 +128,7 @@ static void run_case(const char* tag,
     double mag  = std::sqrt(mag2);
     double E    = heff.total_energy(m, mat);
 
-    // State classification: |<m>|>0.85 → single-domain, <0.15 → vortex
+    // State classification: |<m>|>0.85 -> single-domain, <0.15 -> vortex
     const char* state = (mag > 0.85) ? "Single-domain (S/flower)" :
                         (mag < 0.15) ? "Vortex" : "Multi-domain";
 
@@ -138,37 +138,37 @@ static void run_case(const char* tag,
               << avg.x << ", " << avg.y << ", " << avg.z << ")\n"
               << "    |<m>|      = " << mag << "\n"
               << "    E_total    = " << std::scientific << E << " J\n"
-              << "    state      → " << state << "\n"
+              << "    state      -> " << state << "\n"
               << "    wall time  = " << std::fixed << wall << " s\n\n";
 }
 
 // ---------------------------------------------------------------------------
 int main() {
-    // Permalloy (NIST standard) with overdamped α for fast convergence
+    // Permalloy (NIST standard) with overdamped alpha for fast convergence
     Material mat = Material::permalloy();
     mat.alpha = 0.5;
 
-    // Exchange length: l_ex = sqrt(2A / (µ₀Ms²))
+    // Exchange length: l_ex = sqrt(2A / (u0Ms^2))
     const double lex = std::sqrt(2.0 * mat.A_exchange /
                                   (constants::mu_0 * mat.Ms * mat.Ms));
 
-    std::cout << "=== µMAG Standard Problem #1 ===\n"
+    std::cout << "=== uMAG Standard Problem #1 ===\n"
               << "Permalloy: Ms=" << mat.Ms/1e3 << " kA/m  "
               << "A=" << mat.A_exchange*1e12 << " pJ/m  "
-              << "α=" << mat.alpha << "\n"
+              << "alpha=" << mat.alpha << "\n"
               << "Exchange length l_ex = " << lex*1e9 << " nm\n\n";
 
     // -----------------------------------------------------------------------
-    // Case 1 : Small square — 200×200×10 nm, 5nm cells → 40×40×2 = 3200 cells
-    //   200 nm ≈ " << 200e-9/lex << " l_ex  →  S-state likely
+    // Case 1 : Small square -- 200x200x10 nm, 5nm cells -> 40x40x2 = 3200 cells
+    //   200 nm ~ " << 200e-9/lex << " l_ex  ->  S-state likely
     // -----------------------------------------------------------------------
     {
         const int nx=40, ny=40, nz=2;
         const double d=5e-9;
         StructuredGrid g(nx, ny, nz, d, d, d);
 
-        std::cout << "--- Case 1: " << nx*d*1e9 << "×" << ny*d*1e9
-                  << "×" << nz*d*1e9 << " nm  (" << nx*ny*nz
+        std::cout << "--- Case 1: " << nx*d*1e9 << "x" << ny*d*1e9
+                  << "x" << nz*d*1e9 << " nm  (" << nx*ny*nz
                   << " cells, " << (200e-9/lex) << " l_ex) ---\n";
 
         run_case("small_uniform", g, mat, false);
@@ -176,16 +176,16 @@ int main() {
     }
 
     // -----------------------------------------------------------------------
-    // Case 2 : Large square — 500×500×10 nm, 5nm cells → 100×100×2 = 20000 cells
-    //   500 nm ≈ " << 500e-9/lex << " l_ex  →  Vortex likely
+    // Case 2 : Large square -- 500x500x10 nm, 5nm cells -> 100x100x2 = 20000 cells
+    //   500 nm ~ " << 500e-9/lex << " l_ex  ->  Vortex likely
     // -----------------------------------------------------------------------
     {
         const int nx=100, ny=100, nz=2;
         const double d=5e-9;
         StructuredGrid g(nx, ny, nz, d, d, d);
 
-        std::cout << "--- Case 2: " << nx*d*1e9 << "×" << ny*d*1e9
-                  << "×" << nz*d*1e9 << " nm  (" << nx*ny*nz
+        std::cout << "--- Case 2: " << nx*d*1e9 << "x" << ny*d*1e9
+                  << "x" << nz*d*1e9 << " nm  (" << nx*ny*nz
                   << " cells, " << (500e-9/lex) << " l_ex) ---\n";
 
         run_case("large_uniform", g, mat, false);

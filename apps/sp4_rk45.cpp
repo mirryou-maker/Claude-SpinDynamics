@@ -1,4 +1,4 @@
-// µMAG Standard Problem #4  —  RK45 adaptive integrator
+// uMAG Standard Problem #4  --  RK45 adaptive integrator
 // Side-by-side performance comparison with fixed-step RK4.
 //
 // Run:  .\build\windows-msvc\bin\Release\sp4_rk45.exe

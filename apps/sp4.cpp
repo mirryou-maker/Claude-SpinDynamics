@@ -1,14 +1,14 @@
-// µMAG Standard Problem #4  —  Permalloy 500 × 125 × 3 nm
+// uMAG Standard Problem #4  --  Permalloy 500 x 125 x 3 nm
 //
 // Reference: https://www.ctcms.nist.gov/~rdm/mumag.org.html
-//   Apply μ₀H = 25 mT at 170° from +x in the xy-plane to a Permalloy film
-//   initially saturated along +x.  Integrate LLG (α = 0.02) and record the
+//   Apply u0H = 25 mT at 170deg from +x in the xy-plane to a Permalloy film
+//   initially saturated along +x.  Integrate LLG (alpha = 0.02) and record the
 //   time evolution of the average magnetisation until the sample switches to
-//   the –x direction.
+//   the -x direction.
 //
-//   Key reference values (µMAG, cell size 2.5 × 2.5 × 3 nm):
-//     Switching time  t_sw ≈ 0.10 – 0.15 ns  (when <mx> crosses zero)
-//     Final state     <mx> ≈ –0.9862,  <my> ≈ 0.0,  <mz> ≈ 0.0
+//   Key reference values (uMAG, cell size 2.5 x 2.5 x 3 nm):
+//     Switching time  t_sw ~ 0.10 - 0.15 ns  (when <mx> crosses zero)
+//     Final state     <mx> ~ -0.9862,  <my> ~ 0.0,  <mz> ~ 0.0
 //
 // Build:  cmake --build build/windows-msvc --config Release
 // Run:    .\build\windows-msvc\bin\Release\sp4.exe
@@ -34,16 +34,16 @@ using namespace micromag;
 
 int main() {
     // -----------------------------------------------------------------------
-    // Geometry: 200 × 50 × 1 cells, 2.5 × 2.5 × 3 nm each
-    // → physical size 500 × 125 × 3 nm
+    // Geometry: 200 x 50 x 1 cells, 2.5 x 2.5 x 3 nm each
+    // -> physical size 500 x 125 x 3 nm
     // -----------------------------------------------------------------------
     constexpr Index Nx = 200, Ny = 50, Nz = 1;
     constexpr Real  dx = 2.5e-9, dy = 2.5e-9, dz = 3.0e-9;
     StructuredGrid grid(Nx, Ny, Nz, dx, dy, dz);
 
     // -----------------------------------------------------------------------
-    // Material: Permalloy  (µMAG SP#4 values)
-    //   Ms = 800 kA/m,  A = 13 pJ/m,  K = 0,  α = 0.02
+    // Material: Permalloy  (uMAG SP#4 values)
+    //   Ms = 800 kA/m,  A = 13 pJ/m,  K = 0,  alpha = 0.02
     // -----------------------------------------------------------------------
     Material mat    = Material::permalloy();
     // permalloy() already sets: Ms=800kA/m, A_exchange=13pJ/m, K=0, alpha=0.02
@@ -52,14 +52,14 @@ int main() {
     // Initial state: uniform +x with a small +y tilt (breaks symmetry)
     // -----------------------------------------------------------------------
     VectorField3D m(grid);
-    constexpr Real tilt = 0.5 * constants::pi / 180.0;   // 0.5°
+    constexpr Real tilt = 0.5 * constants::pi / 180.0;   // 0.5deg
     for (Index i = 0; i < m.size(); ++i)
         m[i] = { std::cos(tilt), std::sin(tilt), 0.0 };
 
     // -----------------------------------------------------------------------
-    // Applied field: μ₀H = 25 mT at 170° from +x  (Field A, µMAG SP#4)
-    //   Hx = –(25 mT / μ₀) × cos(10°)  ≈ –19 591 A/m
-    //   Hy = +(25 mT / μ₀) × sin(10°)  ≈  +3 453 A/m
+    // Applied field: u0H = 25 mT at 170deg from +x  (Field A, uMAG SP#4)
+    //   Hx = -(25 mT / u0) x cos(10deg)  ~ -19 591 A/m
+    //   Hy = +(25 mT / u0) x sin(10deg)  ~  +3 453 A/m
     // -----------------------------------------------------------------------
     constexpr Real B_mT    = 25e-3;
     constexpr Real theta   = 170.0 * constants::pi / 180.0;
@@ -80,7 +80,7 @@ int main() {
     // -----------------------------------------------------------------------
     // RK4 integrator
     // -----------------------------------------------------------------------
-    constexpr Real dt       = 5e-14;     // 0.05 ps  (stable for Py with α=0.02)
+    constexpr Real dt       = 5e-14;     // 0.05 ps  (stable for Py with alpha=0.02)
     constexpr Index N_steps = 20000;     // 1 ns total
     constexpr Index out_every = 500;     // print every 25 ps
 
@@ -92,15 +92,15 @@ int main() {
     std::ofstream csv("sp4_result.csv");
     csv << "t_ns,mx,my,mz\n";
 
-    std::cout << "=== µMAG Standard Problem #4 ===\n";
-    std::cout << "Grid : " << Nx << " × " << Ny << " × " << Nz
+    std::cout << "=== uMAG Standard Problem #4 ===\n";
+    std::cout << "Grid : " << Nx << " x " << Ny << " x " << Nz
               << " (" << grid.size() << " cells)\n";
-    std::cout << "Cell : " << dx*1e9 << " × " << dy*1e9 << " × "
+    std::cout << "Cell : " << dx*1e9 << " x " << dy*1e9 << " x "
               << dz*1e9 << " nm\n";
     std::cout << "Mat  : Ms=" << mat.Ms/1e3 << " kA/m"
               << "  A=" << mat.A_exchange*1e12 << " pJ/m"
-              << "  α=" << mat.alpha << "\n";
-    std::cout << "Field: μ₀H = " << B_mT*1e3 << " mT @ 170°  ("
+              << "  alpha=" << mat.alpha << "\n";
+    std::cout << "Field: u0H = " << B_mT*1e3 << " mT @ 170deg  ("
               << "Hx=" << H_app.x/1e3 << " kA/m, "
               << "Hy=" << H_app.y/1e3 << " kA/m)\n";
     std::cout << "dt   : " << dt*1e12 << " ps  |  "
@@ -151,18 +151,18 @@ int main() {
     smx /= N;  smy /= N;  smz /= N;
 
     std::cout << "\n=== Final state ===\n";
-    std::cout << "  <mx> = " << smx << "  (µMAG ref ≈ –0.9862)\n";
-    std::cout << "  <my> = " << smy << "  (µMAG ref ≈  0.0)\n";
-    std::cout << "  <mz> = " << smz << "  (µMAG ref ≈  0.0)\n";
+    std::cout << "  <mx> = " << smx << "  (uMAG ref ~ -0.9862)\n";
+    std::cout << "  <my> = " << smy << "  (uMAG ref ~  0.0)\n";
+    std::cout << "  <mz> = " << smz << "  (uMAG ref ~  0.0)\n";
     if (switched) {
         const Real err_mx = std::abs(smx - (-0.9862));
-        std::cout << "\n  |<mx> – (–0.9862)| = " << err_mx;
+        std::cout << "\n  |<mx> - (-0.9862)| = " << err_mx;
         if (err_mx < 0.02)
-            std::cout << "  ✓  within 2% of µMAG reference\n";
+            std::cout << "  OK  within 2% of uMAG reference\n";
         else
             std::cout << "  (run longer or refine grid for better agreement)\n";
     } else {
-        std::cout << "\n  Switching NOT observed — try longer integration time.\n";
+        std::cout << "\n  Switching NOT observed -- try longer integration time.\n";
     }
 
     std::cout << "\nCSV written to sp4_result.csv\n";

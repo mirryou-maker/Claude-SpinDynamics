@@ -1,10 +1,10 @@
 // Large-grid GPU demag benchmark
 // Compares DemagField (CPU, FFTW) vs DemagFieldGPU (GPU, cuFFT)
-// on a realistic research-scale grid: 500×500×10 = 2.5M cells.
+// on a realistic research-scale grid: 500x500x10 = 2.5M cells.
 //
 // Expected behaviour:
 //   CPU: construction ~minutes, per-step ~seconds (very slow for this size)
-//   GPU: construction ~seconds, per-step ~50–100ms  → 50–100× speedup
+//   GPU: construction ~seconds, per-step ~50-100ms  -> 50-100x speedup
 //
 // Run:  .\build\windows-msvc-cuda\bin\Release\benchmark_large.exe
 
@@ -66,10 +66,10 @@ static void run_benchmark(int nx, int ny, int nz,
                              static_cast<size_t>(2*nz);
 
     std::cout << "\n";
-    std::cout << "Grid : " << nx << "×" << ny << "×" << nz
+    std::cout << "Grid : " << nx << "x" << ny << "x" << nz
               << " = " << ncells/1e6 << " M cells\n";
-    std::cout << "Cell : " << dx*1e9 << "×" << dy*1e9 << "×" << dz*1e9 << " nm\n";
-    std::cout << "Pad  : " << 2*nx << "×" << 2*ny << "×" << 2*nz
+    std::cout << "Cell : " << dx*1e9 << "x" << dy*1e9 << "x" << dz*1e9 << " nm\n";
+    std::cout << "Pad  : " << 2*nx << "x" << 2*ny << "x" << 2*nz
               << " (" << pad_total/1e6 << " M points)\n";
 
     // Estimate GPU memory (kernels + batch buffers)
@@ -101,7 +101,7 @@ static void run_benchmark(int nx, int ny, int nz,
             std::cout << "  accumulate(): skipped (construction already >60s)\n";
         } else {
             double t_acc = time_accumulate(*cpu, m, mat, 1);
-            std::cout << "  accumulate() ×1: " << t_acc << " ms\n";
+            std::cout << "  accumulate() x1: " << t_acc << " ms\n";
         }
     }
 
@@ -132,21 +132,21 @@ static void run_benchmark(int nx, int ny, int nz,
 
 // ---------------------------------------------------------------------------
 int main() {
-    std::cout << "=== GPU demag benchmark — large grids ===\n";
+    std::cout << "=== GPU demag benchmark -- large grids ===\n";
     std::cout << std::fixed;
 
-    // SP#4 reference (200×50×1 = 10K cells) — should match earlier results
+    // SP#4 reference (200x50x1 = 10K cells) -- should match earlier results
     run_benchmark(200, 50, 1, 2.5e-9, 2.5e-9, 3.0e-9, 5, /*skip_cpu=*/false);
 
-    // Medium grid (200×200×5 = 200K cells)
+    // Medium grid (200x200x5 = 200K cells)
     run_benchmark(200, 200, 5, 2.0e-9, 2.0e-9, 2.0e-9, 3, /*skip_cpu=*/true);
 
-    // Large grid (500×500×10 = 2.5M cells) — target benchmark
+    // Large grid (500x500x10 = 2.5M cells) -- target benchmark
     run_benchmark(500, 500, 10, 2.0e-9, 2.0e-9, 2.0e-9, 3, /*skip_cpu=*/true);
 
     std::cout << "\n=== Summary ===\n";
     std::cout << "CPU accumulate() for large grids omitted (would take minutes).\n";
-    std::cout << "Typical CPU/GPU speedup ratio for large grids: 50–200×.\n";
+    std::cout << "Typical CPU/GPU speedup ratio for large grids: 50-200x.\n";
     return 0;
 }
 

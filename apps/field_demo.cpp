@@ -13,7 +13,7 @@
 int main() {
     using namespace micromag;
 
-    // 64 nm × 64 nm × 8 nm cobalt-like slab, 2 nm cells
+    // 64 nm x 64 nm x 8 nm cobalt-like slab, 2 nm cells
     StructuredGrid grid(32, 32, 4, 2e-9, 2e-9, 2e-9);
     VectorField3D m(grid), H(grid);
 

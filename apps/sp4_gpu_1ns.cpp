@@ -1,12 +1,12 @@
-// sp4_gpu_1ns.cpp — SP#4 Field A: GPU RK4IntegratorGPU to 1 ns
+// sp4_gpu_1ns.cpp -- SP#4 Field A: GPU RK4IntegratorGPU to 1 ns
 //
-// Runs the µMAG Standard Problem #4 (Field A) entirely on GPU:
-//   - Permalloy 500×125×3 nm, H_ext = (−24.6, 4.3, 0) kA/m
-//   - RK4IntegratorGPU, dt = 5×10⁻¹⁴ s, N = 20 000 steps = 1 ns
-//   - Logs ⟨mx⟩(t) every 50 ps for trajectory analysis
+// Runs the uMAG Standard Problem #4 (Field A) entirely on GPU:
+//   - Permalloy 500x125x3 nm, H_ext = (-24.6, 4.3, 0) kA/m
+//   - RK4IntegratorGPU, dt = 5x10^-1^4 s, N = 20 000 steps = 1 ns
+//   - Logs <mx>(t) every 50 ps for trajectory analysis
 //   - Short CPU run (500 steps) for early-time accuracy check
 //
-// µMAG reference:  ⟨mx⟩(1 ns) = −0.9862,  t_switch ≈ 0.175 ns
+// uMAG reference:  <mx>(1 ns) = -0.9862,  t_switch ~ 0.175 ns
 //
 // Usage: .\build\windows-msvc-cuda\bin\Release\sp4_gpu_1ns.exe
 
@@ -62,15 +62,15 @@ int main() {
     m0.set_uniform({1.0, 0.1, 0.0});
     m0.normalize();
 
-    std::cout << "=== SP#4 Field A — GPU RK4IntegratorGPU ===\n"
-              << "Grid    : " << grid.nx() << "×" << grid.ny() << "×" << grid.nz()
+    std::cout << "=== SP#4 Field A -- GPU RK4IntegratorGPU ===\n"
+              << "Grid    : " << grid.nx() << "x" << grid.ny() << "x" << grid.nz()
               << " (" << grid.size() << " cells)\n"
               << "dt      : " << dt << " s\n"
-              << "N_steps : " << N_total << " → t_sim = " << N_total*dt*1e9 << " ns\n"
-              << "µMAG ref: ⟨mx⟩(1 ns) = −0.9862\n\n";
+              << "N_steps : " << N_total << " -> t_sim = " << N_total*dt*1e9 << " ns\n"
+              << "uMAG ref: <mx>(1 ns) = -0.9862\n\n";
 
     // ------------------------------------------------------------------
-    // CPU reference — 500 steps (25 ps) for accuracy cross-check
+    // CPU reference -- 500 steps (25 ps) for accuracy cross-check
     // ------------------------------------------------------------------
     std::cout << "--- CPU reference (first " << N_cpu << " steps = "
               << N_cpu*dt*1e12 << " ps) ---\n";
@@ -89,12 +89,12 @@ int main() {
         double wall = elapsed_s(t0);
 
         Vec3 avg = mean_m(m);
-        std::cout << "  " << N_cpu*dt*1e12 << " ps: ⟨mx⟩=" << std::setprecision(6)
+        std::cout << "  " << N_cpu*dt*1e12 << " ps: <mx>=" << std::setprecision(6)
                   << avg.x << "  wall=" << std::setprecision(2) << wall << " s\n\n";
     }
 
     // ------------------------------------------------------------------
-    // GPU — full 1 ns with trajectory logging
+    // GPU -- full 1 ns with trajectory logging
     // ------------------------------------------------------------------
     std::cout << "--- GPU RK4IntegratorGPU (full " << N_total*dt*1e9 << " ns) ---\n";
 
@@ -118,8 +118,8 @@ int main() {
     auto step_start = wall_start;
 
     std::cout << std::fixed;
-    std::cout << "  t (ps)   ⟨mx⟩        ⟨my⟩       wall (s)\n"
-              << "  ──────────────────────────────────────────\n";
+    std::cout << "  t (ps)   <mx>        <my>       wall (s)\n"
+              << "  ------------------------------------------\n";
 
     for (int k = 1; k <= N_total; ++k) {
         gpu.step(mat, demag, exch, zeeman);
@@ -135,7 +135,7 @@ int main() {
                       << "   " << std::setw(8)  << std::setprecision(6) << avg.y
                       << "   " << std::setprecision(2) << wall << "\n";
 
-            // Detect switching (⟨mx⟩ crosses 0)
+            // Detect switching (<mx> crosses 0)
             if (!switched && avg.x < 0) {
                 switched = true;
                 t_switch = k * dt * 1e9;
@@ -152,14 +152,14 @@ int main() {
     // Results summary
     // ------------------------------------------------------------------
     std::cout << "\n--- Summary ---\n"
-              << "  Final ⟨mx⟩ = " << std::setprecision(6) << final_avg.x
-              << "  (µMAG ref = −0.9862)\n"
+              << "  Final <mx> = " << std::setprecision(6) << final_avg.x
+              << "  (uMAG ref = -0.9862)\n"
               << "  Error      = " << std::setprecision(4)
               << std::abs(final_avg.x + 0.9862) * 100 << " %\n";
 
     if (switched)
-        std::cout << "  t_switch  ≈ " << std::setprecision(3) << t_switch
-                  << " ns  (µMAG ref ≈ 0.175 ns)\n";
+        std::cout << "  t_switch  ~ " << std::setprecision(3) << t_switch
+                  << " ns  (uMAG ref ~ 0.175 ns)\n";
 
     std::cout << "\n  Wall time  = " << std::setprecision(2) << total_wall << " s\n"
               << "  Per step   = " << std::setprecision(3)
@@ -167,10 +167,10 @@ int main() {
               << "  Throughput = " << std::setprecision(1)
               << N_total / total_wall << " steps/s\n";
 
-    std::cout << "\n  Note: error vs µMAG reference is expected for fixed-step RK4\n"
+    std::cout << "\n  Note: error vs uMAG reference is expected for fixed-step RK4\n"
               << "  at dt=5e-14 s over 1 ns. CPU and GPU give identical results\n"
               << "  (both -0.694 at 300 ps, verified in G7 benchmark).\n"
-              << "  For µMAG reference accuracy, use adaptive RK45 or dt < 1e-14 s.\n";
+              << "  For uMAG reference accuracy, use adaptive RK45 or dt < 1e-14 s.\n";
 
     return 0;
 }

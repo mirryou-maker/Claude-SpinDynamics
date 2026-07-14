@@ -2,18 +2,18 @@
 //
 // Demonstrates two well-verifiable results of the SLLG / Heun integrator:
 //
-//  1. EQUIPARTITION (K=0): uniform distribution → <mx²>=<my²>=<mz²>=1/3
-//     Verified using T=1e8 K, dt=100 ps (σ>>0 → fast sphere exploration).
+//  1. EQUIPARTITION (K=0): uniform distribution -> <mx^2>=<my^2>=<mz^2>=1/3
+//     Verified using T=1e8 K, dt=100 ps (sigma>>0 -> fast sphere exploration).
 //
-//  2. ANISOTROPY RELAXATION (T=0): deterministic Heun drives spin toward ±z.
-//     Shows τ_relax ≈ 570 ps for K=1e4 J/m³, α=0.5.
+//  2. ANISOTROPY RELAXATION (T=0): deterministic Heun drives spin toward +/-z.
+//     Shows tau_relax ~ 570 ps for K=1e4 J/m^3, alpha=0.5.
 //
 // NOTE ON BOLTZMANN STATISTICS AT PHYSICAL T:
 //   For Permalloy (Ms=800 kA/m) at T=300 K the thermal noise is
-//   σ ≈ 4 kA/m while the anisotropy field is H_ani ≈ 200 kA/m.
-//   The spin is trapped for τ_Neel = τ₀ exp(κ) ns–ms before switching.
-//   A full Boltzmann distribution test requires O(100×τ_Neel) simulation
-//   time — i.e. hundreds of nanoseconds to milliseconds at room temperature.
+//   sigma ~ 4 kA/m while the anisotropy field is H_ani ~ 200 kA/m.
+//   The spin is trapped for tau_Neel = tau0 exp(kappa) ns-ms before switching.
+//   A full Boltzmann distribution test requires O(100xtau_Neel) simulation
+//   time -- i.e. hundreds of nanoseconds to milliseconds at room temperature.
 //   This is deliberately NOT attempted here.
 //
 // Run:  .\build\windows-msvc\bin\Release\thermal_equilibrium.exe
@@ -38,7 +38,7 @@ using namespace micromag;
 // ---------------------------------------------------------------------------
 static void run_equipartition() {
     std::cout << "=== Part 1: Energy equipartition (K=0, T=1e8 K, dt=100 ps) ===\n";
-    std::cout << "Expected: <mx²> = <my²> = <mz²> = 1/3 = 0.333\n\n";
+    std::cout << "Expected: <mx^2> = <my^2> = <mz^2> = 1/3 = 0.333\n\n";
 
     StructuredGrid grid(10, 10, 1, 5e-9, 5e-9, 5e-9);   // 100 independent spins
 
@@ -56,16 +56,16 @@ static void run_equipartition() {
     ThermalField thermal(grid, T, dt);
     HeunIntegrator heun(dt);
 
-    // σ at these parameters
+    // sigma at these parameters
     const Real sig = ThermalField::sigma(T, dt, mat, grid);
-    std::cout << "  σ = " << sig/1e3 << " kA/m  "
-              << "(gp×σ×dt = " << 1.768e5*sig*dt*180/constants::pi << "°/step)\n\n";
+    std::cout << "  sigma = " << sig/1e3 << " kA/m  "
+              << "(gpxsigmaxdt = " << 1.768e5*sig*dt*180/constants::pi << "deg/step)\n\n";
 
     // Equilibration
     for (int s = 0; s < 200; ++s) heun.step(m, mat, heff, &thermal);
 
     // Sampling
-    std::cout << "  N_sample   <mx²>    <my²>    <mz²>   sum\n";
+    std::cout << "  N_sample   <mx^2>    <my^2>    <mz^2>   sum\n";
     double sx2=0, sy2=0, sz2=0;
     for (int milestone : {100,300,1000,3000}) {
         const int step_target = milestone;
@@ -74,7 +74,7 @@ static void run_equipartition() {
             for (Index i=0;i<m.size();++i){
                 sx2+=m[i].x*m[i].x; sy2+=m[i].y*m[i].y; sz2+=m[i].z*m[i].z;
             }
-            break;  // one step at a time per iteration — simplified
+            break;  // one step at a time per iteration -- simplified
         }
         (void)step_target;
         break;
@@ -100,11 +100,11 @@ static void run_equipartition() {
 // Part 2: Anisotropy relaxation (T=0 deterministic)
 // ---------------------------------------------------------------------------
 static void run_anisotropy_relaxation() {
-    std::cout << "=== Part 2: Anisotropy relaxation (T=0, K=1e4 J/m³) ===\n";
+    std::cout << "=== Part 2: Anisotropy relaxation (T=0, K=1e4 J/m^3) ===\n";
     std::cout << "H_ani = " << 2e4/1.005/1e3 << " kA/m  "
-              << "τ_relax ≈ 570 ps\n";
-    std::cout << "Initial m=(sin10°,0,cos10°), easy axis ẑ\n\n";
-    std::cout << "  t [ps]   mz       mz²\n";
+              << "tau_relax ~ 570 ps\n";
+    std::cout << "Initial m=(sin10deg,0,cos10deg), easy axis z_hat\n\n";
+    std::cout << "  t [ps]   mz       mz^2\n";
 
     StructuredGrid grid(1,1,1,5e-9,5e-9,5e-9);
     Material mat = Material::permalloy();
@@ -130,7 +130,7 @@ static void run_anisotropy_relaxation() {
         for (int s=milestone; s<next && s<5000; ++s)
             heun.step(m, mat, heff);
     }
-    std::cout << "\n  (spin locked to easy axis after ~3τ ≈ 1.7 ns)\n\n";
+    std::cout << "\n  (spin locked to easy axis after ~3tau ~ 1.7 ns)\n\n";
 }
 
 int main() {
@@ -138,10 +138,10 @@ int main() {
     run_anisotropy_relaxation();
 
     std::cout << "=== Note on full Boltzmann statistics ===\n";
-    std::cout << "For Permalloy at T=300K, K=100 kJ/m³, V=(5nm)³:\n";
-    std::cout << "  σ ≈ 4 kA/m,  H_ani ≈ 200 kA/m  (σ/H_ani ≈ 0.02)\n";
-    std::cout << "  τ_Neel = τ₀ × exp(κ) with κ≈3, τ₀≈6ps → τ≈120ps\n";
-    std::cout << "  Full equilibration: ~100τ = 12 ns → 12,000 steps (1ps)\n";
+    std::cout << "For Permalloy at T=300K, K=100 kJ/m^3, V=(5nm)^3:\n";
+    std::cout << "  sigma ~ 4 kA/m,  H_ani ~ 200 kA/m  (sigma/H_ani ~ 0.02)\n";
+    std::cout << "  tau_Neel = tau0 x exp(kappa) with kappa~3, tau0~6ps -> tau~120ps\n";
+    std::cout << "  Full equilibration: ~100tau = 12 ns -> 12,000 steps (1ps)\n";
     std::cout << "  This is feasible but takes seconds; use sp4_thermal.cpp "
                  "for that.\n";
     return 0;

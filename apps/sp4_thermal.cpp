@@ -1,15 +1,15 @@
-// µMAG Standard Problem #4  —  T = 300 K (stochastic LLG)
+// uMAG Standard Problem #4  --  T = 300 K (stochastic LLG)
 //
 // Runs the SP#4 Field A scenario with Langevin thermal noise at T=300K.
-// Uses HeunIntegrator (fixed Δt) — RK45 cannot be used with thermal noise
-// because σ ∝ 1/√Δt: changing Δt changes the physics.
+// Uses HeunIntegrator (fixed Deltat) -- RK45 cannot be used with thermal noise
+// because sigma ~ 1/sqrtDeltat: changing Deltat changes the physics.
 //
 // Comparison:
 //   T=0   (deterministic): HeunIntegrator, no ThermalField
 //   T=300K (stochastic):   HeunIntegrator + ThermalField, N_real realizations
 //
-// σ at T=300K, dt=0.1ps, V=(2.5nm×2.5nm×3nm):
-//   σ ≈ 705 A/m  (0.09% of Ms=800kA/m) — tiny perturbation on deterministic dynamics.
+// sigma at T=300K, dt=0.1ps, V=(2.5nmx2.5nmx3nm):
+//   sigma ~ 705 A/m  (0.09% of Ms=800kA/m) -- tiny perturbation on deterministic dynamics.
 //
 // Run:  .\build\windows-msvc\bin\Release\sp4_thermal.exe
 
@@ -108,7 +108,7 @@ int main() {
     constexpr Real dx=2.5e-9, dy=2.5e-9, dz=3.0e-9;
     const StructuredGrid grid(200, 50, 1, dx, dy, dz);
 
-    Material mat = Material::permalloy();   // Ms=800kA/m, A=13pJ/m, α=0.02
+    Material mat = Material::permalloy();   // Ms=800kA/m, A=13pJ/m, alpha=0.02
 
     constexpr Real B_mT = 25e-3;
     constexpr Real theta = 170.0 * constants::pi / 180.0;
@@ -126,11 +126,11 @@ int main() {
     const Real V   = dx*dy*dz;
     const Real sig = ThermalField::sigma(300.0, dt, mat, grid);
     std::cout << "=== SP#4  T=300K  (stochastic LLG) ===\n";
-    std::cout << "Grid : 200×50×1, " << dx*1e9 << "×" << dy*1e9 << "×" << dz*1e9 << " nm\n";
+    std::cout << "Grid : 200x50x1, " << dx*1e9 << "x" << dy*1e9 << "x" << dz*1e9 << " nm\n";
     std::cout << "dt   : " << dt*1e12 << " ps,  N_steps=" << N_steps
               << " (" << N_steps*dt*1e9 << " ns)\n";
-    std::cout << "σ(300K) = " << sig << " A/m"
-              << "  (σ/Ms = " << sig/mat.Ms*100 << "% — small thermal perturbation)\n\n";
+    std::cout << "sigma(300K) = " << sig << " A/m"
+              << "  (sigma/Ms = " << sig/mat.Ms*100 << "% -- small thermal perturbation)\n\n";
 
     // --- T=0 reference ---
     std::cout << "--- T=0 reference (deterministic Heun, seed irrelevant) ---\n";
@@ -191,12 +191,12 @@ int main() {
 
         std::cout << "T=300K (" << N_real << " real.) : "
                   << "mean t_sw=" << std::setprecision(4) << mean_tsw
-                  << " ± " << std_tsw << " ns"
+                  << " +/- " << std_tsw << " ns"
                   << "  mean <mx>=" << mean_mx << "\n";
-        std::cout << "\nΔt_sw = " << mean_tsw - ref.t_switch_ns << " ns  ("
+        std::cout << "\nDeltat_sw = " << mean_tsw - ref.t_switch_ns << " ns  ("
                   << (mean_tsw/ref.t_switch_ns-1)*100 << "% change from T=0)\n";
     }
-    std::cout << "\nNote: σ/Ms ≈ 0.09% → deterministic dynamics dominates.\n";
+    std::cout << "\nNote: sigma/Ms ~ 0.09% -> deterministic dynamics dominates.\n";
     std::cout << "Thermal effects are a small stochastic perturbation on the\n";
     std::cout << "switching trajectory, causing ~ns-scale jitter in t_switch.\n";
     return 0;

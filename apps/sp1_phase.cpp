@@ -1,4 +1,4 @@
-// sp1_phase.cpp — µMAG SP#1 Phase Diagram
+// sp1_phase.cpp -- uMAG SP#1 Phase Diagram
 //
 // Scans square Permalloy element sizes from 60 to 300 nm.
 // For each size: relaxes both uniform (+x) and vortex initial conditions,
@@ -6,10 +6,10 @@
 //
 // Finds the critical vortex-nucleation size L_c where E_vortex crosses E_uniform.
 //
-// Material:  Permalloy (Ms=800 kA/m, A=13 pJ/m, K=0, α=0.5)
-// Geometry:  L×L×10 nm square, 5 nm cubic cells
+// Material:  Permalloy (Ms=800 kA/m, A=13 pJ/m, K=0, alpha=0.5)
+// Geometry:  LxLx10 nm square, 5 nm cubic cells
 // Physics:   Exchange + Demag only (no Zeeman field)
-// Reference: Cowburn et al., PRL 83, 1042 (1999) — Py squares, L_c ≈ 220 nm
+// Reference: Cowburn et al., PRL 83, 1042 (1999) -- Py squares, L_c ~ 220 nm
 
 #include <chrono>
 #include <cmath>
@@ -47,7 +47,7 @@ static Vec3 mean_m(const VectorField3D& m) {
     return {s.x/N, s.y/N, s.z/N};
 }
 
-// Max pointwise torque |m × H| for convergence check
+// Max pointwise torque |m x H| for convergence check
 static double max_torque(const VectorField3D& m,
                           const Material& mat,
                           EffectiveFieldSum& heff) {
@@ -97,7 +97,7 @@ static void run_size(int n_cells,           // cells per side (L/5nm)
                       double& wall_s)
 {
     const double d = cell_nm;
-    const int nz = 2;  // 10 nm thick = 2 × 5 nm cells
+    const int nz = 2;  // 10 nm thick = 2 x 5 nm cells
     StructuredGrid g(n_cells, n_cells, nz, d, d, d);
 
     auto t0 = Clock::now();
@@ -141,9 +141,9 @@ int main() {
 
     std::cout << "=== SP#1 Phase Diagram: Vortex Nucleation in Permalloy Squares ===\n"
               << "Ms=" << mat.Ms/1e3 << " kA/m  A=" << mat.A_exchange*1e12 << " pJ/m"
-              << "  α=" << mat.alpha
+              << "  alpha=" << mat.alpha
               << "  l_ex=" << lex*1e9 << " nm\n"
-              << "Geometry: L×L×10 nm, 5 nm cells, Exchange + Demag\n\n";
+              << "Geometry: LxLx10 nm, 5 nm cells, Exchange + Demag\n\n";
 
     // Print table header
     std::cout << std::left
@@ -152,7 +152,7 @@ int main() {
               << std::setw(8)  << "Cells"
               << std::setw(14) << "E_unif (aJ)"
               << std::setw(14) << "E_vortex (aJ)"
-              << std::setw(12) << "ΔE/E_u (%)"
+              << std::setw(12) << "DeltaE/E_u (%)"
               << std::setw(12) << "|<m>|_u"
               << std::setw(12) << "|<m>|_v"
               << std::setw(14) << "Ground state"
@@ -177,7 +177,7 @@ int main() {
 
         const double dE_frac = (E_v - E_u) / std::abs(E_u) * 100.0;  // % of E_uniform
         const bool vortex_wins = (E_v < E_u);
-        const char* ground = vortex_wins ? "Vortex ←" : "S-state";
+        const char* ground = vortex_wins ? "Vortex <-" : "S-state";
 
         std::cout << std::fixed << std::left
                   << std::setw(8)  << std::setprecision(0) << L_nm
@@ -191,7 +191,7 @@ int main() {
                   << std::setw(14) << ground
                   << "  (" << std::setprecision(1) << wall << " s)\n";
 
-        // Detect crossing (sign change in ΔE)
+        // Detect crossing (sign change in DeltaE)
         if (k > 0 && !crossed && (dE_frac > 0) != (prev_dE_frac > 0)) {
             L_cross_lo = sizes[k-1];
             L_cross_hi = L_nm;
@@ -204,13 +204,13 @@ int main() {
 
     if (crossed) {
         // Linear interpolation to find L_c
-        // E_v(L) - E_u(L) = 0  ↔  ΔE/E_u = 0
+        // E_v(L) - E_u(L) = 0  <->  DeltaE/E_u = 0
         std::cout << "Critical size L_c (vortex nucleation): "
-                  << L_cross_lo << " – " << L_cross_hi << " nm\n"
+                  << L_cross_lo << " - " << L_cross_hi << " nm\n"
                   << "(linear interpolation: ~"
                   << 0.5*(L_cross_lo + L_cross_hi) << " nm)\n\n";
     } else {
-        std::cout << "No crossover found in scanned range — "
+        std::cout << "No crossover found in scanned range -- "
                   << "extend scan or check convergence.\n\n";
     }
 

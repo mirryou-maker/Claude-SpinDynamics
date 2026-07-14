@@ -32,7 +32,7 @@ static void print_row(int step, double dt,
 int main() {
     using namespace micromag;
 
-    // Single cell — macrospin approximation
+    // Single cell -- macrospin approximation
     StructuredGrid g(1, 1, 1, 2e-9, 2e-9, 2e-9);
     Material mat = Material::cobalt();
     mat.alpha      = 0.02;
@@ -47,7 +47,7 @@ int main() {
     // ------------------------------------------------------------------
     // Demo 1: STT switching
     // m starts near +z (easy axis). Large positive J with p = -z:
-    //   a_J = γ₀ħJP / (2eMsd) > 0  → antidamping w.r.t. p = -z
+    //   a_J = gamma0hbarJP / (2eMsd) > 0  -> antidamping w.r.t. p = -z
     //   After enough steps, m crosses equator and lands on -z.
     // ------------------------------------------------------------------
     {
@@ -56,13 +56,13 @@ int main() {
         m.set_uniform({eps, 0, std::sqrt(1 - eps*eps)});
 
         // p = +z: same as initial m.
-        // a_J > 0 → antidamping w.r.t. +z → m escapes to -z (P→AP switching).
+        // a_J > 0 -> antidamping w.r.t. +z -> m escapes to -z (P->AP switching).
         SpinTorqueSum stt_sum;
         stt_sum.add(std::make_shared<SlonczewskiSTT>(
-            4e12,   // J [A/m²]
+            4e12,   // J [A/m^2]
             0.60,   // P
             2e-9,   // d [m]
-            Vec3{0, 0, 1},   // p = +z  (P→AP: m switches to -z)
+            Vec3{0, 0, 1},   // p = +z  (P->AP: m switches to -z)
             0.0));  // no field-like term
 
         std::cout << "=== Demo 1: STT P->AP switching (p = +z, J = 4e12 A/m^2) ===\n";
@@ -81,7 +81,7 @@ int main() {
 
     // ------------------------------------------------------------------
     // Demo 2: SOT-driven dynamics
-    // m starts at +z. x-current in Pt with θ_SH = 0.12 → σ = +y.
+    // m starts at +z. x-current in Pt with theta_SH = 0.12 -> sigma = +y.
     // DL-SOT pushes m away from +z; with a moderate out-of-plane field
     // the system finds a new equilibrium (or steady-state precession).
     // ------------------------------------------------------------------
@@ -95,14 +95,14 @@ int main() {
 
         SpinTorqueSum sot_sum;
         sot_sum.add(std::make_shared<SpinOrbitTorque>(
-            1e12,   // J_c [A/m²]
-            0.12,   // θ_SH (Pt)
+            1e12,   // J_c [A/m^2]
+            0.12,   // theta_SH (Pt)
             2e-9,   // d_FM [m]
-            Vec3{0, 1, 0},   // σ = ŷ
-            1.0,    // η_DL
-            0.1));  // η_FL
+            Vec3{0, 1, 0},   // sigma = y_hat
+            1.0,    // eta_DL
+            0.1));  // eta_FL
 
-        std::cout << "=== Demo 2: SOT dynamics (J_c = 1e12, θ_SH = 0.12, σ = ŷ) ===\n";
+        std::cout << "=== Demo 2: SOT dynamics (J_c = 1e12, theta_SH = 0.12, sigma = y_hat) ===\n";
         std::cout << std::left
                   << std::setw(8) << "step" << std::setw(12) << "t [ps]"
                   << std::setw(10) << "m_x" << std::setw(10) << "m_y"

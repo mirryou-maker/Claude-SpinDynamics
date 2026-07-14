@@ -1,4 +1,4 @@
-// demag_profile.cpp — GPU demag phase-breakdown profiler using the GPU pipeline.
+// demag_profile.cpp -- GPU demag phase-breakdown profiler using the GPU pipeline.
 // Set MICROMAG_DEMAG_PROFILE=1 before running to get per-phase timing output.
 // Uses RK4IntegratorGPU so that accumulate_gpu_ptr() is called each step.
 #ifdef MICROMAG_CUDA

@@ -1,11 +1,11 @@
-// llg_large_bench.cpp — Large-grid full LLG scaling benchmark
+// llg_large_bench.cpp -- Large-grid full LLG scaling benchmark
 //
 // Benchmarks RK4IntegratorGPU (full LLG: Exchange + Demag + Zeeman)
 // across three grid sizes, showing GPU speedup vs CPU as cells scale:
 //
-//   SP#4    200×50×1   =   10K cells  (reference switching geometry)
-//   Medium  200×200×5  =  200K cells  (research-scale micromagnetics)
-//   Large   500×500×10 =  2.5M cells  (large-scale GPU target)
+//   SP#4    200x50x1   =   10K cells  (reference switching geometry)
+//   Medium  200x200x5  =  200K cells  (research-scale micromagnetics)
+//   Large   500x500x10 =  2.5M cells  (large-scale GPU target)
 //
 // For the Large grid, CPU accumulate is extrapolated from Medium
 // (FFTW construction + each step would each take ~minutes).
@@ -103,7 +103,7 @@ static double run_cpu(const StructuredGrid& grid, const Material& mat,
     const double ms_step = wall_ms / n_timed;
     std::cout << "  [CPU] " << n_timed << " steps: "
               << std::fixed << std::setprecision(1) << wall_ms << " ms"
-              << "  → " << std::setprecision(3) << ms_step << " ms/step"
+              << "  -> " << std::setprecision(3) << ms_step << " ms/step"
               << "  <mx>=" << std::setprecision(5) << avg.x << "\n";
     return ms_step;
 }
@@ -150,7 +150,7 @@ static double run_gpu(const StructuredGrid& grid, const Material& mat,
     const double ms_step = wall_ms / n_timed;
     std::cout << "  [GPU] " << n_timed << " steps: "
               << std::fixed << std::setprecision(1) << wall_ms << " ms"
-              << "  → " << std::setprecision(3) << ms_step << " ms/step"
+              << "  -> " << std::setprecision(3) << ms_step << " ms/step"
               << "  <mx>=" << std::setprecision(5) << avg.x << "\n";
     return ms_step;
 }
@@ -190,7 +190,7 @@ static BenchResult benchmark(const char* label,
         cpu_ms = run_cpu(grid, mat, m0, Hext, dt, n_cpu_warmup, n_cpu_timed);
         if (cpu_ms < 0) cpu_ms = 0.0;
     } else {
-        std::cout << "  [CPU] skipped (grid too large — estimated from scaling)\n";
+        std::cout << "  [CPU] skipped (grid too large -- estimated from scaling)\n";
     }
 
     double gpu_ms = run_gpu(grid, mat, m0, Hext, dt, n_gpu_warmup, n_gpu_timed);
@@ -209,11 +209,11 @@ int main() {
     std::cout << "Fields: Exchange + Demag + Zeeman   Integrator: RK4IntegratorGPU\n";
     std::cout << std::fixed;
 
-    const Vec3 Hext{-24.6e3, 4.3e3, 0.0};  // SP#4 Field A (µMAG standard)
+    const Vec3 Hext{-24.6e3, 4.3e3, 0.0};  // SP#4 Field A (uMAG standard)
 
     std::vector<BenchResult> results;
 
-    // SP#4 reference — 10K cells, 100 GPU steps + 10 CPU steps
+    // SP#4 reference -- 10K cells, 100 GPU steps + 10 CPU steps
     results.push_back(benchmark(
         "SP#4 ref  (200x50x1 = 10K cells)",
         200, 50, 1, 2.5e-9, 2.5e-9, 3.0e-9,
@@ -222,7 +222,7 @@ int main() {
         /*gpu warmup*/ 1, /*gpu timed*/ 100,
         /*skip_cpu*/ false));
 
-    // Medium — 200K cells, 50 GPU steps + 5 CPU steps
+    // Medium -- 200K cells, 50 GPU steps + 5 CPU steps
     results.push_back(benchmark(
         "Medium    (200x200x5 = 200K cells)",
         200, 200, 5, 2.0e-9, 2.0e-9, 2.0e-9,
@@ -231,7 +231,7 @@ int main() {
         /*gpu warmup*/ 1, /*gpu timed*/ 50,
         /*skip_cpu*/ false));
 
-    // Large — 2.5M cells, GPU only (CPU would take ~minutes per step)
+    // Large -- 2.5M cells, GPU only (CPU would take ~minutes per step)
     results.push_back(benchmark(
         "Large     (500x500x10 = 2.5M cells)",
         500, 500, 10, 2.0e-9, 2.0e-9, 2.0e-9,
@@ -266,7 +266,7 @@ int main() {
                 const double est = cpu_scale * static_cast<double>(r.ncells);
                 std::cout << std::setw(14) << std::setprecision(0) << est << "  (est)";
             } else {
-                std::cout << std::setw(16) << "—";
+                std::cout << std::setw(16) << "--";
             }
         }
         if (r.gpu_ms_step > 0) {
