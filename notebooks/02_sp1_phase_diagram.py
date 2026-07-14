@@ -34,7 +34,7 @@ dE   = (Ev - Eu) / Eu * 100    # %
 idx = np.where(np.diff(np.sign(dE)))[0][0]
 frac = -dE[idx] / (dE[idx+1] - dE[idx])
 Lc   = L[idx] + frac * (L[idx+1] - L[idx])
-print(f"Critical size from pre-computed data:  L_c ≈ {Lc:.1f} nm")
+print(f"Critical size from pre-computed data:  L_c ~ {Lc:.1f} nm")
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
@@ -76,7 +76,7 @@ log_t  = np.log(t_nm)
 log_Lc = np.log(Lc_nm)
 beta, log_a = np.polyfit(log_t, log_Lc, 1)
 a = np.exp(log_a)
-print(f"Power-law fit:  L_c = {a:.0f} × t^({beta:.3f}) nm")
+print(f"Power-law fit:  L_c = {a:.0f} x t^({beta:.3f}) nm")
 
 t_fit  = np.linspace(4, 45, 200)
 Lc_fit = a * t_fit**beta
@@ -97,9 +97,9 @@ plt.tight_layout()
 plt.savefig('sp1_thickness_scaling.png', dpi=150, bbox_inches='tight')
 plt.show()
 print(f"\nPhysical interpretation:")
-print(f"  β = {beta:.3f} (negative → L_c decreases with thickness)")
-print(f"  Thicker elements: vortex core distributed over more volume → cheaper")
-print(f"  Cowburn (1999) experiment: β ≈ +0.33–0.5 (different geometry/conditions)")
+print(f"  beta = {beta:.3f} (negative -> L_c decreases with thickness)")
+print(f"  Thicker elements: vortex core distributed over more volume -> cheaper")
+print(f"  Cowburn (1999) experiment: beta ~ +0.33-0.5 (different geometry/conditions)")
 
 # %% [markdown]
 # ## 3. Live Simulation: Compare Vortex vs S-state for L = 120 nm
@@ -141,7 +141,7 @@ nz     = 2     # 10 nm thick
 grid_test = mm.StructuredGrid(n_cell, n_cell, nz, d, d, d)
 mat_test  = mm.Material.permalloy(); mat_test.alpha = 0.5
 
-print(f"Running L = {L_nm} nm ({n_cell}×{n_cell}×{nz} = {n_cell*n_cell*nz} cells) ...")
+print(f"Running L = {L_nm} nm ({n_cell}x{n_cell}x{nz} = {n_cell*n_cell*nz} cells) ...")
 t0 = time.perf_counter()
 E_u, avg_u, m_u_np = relax_to_energy(grid_test, mat_test, use_vortex=False)
 E_v, avg_v, m_v_np = relax_to_energy(grid_test, mat_test, use_vortex=True)
@@ -151,7 +151,7 @@ print(f"  S-state: E = {E_u*1e18:.4f} aJ,  |<m>| = {np.linalg.norm(avg_u):.3f}")
 print(f"  Vortex:  E = {E_v*1e18:.4f} aJ,  |<m>| = {np.linalg.norm(avg_v):.3f}")
 dE_pct = (E_v - E_u) / abs(E_u) * 100
 gs = "Vortex" if E_v < E_u else "S-state"
-print(f"  ΔE/E_u = {dE_pct:+.2f}%  →  Ground state: {gs}")
+print(f"  DeltaE/E_u = {dE_pct:+.2f}%  ->  Ground state: {gs}")
 print(f"  wall = {wall:.1f} s")
 
 # %% [markdown]

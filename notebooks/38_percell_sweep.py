@@ -70,11 +70,11 @@ for i in range(N):
     c.easy_axis = mm.Vec3(ax, ay, az)
     matf[i] = c
 
-print(f"  Grid: {nx}×{ny}×{nz}, {num_grains} grains")
+print(f"  Grid: {nx}x{ny}x{nz}, {num_grains} grains")
 
 unique, counts = np.unique(grain_ids_arr, return_counts=True)
 avg_size = counts.mean() * dx * dx * 1e18  # nm²
-print(f"  Average grain area: {avg_size:.1f} nm²")
+print(f"  Average grain area: {avg_size:.1f} nm^2")
 
 # ---------------------------------------------------------------------------
 # 2. ExchangeFieldGPU.set_material_field — per-cell exchange
@@ -216,7 +216,7 @@ if GPU:
 
     rkky = mm.RKKYFieldGPU(g_rkky, J_RKKY, d_spacer)
     rkky.set_ref(m_ref)
-    print(f"  J = {rkky.J:.2e} J/m², d = {rkky.d:.1e} m")
+    print(f"  J = {rkky.J:.2e} J/m^2, d = {rkky.d:.1e} m")
 
     mat_py = mm.Material.permalloy()
 
@@ -235,7 +235,7 @@ if GPU:
 # 5. parameter_sweep — D×K skyrmion stability phase diagram
 # ---------------------------------------------------------------------------
 if GPU:
-    print("\n--- 5. parameter_sweep: D×K skyrmion stability ---")
+    print("\n--- 5. parameter_sweep: DxK skyrmion stability ---")
 
     def run_skyrmion(D, K):
         """Returns topological charge Q for given DMI D [J/m²] and PMA K [J/m³]."""
@@ -297,7 +297,7 @@ if GPU:
     dt_sweep = time.perf_counter() - t0
 
     print(f"\n  Sweep done in {dt_sweep:.1f}s ({len(results)} cases)")
-    print(f"  {'D (mJ/m²)':>12} {'K (MJ/m³)':>12} {'Q':>8}")
+    print(f"  {'D (mJ/m^2)':>12} {'K (MJ/m^3)':>12} {'Q':>8}")
     for r in results:
         print(f"  {r['D']*1e3:>12.1f} {r['K']/1e6:>12.2f} {r['Q']:>8.3f}")
 

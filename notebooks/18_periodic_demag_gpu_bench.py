@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 import micromag as mm
 
 if not mm.cuda_available():
-    print("CUDA not available — skipping GPU benchmark")
+    print("CUDA not available -- skipping GPU benchmark")
     sys.exit(0)
 
 mu_0 = 4 * np.pi * 1e-7
@@ -96,7 +96,7 @@ for name, nx, ny, nz in grids:
     open_ms.append(res["Open BC (DemagFieldGPU)"])
     periodic_ms.append(res["Periodic BC (DemagFieldPeriodicGPU)"])
     speedups.append(spd)
-    print(f"  Speedup (Periodic / Open): {spd:.2f}×")
+    print(f"  Speedup (Periodic / Open): {spd:.2f}x")
 
 # ---------------------------------------------------------------------------
 # Plot

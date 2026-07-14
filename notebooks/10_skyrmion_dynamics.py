@@ -77,7 +77,7 @@ print("Relaxing skyrmion...")
 integ_relax = mm.RK4Integrator(dt=5e-13)
 t_relax = mm.run(integ_relax, m, mat, heff, t_total=1e-9)
 Q_init = mm.topological_charge_Q(m)
-print(f"  Q after relax = {Q_init:.3f}   (expect ≈ -1 for charge=1, pol=-1)")
+print(f"  Q after relax = {Q_init:.3f}   (expect ~ -1 for charge=1, pol=-1)")
 
 # ---------------------------------------------------------------------------
 # SOT dynamics

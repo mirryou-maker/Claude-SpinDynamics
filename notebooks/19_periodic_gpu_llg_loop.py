@@ -34,7 +34,7 @@ import micromag as mm
 # Setup
 # ---------------------------------------------------------------------------
 if not mm.cuda_available():
-    print("CUDA not available — skipping notebook 19")
+    print("CUDA not available -- skipping notebook 19")
     sys.exit(0)
 
 mu_0   = 4 * np.pi * 1e-7
@@ -80,9 +80,9 @@ N_steps    = int(T_total / dt)
 N_save     = Nx      # record every step (thin 1D grid)
 save_every = max(1, N_steps // 500)   # ~500 time samples
 
-print(f"\nGrid: {Nx}×{Ny}×{Nz}  ({Nx*Ny*Nz} cells)  dx={dx*1e9:.0f} nm")
+print(f"\nGrid: {Nx}x{Ny}x{Nz}  ({Nx*Ny*Nz} cells)  dx={dx*1e9:.0f} nm")
 print(f"dt={dt*1e12:.1f} ps  T={T_total*1e9:.1f} ns  N_steps={N_steps}")
-print(f"Save every {save_every} steps → {N_steps//save_every} time samples")
+print(f"Save every {save_every} steps -> {N_steps//save_every} time samples")
 
 # ---------------------------------------------------------------------------
 # GPU periodic simulation

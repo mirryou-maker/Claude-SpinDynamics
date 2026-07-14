@@ -38,7 +38,7 @@ H_bias = B_bias / mu_0   # [A/m]
 
 # Kittel resonance (no demag): ω = γ₀ · B,  f = γ₀/(2π) · B
 f_kittel = gamma0 / (2 * np.pi) * B_bias
-print(f"  B_bias = {B_bias*1e3:.0f} mT → H_bias = {H_bias:.0f} A/m")
+print(f"  B_bias = {B_bias*1e3:.0f} mT -> H_bias = {H_bias:.0f} A/m")
 print(f"  Kittel f_FMR = {f_kittel/1e9:.3f} GHz")
 
 # Initial state: m along z (saturated by bias)
@@ -119,7 +119,7 @@ plt.tight_layout()
 out_a = os.path.join(os.path.dirname(__file__), "fmr_macrospin.png")
 plt.savefig(out_a, dpi=150)
 plt.close()
-print(f"  Saved → {out_a}")
+print(f"  Saved -> {out_a}")
 
 
 # ===========================================================================
@@ -159,9 +159,9 @@ t_b_rec  = []
 mz_b_rec = []
 
 n_steps_b = int(t_total_b / dt_b)
-print(f"  Grid: {nx_b}×{ny_b}×{nz_b}, dx = {dx_b*1e9:.0f} nm")
+print(f"  Grid: {nx_b}x{ny_b}x{nz_b}, dx = {dx_b*1e9:.0f} nm")
 print(f"  B_bias = {B_bias_b*1e3:.0f} mT along x  (in-plane geometry)")
-print(f"  Recording {n_steps_b} steps …")
+print(f"  Recording {n_steps_b} steps ...")
 
 t_b = 0.0
 for k in range(n_steps_b + 1):
@@ -222,7 +222,7 @@ plt.tight_layout()
 out_b = os.path.join(os.path.dirname(__file__), "fmr_thinfilm.png")
 plt.savefig(out_b, dpi=150)
 plt.close()
-print(f"  Saved → {out_b}")
+print(f"  Saved -> {out_b}")
 
 print("\n=== Summary ===")
 print(f"  A. Macrospin: Kittel = {f_kittel/1e9:.3f} GHz, Simulated = {f_peak/1e9:.3f} GHz  (error {err_pct:.2f}%)")

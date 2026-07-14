@@ -51,10 +51,10 @@ mat.alpha      = 0.3
 
 D_dmi = 3.5e-3                # J/m²  interfacial DMI
 
-print(f"Grid: {nx}×{ny}×{nz}, dx={dx*1e9:.0f}nm, total {nx*dx*1e9:.0f}×{ny*dx*1e9:.0f}nm")
+print(f"Grid: {nx}x{ny}x{nz}, dx={dx*1e9:.0f}nm, total {nx*dx*1e9:.0f}x{ny*dx*1e9:.0f}nm")
 print(f"Material: Ms={mat.Ms/1e6:.2f}MA/m, A={mat.A_exchange*1e12:.0f}pJ/m, "
       f"K={mat.K_uniaxial/1e6:.1f}MJ/m³, α={mat.alpha}")
-print(f"DMI: D={D_dmi*1e3:.1f}mJ/m²  (D_c = 4√(AK)/π ≈ {4*math.sqrt(mat.A_exchange*mat.K_uniaxial)/math.pi*1e3:.1f}mJ/m²)")
+print(f"DMI: D={D_dmi*1e3:.1f}mJ/m^2  (D_c = 4sqrt(AK)/pi ~ {4*math.sqrt(mat.A_exchange*mat.K_uniaxial)/math.pi*1e3:.1f}mJ/m^2)")
 
 # ---------------------------------------------------------------------------
 # 2. Bloch DW width validation (CPU, analytical comparison)
@@ -96,7 +96,7 @@ for K_dw in [1e5, 1e6]:
     err = 100 * abs(lam_meas - lam_theory) / lam_theory
 
     status = "OK" if err < 10.0 else "WARN"
-    print(f"  K={K_dw:.0e}: λ_theory={lam_theory*1e9:.1f}nm  "
+    print(f"  K={K_dw:.0e}: lambda_theory={lam_theory*1e9:.1f}nm  "
           f"λ_meas={lam_meas*1e9:.1f}nm  err={err:.1f}%  [{status}]")
 
 # ---------------------------------------------------------------------------
@@ -244,11 +244,11 @@ if GPU:
 
     if core_x:
         dx_core = core_x[-1] - core_x[0]
-        print(f"  Core displacement: Δx = {dx_core:.1f} nm over {core_t[-1]-core_t[0]:.0f} ps")
+        print(f"  Core displacement: Deltax = {dx_core:.1f} nm over {core_t[-1]-core_t[0]:.0f} ps")
         v_sky = dx_core * 1e-9 / (core_t[-1] - core_t[0]) * 1e9 / 1e-9  # m/s? Actually dx_core is in nm, time in ns
         # Δx [nm] / Δt [ns] → nm/ns = m/s
         v_sky = dx_core / (core_t[-1] - core_t[0]) if (core_t[-1] - core_t[0]) > 0 else 0.0
-        print(f"  Skyrmion velocity: v ≈ {v_sky:.1f} m/s")
+        print(f"  Skyrmion velocity: v ~ {v_sky:.1f} m/s")
 
     # ---------------------------------------------------------------------------
     # 5. save_animation — GIF of mz snapshots
@@ -258,7 +258,7 @@ if GPU:
         gif_path = os.path.join(os.path.dirname(__file__), "40_skyrmion_sot.gif")
         try:
             mm.save_animation(frames, gif_path, component="z", fps=10)
-            print(f"  Saved {len(frames)} frames → 40_skyrmion_sot.gif")
+            print(f"  Saved {len(frames)} frames -> 40_skyrmion_sot.gif")
         except ImportError as e:
             print(f"  save_animation skipped (matplotlib/pillow not installed): {e}")
     else:
@@ -307,7 +307,7 @@ if GPU:
     # batch_to_numpy smoke test
     if frames:
         arr = mm.batch_to_numpy(frames)
-        print(f"  batch_to_numpy: {len(frames)} frames → shape {arr.shape}  OK")
+        print(f"  batch_to_numpy: {len(frames)} frames -> shape {arr.shape}  OK")
 
 else:
     print("  (CPU mode: skipping GPU overload tests)")

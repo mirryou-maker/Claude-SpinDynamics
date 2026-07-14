@@ -60,7 +60,7 @@ H_ann = -25.0   # mT — reversal complete
 
 print(f"Field range : {H_mT[0]:.0f} to {H_mT[-1]:.0f} mT ({len(H_mT)} points)")
 print(f"H_nuc       : {H_nuc} mT")
-print(f"H_sw (µMAG) : {H_sw}  mT  (<mx> = 0)")
+print(f"H_sw (uMAG) : {H_sw}  mT  (<mx> = 0)")
 print(f"H_ann       : {H_ann} mT")
 
 # %% [markdown]
@@ -138,13 +138,13 @@ plt.show()
 
 # %%
 print("=== Cell-size sensitivity ===")
-print(f"  l_ex (Permalloy) ≈ 5.7 nm")
-print(f"  Vortex core diameter ≈ 2 × l_ex ≈ 11 nm")
+print(f"  l_ex (Permalloy) ~ 5.7 nm")
+print(f"  Vortex core diameter ~ 2 x l_ex ~ 11 nm")
 print()
-print("  10 nm cells (current): l_ex/dx = 1.8   |<m>|_min ≈ 0.42  H_sw ≈ -20 mT")
-print("  5 nm cells (accurate):  l_ex/dx = 0.9  |<m>|_min → 0.02  H_sw ≈ -20±5 mT (est)")
+print("  10 nm cells (current): l_ex/dx = 1.8   |<m>|_min ~ 0.42  H_sw ~ -20 mT")
+print("  5 nm cells (accurate):  l_ex/dx = 0.9  |<m>|_min -> 0.02  H_sw ~ -20+/-5 mT (est)")
 print()
-print("  Reference (µMAG SP#3): H_nuc ≈ -10 to -30 mT depending on element size/resolution")
+print("  Reference (uMAG SP#3): H_nuc ~ -10 to -30 mT depending on element size/resolution")
 print(f"  Our result (10 nm):    H_sw = {H_sw} mT  (switching field, coarse grid)")
 
 # %% [markdown]

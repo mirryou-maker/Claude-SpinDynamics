@@ -39,8 +39,8 @@ D_sw = 2 * mat.A_exchange / mat.Ms
 
 print(f"Grid: {nx}x1x1, dx = {dx*1e9:.0f} nm  (L = {nx*dx*1e6:.1f} um)")
 print(f"Py: Ms={mat.Ms/1e3:.0f} kA/m, A={mat.A_exchange*1e12:.0f} pJ/m")
-print(f"B_bias = {B_bias*1e3:.0f} mT  →  f_Kittel = {gamma0/(2*np.pi)*B_bias/1e9:.3f} GHz")
-print(f"Dispersion constant 2A/Ms = {D_sw:.3e} T·m²")
+print(f"B_bias = {B_bias*1e3:.0f} mT  ->  f_Kittel = {gamma0/(2*np.pi)*B_bias/1e9:.3f} GHz")
+print(f"Dispersion constant 2A/Ms = {D_sw:.3e} T.m^2")
 
 # ===========================================================================
 # Fields
@@ -81,8 +81,8 @@ integ = mm.RK4Integrator(dt_sim)
 n_frames = int(t_sim / dt_save)
 my_xt    = np.zeros((n_frames, nx))   # m_y(x, t) storage
 
-print(f"\nRunning: {int(t_sim/dt_sim)} steps, saving every {int(dt_save/dt_sim)} steps …")
-print(f"  → {n_frames} frames × {nx} cells")
+print(f"\nRunning: {int(t_sim/dt_sim)} steps, saving every {int(dt_save/dt_sim)} steps ...")
+print(f"  -> {n_frames} frames x {nx} cells")
 
 t = 0.0
 frame = 0
@@ -183,7 +183,7 @@ plt.tight_layout()
 out = os.path.join(os.path.dirname(__file__), "spinwave_dispersion.png")
 plt.savefig(out, dpi=150)
 plt.close()
-print(f"\nSaved → {out}")
+print(f"\nSaved -> {out}")
 
 # ===========================================================================
 # Numerical check vs Kittel

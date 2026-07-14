@@ -35,7 +35,7 @@ M0_Z = np.cos(np.deg2rad(5.0))   # 0.99619
 
 print("=" * 70)
 print("Notebook 48: FMR Spectrum -- Build Comparison")
-print(f"  Macrospin 1×1×1, B_bias={B_BIAS*1e3:.0f}mT (z), alpha=0.005")
+print(f"  Macrospin 1x1x1, B_bias={B_BIAS*1e3:.0f}mT (z), alpha=0.005")
 print(f"  Kittel f_FMR = {F_KITTEL/1e9:.4f} GHz")
 print(f"  T={T_TOT*1e9:.0f}ns, dt={DT*1e12:.0f}ps, df={1/(T_TOT*1e9):.3f}GHz")
 print("=" * 70)
@@ -159,7 +159,7 @@ if mxpr["ok"]:
     err = abs(fp - F_KITTEL/1e9) / (F_KITTEL/1e9) * 100 if fp else None
     print(f"  Wall: {mxpr['wall_ms']:.0f} ms")
     print(f"  f_peak = {fp:.4f} GHz  err={err:.2f}%" if fp else "  f_peak: not found")
-    print(f"  Note: mx sampled every {BATCH*DT*1e12:.0f}ps → f_max≈{1/(BATCH*DT*1e9):.1f}GHz (coarser than CS)")
+    print(f"  Note: mx sampled every {BATCH*DT*1e12:.0f}ps -> f_max~{1/(BATCH*DT*1e9):.1f}GHz (coarser than CS)")
 else:
     print(f"  {mxpr.get('error', 'failed')}")
 

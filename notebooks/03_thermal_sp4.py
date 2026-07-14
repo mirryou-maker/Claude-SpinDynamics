@@ -31,7 +31,7 @@ def make_m0(grid):
     m.normalize()
     return m
 
-print(f"Grid: {grid.nx}×{grid.ny}×{grid.nz} = {grid.size} cells")
+print(f"Grid: {grid.nx}x{grid.ny}x{grid.nz} = {grid.size} cells")
 print(f"H_ext = ({H_ext.x/1e3:.1f}, {H_ext.y/1e3:.1f}) kA/m")
 
 # %% [markdown]

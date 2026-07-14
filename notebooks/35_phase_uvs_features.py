@@ -166,7 +166,7 @@ if not mm.cuda_available():
     print("  [SKIP] CUDA build not available - skipping GPU field tests")
     print("  (Build with: cmake --preset windows-msvc-cuda)")
 else:
-    print("  CUDA available — testing GPU fields")
+    print("  CUDA available -- testing GPU fields")
 
     g_gpu = mm.StructuredGrid(20, 20, 2, 5e-9, 5e-9, 1e-9)
     mat_gpu = mm.Material.cobalt()

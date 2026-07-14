@@ -29,10 +29,10 @@ TOL  = 0.5     # degrees: convergence threshold
 MAX_STEPS = 12000  # 12000 × 500 fs = 6 ns max per field step
 
 print("=" * 70)
-print("Notebook 50: SP#3 Hysteresis — LLG Protocol")
-print(f"  Grid: {NX}×{NY}×{NZ}, dx={DX*1e9:.0f} nm")
-print(f"  alpha={alpha}, dt={DT*1e15:.0f} fs, tol={TOL}°, max={MAX_STEPS*DT*1e9:.1f} ns/step")
-print(f"  Field: {H_MV[0]:.0f} → {H_MV[-1]:.0f} mT ({len(H_MV)} points)")
+print("Notebook 50: SP#3 Hysteresis -- LLG Protocol")
+print(f"  Grid: {NX}x{NY}x{NZ}, dx={DX*1e9:.0f} nm")
+print(f"  alpha={alpha}, dt={DT*1e15:.0f} fs, tol={TOL}deg, max={MAX_STEPS*DT*1e9:.1f} ns/step")
+print(f"  Field: {H_MV[0]:.0f} -> {H_MV[-1]:.0f} mT ({len(H_MV)} points)")
 print("=" * 70)
 
 
@@ -177,8 +177,8 @@ else:
 
 # --- SUMMARY ---
 print("\n" + "=" * 70)
-print("SUMMARY — SP#3 Hysteresis Protocol Comparison")
-print(f"  µMAG reference H_sw ≈ -20 mT (LLG integration protocol)")
+print("SUMMARY -- SP#3 Hysteresis Protocol Comparison")
+print(f"  uMAG reference H_sw ~ -20 mT (LLG integration protocol)")
 print(f"  NB47 (minimize): CS -13.8 mT, mumax3 -13.3 mT, mumax+ -6.0 mT")
 print("  NB50 (LLG relax):")
 rows = []

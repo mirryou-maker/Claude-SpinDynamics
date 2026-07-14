@@ -27,8 +27,8 @@ grid = mm.StructuredGrid(100, 100, 2, 5e-9, 5e-9, 5e-9)
 mat  = mm.Material.permalloy()
 mat.alpha = 0.5    # overdamped for fast convergence
 
-print(f"Grid  : {grid.nx}×{grid.ny}×{grid.nz} = {grid.size} cells")
-print(f"Size  : {grid.nx*grid.dx*1e9:.0f}×{grid.ny*grid.dy*1e9:.0f}×{grid.nz*grid.dz*1e9:.0f} nm")
+print(f"Grid  : {grid.nx}x{grid.ny}x{grid.nz} = {grid.size} cells")
+print(f"Size  : {grid.nx*grid.dx*1e9:.0f}x{grid.ny*grid.dy*1e9:.0f}x{grid.nz*grid.dz*1e9:.0f} nm")
 
 print("Constructing DemagField...", end=" ", flush=True)
 t0 = time.perf_counter()

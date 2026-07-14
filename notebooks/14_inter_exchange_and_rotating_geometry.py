@@ -36,7 +36,7 @@ dx = 2e-9
 nx = int(Lx / dx)   # 10
 g  = mm.StructuredGrid(nx, 1, 1, dx, dx, dx)
 
-print(f"  Grid: {nx}×1×1, dx = {dx*1e9:.0f} nm  (10 cells Py | 10 cells Co)")
+print(f"  Grid: {nx}x1x1, dx = {dx*1e9:.0f} nm  (10 cells Py | 10 cells Co)")
 
 mat = mm.Material.permalloy()   # used for both regions (simplified)
 
@@ -68,7 +68,7 @@ heff_fm.add(exch_fm)
 integ_fm = mm.RK4Integrator(5e-14)
 m_fm = copy_field(m)
 
-print("  Relaxing with FM inter-exchange (should align both regions) …")
+print("  Relaxing with FM inter-exchange (should align both regions) ...")
 mm.run(integ_fm, m_fm, mat, heff_fm, t_total=2e-9)
 arr_fm = mm.to_numpy(m_fm)
 mx_fm = arr_fm[0, 0, :, 0]
@@ -86,7 +86,7 @@ heff_zero.add(exch_zero)
 integ_zero = mm.RK4Integrator(5e-14)
 m_zero = copy_field(m)
 
-print("  Relaxing with A_IEC=0 (regions stay independent) …")
+print("  Relaxing with A_IEC=0 (regions stay independent) ...")
 mm.run(integ_zero, m_zero, mat, heff_zero, t_total=2e-9)
 arr_zero = mm.to_numpy(m_zero)
 mx_zero = arr_zero[0, 0, :, 0]
@@ -123,7 +123,7 @@ plt.tight_layout()
 out_a = os.path.join(os.path.dirname(__file__), "inter_exchange.png")
 plt.savefig(out_a, dpi=150)
 plt.close()
-print(f"  Saved → {out_a}")
+print(f"  Saved -> {out_a}")
 
 
 # ===========================================================================
@@ -152,7 +152,7 @@ heff_b.add(demag_b)
 integ_b = mm.RK4Integrator(5e-13)
 
 # Relax into ground state
-print("  Initial relax …")
+print("  Initial relax ...")
 mm.run(integ_b, m2, mat_b, heff_b, t_total=0.5e-9)
 mm.set_geom(base_mask, m2)
 print(f"    After relax: <mx> = {mm.mean_magnetization(m2)[0]:.3f}")
@@ -174,7 +174,7 @@ for theta_deg in angles_deg:
     mx_vs_angle.append(mx)
     snap_arr = mm.to_numpy(m2)[0, :, :, 0]  # mx layer 0
     snapshots.append(snap_arr.copy())
-    print(f"    θ = {theta_deg:3d}°: <mx> = {mx:.3f}")
+    print(f"    theta = {theta_deg:3d}deg: <mx> = {mx:.3f}")
 
 # Plot B
 fig, axes = plt.subplots(1, len(angles_deg) + 1, figsize=(4 * (len(angles_deg) + 1), 4))
@@ -195,7 +195,7 @@ plt.tight_layout()
 out_b = os.path.join(os.path.dirname(__file__), "rotating_geometry.png")
 plt.savefig(out_b, dpi=150)
 plt.close()
-print(f"  Saved → {out_b}")
+print(f"  Saved -> {out_b}")
 
 # Demonstrate snap()
 snap_path = os.path.join(os.path.dirname(__file__), "snap_test")
@@ -205,5 +205,5 @@ print(f"\n  snap() demo: saved {fname}")
 
 print("\n=== Done ===")
 print(f"  A. FM coupling: both regions aligned after relax")
-print(f"  B. Rotating ellipse: mx changes from {mx_vs_angle[0]:.3f} @ 0° "
+print(f"  B. Rotating ellipse: mx changes from {mx_vs_angle[0]:.3f} @ 0deg "
       f"to {mx_vs_angle[-1]:.3f} @ 90°")

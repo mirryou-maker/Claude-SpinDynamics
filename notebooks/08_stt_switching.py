@@ -40,9 +40,9 @@ P   = 0.5           # spin polarisation
 d   = 4e-9          # free layer thickness [m]
 p   = mm.Vec3(1, 0, 0)   # fixed layer direction (+x)
 
-print(f"Grid  : {grid.nx}×{grid.ny}×{grid.nz} = {grid.size} cells")
-print(f"Size  : {grid.nx*grid.dx*1e9:.0f}×{grid.ny*grid.dy*1e9:.0f}×{grid.nz*grid.dz*1e9:.0f} nm")
-print(f"α={mat.alpha}, Ms={mat.Ms/1e3:.0f} kA/m")
+print(f"Grid  : {grid.nx}x{grid.ny}x{grid.nz} = {grid.size} cells")
+print(f"Size  : {grid.nx*grid.dx*1e9:.0f}x{grid.ny*grid.dy*1e9:.0f}x{grid.nz*grid.dz*1e9:.0f} nm")
+print(f"alpha={mat.alpha}, Ms={mat.Ms/1e3:.0f} kA/m")
 
 # Compute a_J to verify it's strong enough for switching
 import math
@@ -101,7 +101,7 @@ for step in range(n_steps):
 wall = time.perf_counter() - t0
 mx_f, my_f, mz_f = mm.mean_magnetization(m)
 
-print(f"Simulation: {n_steps} steps × dt={dt:.0e} s = {n_steps*dt*1e9:.1f} ns")
+print(f"Simulation: {n_steps} steps x dt={dt:.0e} s = {n_steps*dt*1e9:.1f} ns")
 print(f"Wall time : {wall:.1f} s  ({wall*1000/n_steps:.2f} ms/step)")
 print(f"Final <m> : ({mx_f:.4f}, {my_f:.4f}, {mz_f:.4f})")
 switched = mx_f > 0.5

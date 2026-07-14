@@ -40,11 +40,11 @@ v_abv_ratio = xi / np.sqrt(alpha**2 + xi**2)  # ~0.995
 
 print("=" * 70)
 print("Notebook 49: Walker Breakdown (Zhang-Li, Flat Strip) -- Build Comparison")
-print(f"  Py strip {NX*DX*1e9:.0f}nm × {NY*DX*1e9:.0f}nm × {NZ*DX*1e9:.0f}nm ({NX}×{NY}×{NZ} cells)")
+print(f"  Py strip {NX*DX*1e9:.0f}nm x {NY*DX*1e9:.0f}nm x {NZ*DX*1e9:.0f}nm ({NX}x{NY}x{NZ} cells)")
 print(f"  xi={xi}, alpha={alpha}, xi/alpha={xi/alpha:.0f}")
 print(f"  l_ex = {l_ex*1e9:.2f}nm, DW width = pi*l_ex = {dw_width*1e9:.1f}nm")
 print(f"  Sub-Walker: v/u = {v_sub_ratio:.1f}  |  Above-Walker: v/u = {v_abv_ratio:.3f}")
-print(f"  J sweep: {J_VALS[0]/1e12:.1f} – {J_VALS[-1]/1e12:.1f} × 10¹² A/m² ({len(J_VALS)} points)")
+print(f"  J sweep: {J_VALS[0]/1e12:.1f} - {J_VALS[-1]/1e12:.1f} x 10^1^2 A/m^2 ({len(J_VALS)} points)")
 print("=" * 70)
 
 
@@ -124,7 +124,7 @@ if mx3r["ok"]:
 else:
     print(f"  {mx3r.get('error', 'failed')}")
 
-print("\n--- mumax+ (Zhang-Li, Néel DW, flat strip) ---")
+print("\n--- mumax+ (Zhang-Li, Neel DW, flat strip) ---")
 def walker_mumaxplus(mxp):
     import time, numpy as np
     world = mxp.World(cellsize=(DX, DX, DX))
@@ -179,7 +179,7 @@ v_sub_theory = v_sub_ratio * u_vals   # sub-Walker
 v_abv_theory = v_abv_ratio * u_vals   # above-Walker
 
 print("\n" + "=" * 70)
-print("SUMMARY -- Walker Breakdown (Py strip 1µm×50nm, xi=0.5, alpha=0.05)")
+print("SUMMARY -- Walker Breakdown (Py strip 1umx50nm, xi=0.5, alpha=0.05)")
 print(f"  Drift velocity u = P*mu_B*J/(e*Ms):")
 for J, u in zip(J_VALS, u_vals):
     print(f"    J={J/1e12:.1f}e12  u={u:.1f} m/s  v_sub={v_sub_ratio*u:.1f}  v_abv={v_abv_ratio*u:.1f}")

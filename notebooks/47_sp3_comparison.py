@@ -29,9 +29,9 @@ H_AM = H_MV * 1e-3 / MU0   # A/m
 T_RELAX = 2e-9  # relax time per field step
 
 print("=" * 70)
-print("Notebook 47: µMAG SP#3 Hysteresis -- Build Comparison")
-print(f"  Permalloy {NX*DX*1e9:.0f}nm × {NY*DX*1e9:.0f}nm × {NZ*DX*1e9:.0f}nm ({NX}×{NY}×{NZ} cells)")
-print(f"  Field sweep: {H_MV[0]:.0f} → {H_MV[-1]:.0f} mT ({len(H_MV)} steps)")
+print("Notebook 47: uMAG SP#3 Hysteresis -- Build Comparison")
+print(f"  Permalloy {NX*DX*1e9:.0f}nm x {NY*DX*1e9:.0f}nm x {NZ*DX*1e9:.0f}nm ({NX}x{NY}x{NZ} cells)")
+print(f"  Field sweep: {H_MV[0]:.0f} -> {H_MV[-1]:.0f} mT ({len(H_MV)} steps)")
 print("=" * 70)
 
 
@@ -112,7 +112,7 @@ if mx3r["ok"]:
         mx_col = tbl[:, 1]
         B_mT   = [150.0 - k * 10.0 for k in range(len(mx_col))]
         mx3_Hsw = _find_hsw(B_mT, mx_col.tolist())
-        print(f"  H_sw ≈ {mx3_Hsw:.1f} mT" if mx3_Hsw else "  H_sw: not found in table")
+        print(f"  H_sw ~ {mx3_Hsw:.1f} mT" if mx3_Hsw else "  H_sw: not found in table")
     else:
         print("  table parse failed")
 else:
@@ -151,8 +151,8 @@ else:
     print(f"  {mxpr.get('error', 'failed')}")
 
 print("\n" + "=" * 70)
-print("SUMMARY -- SP#3 Hysteresis (1µm × 1µm × 20nm Permalloy, 10nm cells)")
-print(f"  µMAG reference H_sw ≈ −20 mT (coarse-grid estimate)")
+print("SUMMARY -- SP#3 Hysteresis (1um x 1um x 20nm Permalloy, 10nm cells)")
+print(f"  uMAG reference H_sw ~ -20 mT (coarse-grid estimate)")
 rows = []
 for r in results:
     hsw = r['H_sw_mT']

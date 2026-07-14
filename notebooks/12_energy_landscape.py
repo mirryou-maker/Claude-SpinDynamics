@@ -34,7 +34,7 @@ g = mm.StructuredGrid(nx, ny, nz, dx, dx, Lz)
 mat = mm.Material.permalloy()
 mat.alpha = 0.5   # high damping for fast relax
 
-print(f"Grid: {nx}×{ny}×{nz} cells, dx={dx*1e9:.0f} nm")
+print(f"Grid: {nx}x{ny}x{nz} cells, dx={dx*1e9:.0f} nm")
 
 # ---------------------------------------------------------------------------
 # Fields

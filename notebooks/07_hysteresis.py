@@ -31,9 +31,9 @@ mat.alpha = 0.5         # overdamped -> fast convergence (Minimize equivalent)
 mu_0        = 4 * np.pi * 1e-7
 mT_to_Am    = 1e-3 / mu_0
 
-print(f"Grid : {grid.nx}×{grid.ny}×{grid.nz} = {grid.size} cells")
-print(f"Size : {grid.nx*grid.dx*1e9:.0f} × {grid.ny*grid.dy*1e9:.0f} × {grid.nz*grid.dz*1e9:.0f} nm")
-print(f"Mat  : Ms={mat.Ms/1e3:.0f} kA/m  A={mat.A_exchange*1e12:.0f} pJ/m  α={mat.alpha}")
+print(f"Grid : {grid.nx}x{grid.ny}x{grid.nz} = {grid.size} cells")
+print(f"Size : {grid.nx*grid.dx*1e9:.0f} x {grid.ny*grid.dy*1e9:.0f} x {grid.nz*grid.dz*1e9:.0f} nm")
+print(f"Mat  : Ms={mat.Ms/1e3:.0f} kA/m  A={mat.A_exchange*1e12:.0f} pJ/m  alpha={mat.alpha}")
 
 # %% [markdown]
 # ## 2. Build Fields

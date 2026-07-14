@@ -54,7 +54,7 @@ heff.add(cubic)
 # ---------------------------------------------------------------------------
 # Relax from random state
 # ---------------------------------------------------------------------------
-print("Relaxing Fe film (cubic anisotropy Kc1=48 kJ/m³)...")
+print("Relaxing Fe film (cubic anisotropy Kc1=48 kJ/m^3)...")
 m = mm.random_mag(g, seed=42)
 opts = mm.RelaxOptions()
 opts.threshold = 1.0          # |m×H|_max [A/m] (mumax3-like default); .tol was removed

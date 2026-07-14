@@ -24,9 +24,9 @@ print(f"_micromag loaded. Available: DemagField, RK45Integrator, to_numpy, ...")
 grid = mm.StructuredGrid(200, 50, 1, 2.5e-9, 2.5e-9, 3.0e-9)
 mat  = mm.Material.permalloy()
 
-print(f"Grid  : {grid.nx}×{grid.ny}×{grid.nz} = {grid.size} cells")
-print(f"Size  : {grid.nx*grid.dx*1e9:.0f}×{grid.ny*grid.dy*1e9:.0f}×{grid.nz*grid.dz*1e9:.0f} nm")
-print(f"Ms    = {mat.Ms/1e3:.0f} kA/m   A = {mat.A_exchange*1e12:.0f} pJ/m   α = {mat.alpha}")
+print(f"Grid  : {grid.nx}x{grid.ny}x{grid.nz} = {grid.size} cells")
+print(f"Size  : {grid.nx*grid.dx*1e9:.0f}x{grid.ny*grid.dy*1e9:.0f}x{grid.nz*grid.dz*1e9:.0f} nm")
+print(f"Ms    = {mat.Ms/1e3:.0f} kA/m   A = {mat.A_exchange*1e12:.0f} pJ/m   alpha = {mat.alpha}")
 
 # %% [markdown]
 # ## 2. Initial State
@@ -50,7 +50,7 @@ heff.add(mm.DemagField(grid))
 heff.add(mm.ExchangeField())
 heff.add(mm.ZeemanField(H_ext))
 
-print(f"H_ext = ({H_ext.x/1e3:.1f}, {H_ext.y/1e3:.1f}, {H_ext.z:.0f}) kA/m  (θ = 170°)")
+print(f"H_ext = ({H_ext.x/1e3:.1f}, {H_ext.y/1e3:.1f}, {H_ext.z:.0f}) kA/m  (theta = 170deg)")
 
 # %% [markdown]
 # ## 4. RK45 Simulation to 1 ns
@@ -80,7 +80,7 @@ mys = np.array(mys)
 print(f"Steps : {len(ts)}")
 print(f"t_sim : {ts[-1]:.3f} ns    wall : {wall:.1f} s")
 print(f"Final <m> = ({mxs[-1]:.5f}, {mys[-1]:.5f}, {mzs[-1]:.5f})")
-print(f"µMAG ref  = (-0.98620,  0.00263,  0.00000)")
+print(f"uMAG ref  = (-0.98620,  0.00263,  0.00000)")
 print(f"Error     = {abs(mxs[-1]+0.9862)*100:.3f}%")
 
 # %% [markdown]
@@ -143,12 +143,12 @@ plt.show()
 cross_idx = np.where(np.diff(np.sign(mxs)))[0]
 if len(cross_idx):
     t_cross = ts[cross_idx[0]]
-    print(f"⟨mx⟩ zero-crossing (rough switching time): {t_cross:.3f} ns")
-    print(f"µMAG reference t_switch ≈ 0.175 ns")
+    print(f"<mx> zero-crossing (rough switching time): {t_cross:.3f} ns")
+    print(f"uMAG reference t_switch ~ 0.175 ns")
 else:
     print("No zero-crossing found in 1 ns")
 
 print(f"\nSummary:")
-print(f"  Final ⟨mx⟩ = {mxs[-1]:.5f}  (ref −0.9862,  err {abs(mxs[-1]+0.9862)*100:.3f}%)")
+print(f"  Final <mx> = {mxs[-1]:.5f}  (ref -0.9862,  err {abs(mxs[-1]+0.9862)*100:.3f}%)")
 print(f"  Total steps = {len(ts)}")
 print(f"  Avg dt      = {ts[-1]/len(ts)*1e3:.3f} ps")

@@ -57,8 +57,8 @@ mat.alpha      = 0.5            # high damping for fast relax
 m0 = mm.VectorField3D(g)
 m0.set_uniform(mm.Vec3(0, 0, -1))
 
-print(f"Track: {nx}×{ny}×{nz} cells, {nx*dx*1e9:.0f}nm × {ny*dy*1e9:.0f}nm × {nz*dz*1e9:.0f}nm")
-print(f"Material: Ms={mat.Ms/1e6:.3f} MA/m, K={mat.K_uniaxial/1e6:.1f} MJ/m³, α={mat.alpha}")
+print(f"Track: {nx}x{ny}x{nz} cells, {nx*dx*1e9:.0f}nm x {ny*dy*1e9:.0f}nm x {nz*dz*1e9:.0f}nm")
+print(f"Material: Ms={mat.Ms/1e6:.3f} MA/m, K={mat.K_uniaxial/1e6:.1f} MJ/m^3, alpha={mat.alpha}")
 
 # ---------------------------------------------------------------------------
 # 3. Write-head configuration
@@ -76,7 +76,7 @@ head_fn = mm.moving_gaussian_field(g, H_amp=H_write, sigma=sigma,
 bit_positions = np.arange(2.5, nx - 2.5, 5) * dx   # centre of each 5-cell bit
 polarities    = [+1, -1, +1, -1, +1, -1, +1, -1]   # alternating pattern
 
-print(f"\nWrite-head: H_peak={H_write/1e6:.1f} MA/m, σ={sigma*1e9:.0f}nm, v={v_head:.0f}m/s")
+print(f"\nWrite-head: H_peak={H_write/1e6:.1f} MA/m, sigma={sigma*1e9:.0f}nm, v={v_head:.0f}m/s")
 print(f"Bit positions: {len(bit_positions)} bits, pitch={5*dx*1e9:.0f}nm")
 print(f"Polarities: {polarities}")
 
@@ -106,7 +106,7 @@ if GPU:
 
     arr0 = np.asarray(mm.to_numpy(m0)).reshape(N, 3)
     avg_mz0 = arr0[:, 2].mean()
-    print(f"\nInitial state (after relax): avg_mz = {avg_mz0:.4f} (expect ≈-1)")
+    print(f"\nInitial state (after relax): avg_mz = {avg_mz0:.4f} (expect ~-1)")
 else:
     arr0 = np.zeros((N, 3))
     arr0[:, 2] = -1.0
@@ -189,9 +189,9 @@ if GPU:
     mz_track = final_arr[:, :, :, 2].mean(axis=(0, 1))   # [nx]
     bar = ""
     for i, mz in enumerate(mz_track):
-        bar += "▲" if mz > 0.3 else ("▼" if mz < -0.3 else "·")
+        bar += "^" if mz > 0.3 else ("v" if mz < -0.3 else ".")
     print(f"  {bar}")
-    print(f"  (▲=+z, ▼=-z, ·=intermediate)")
+    print(f"  (^=+z, v=-z, .=intermediate)")
 
     # Domain wall count (transition between bits)
     sign_changes = sum(
@@ -213,13 +213,13 @@ H_at_centre = head(50e-9)   # head at x=50 nm (centre)
 H_arr_t = np.asarray(mm.to_numpy(H_at_centre)).reshape(20, 3)
 ix_max = np.argmax(np.abs(H_arr_t[:, 2]))
 H_peak = H_arr_t[ix_max, 2]
-print(f"  Peak Hz at head centre: {H_peak:.3e} A/m (expect ≈1e6)")
+print(f"  Peak Hz at head centre: {H_peak:.3e} A/m (expect ~1e6)")
 assert abs(H_peak - 1e6) < 0.1e6, f"Peak off: {H_peak}"
 
 H_at_edge = head(0)         # head at x=0 nm (far left)
 H_arr_e = np.asarray(mm.to_numpy(H_at_edge)).reshape(20, 3)
 H_mid = H_arr_e[10, 2]     # mid-track should be ~0
-print(f"  Hz at mid-track (head at edge): {H_mid:.3e} A/m (expect ≈0)")
+print(f"  Hz at mid-track (head at edge): {H_mid:.3e} A/m (expect ~0)")
 assert abs(H_mid) < 0.01e6, f"Mid-track field too large: {H_mid}"
 
 print("\nAll moving_gaussian_field checks passed.")

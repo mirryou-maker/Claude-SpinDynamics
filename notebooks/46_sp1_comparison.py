@@ -28,8 +28,8 @@ alpha  = 0.5   # high damping for fast relaxation
 T_RELAX = 3e-9
 
 print("=" * 70)
-print("Notebook 46: µMAG SP#1 Phase Diagram -- Build Comparison")
-print(f"  Permalloy L×L×{T_NM:.0f}nm squares, d={D*1e9:.0f}nm cells")
+print("Notebook 46: uMAG SP#1 Phase Diagram -- Build Comparison")
+print(f"  Permalloy LxLx{T_NM:.0f}nm squares, d={D*1e9:.0f}nm cells")
 print(f"  L values: {L_NM_LIST} nm")
 print("=" * 70)
 
@@ -119,7 +119,7 @@ for bl in ["cuFFT_f64"]:
     try:
         r = run_cs_sp1(bl); results.append(r)
         print(f"  Wall: {r['wall_ms']:.0f} ms")
-        print(f"  L_c ≈ {r['Lc_nm']:.1f} nm" if r['Lc_nm'] else "  L_c: not found in sweep")
+        print(f"  L_c ~ {r['Lc_nm']:.1f} nm" if r['Lc_nm'] else "  L_c: not found in sweep")
         for L, Es, Ev, dE in zip(r['L_nm'], r['E_sstate_aJ'], r['E_vortex_aJ'], r['dE_pct']):
             print(f"  L={L:3d}nm  E_s={Es:.3f}aJ  E_v={Ev:.3f}aJ  dE={dE:+.1f}%")
     except Exception as e:
@@ -141,9 +141,9 @@ if mx3r["ok"]:
         dE_pct = (E_v - E_s) / abs(E_s) * 100
         print(f"  L=120nm  E_s={E_s*1e18:.3f}aJ  E_v={E_v*1e18:.3f}aJ  dE={dE_pct:+.1f}%")
         if E_v < E_s:
-            print("  → vortex wins at 120nm (L_c < 120nm)")
+            print("  -> vortex wins at 120nm (L_c < 120nm)")
         else:
-            print("  → S-state wins at 120nm (L_c > 120nm)")
+            print("  -> S-state wins at 120nm (L_c > 120nm)")
     else:
         print("  table parse failed")
 else:
@@ -199,7 +199,7 @@ def sp1_mumaxplus(mxp):
 mxpr = bu.run_mumaxplus(sp1_mumaxplus, timeout_s=600)
 if mxpr["ok"]:
     print(f"  Wall: {mxpr['wall_ms']:.0f} ms")
-    print(f"  L_c ≈ {mxpr['Lc_nm']:.1f} nm" if mxpr.get('Lc_nm') else "  L_c: not found")
+    print(f"  L_c ~ {mxpr['Lc_nm']:.1f} nm" if mxpr.get('Lc_nm') else "  L_c: not found")
 else:
     print(f"  {mxpr.get('error', 'failed')}")
 
