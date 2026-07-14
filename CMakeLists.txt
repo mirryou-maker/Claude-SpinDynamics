@@ -34,6 +34,22 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # this apply to CUDA host code too, so there is a single /MD runtime.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
+# Never link the DEBUG CRT. We force /MD (release CRT) for every target and
+# config above, so nothing should pull the debug runtime. But some CUDA static
+# libs (cudadevrt, cudart_static) emit /DEFAULTLIB:LIBCMT; the GPU exes exclude
+# LIBCMT to avoid the MSVCRT-vs-LIBCMT conflict (LNK4098), and with LIBCMT gone
+# the linker was resolving their C math symbols (fminf, cbrtf, ...) from the
+# DEBUG UCRT -> the exes imported ucrtbased.dll / VCRUNTIME140D.dll, which are
+# not redistributable and were missing at runtime. Excluding the debug CRT
+# import libs forces those symbols to bind to the RELEASE UCRT.
+if(MSVC)
+    add_link_options(
+        /NODEFAULTLIB:libcmtd.lib
+        /NODEFAULTLIB:msvcrtd.lib
+        /NODEFAULTLIB:vcruntimed.lib
+        /NODEFAULTLIB:ucrtd.lib)
+endif()
+
 # Output directories --------------------------------------------------------
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -154,6 +170,17 @@ if(MICROMAG_USE_CUDA)
     set(CMAKE_CUDA_STANDARD 17)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
+    # Force the release dynamic CRT (/MD) for nvcc's HOST compiler in every
+    # config. CMP0091's MSVC-runtime abstraction does NOT reliably reach nvcc on
+    # the VS generator: the CudaCompile <Runtime> tag was ignored, so CUDA host
+    # objects picked up the DEBUG CRT and Release GPU exes wrongly imported
+    # VCRUNTIME140D.dll / ucrtbased.dll (missing at runtime). Injecting the flag
+    # into the raw CUDA flags (not a target option) survives CMake's runtime
+    # de-duplication. Consistent with CMAKE_MSVC_RUNTIME_LIBRARY=/MD for C++.
+    if(MSVC)
+        string(APPEND CMAKE_CUDA_FLAGS " -Xcompiler=/MD")
+    endif()
+
     # Separate CUDA library — keeps nvcc and MSVC compilation units isolated
     add_library(micromag_cuda
         src/demag_cuda.cu
@@ -195,7 +222,6 @@ if(MICROMAG_USE_CUDA)
     if(MSVC)
         target_compile_options(micromag_cuda PRIVATE
             $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>
-            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/MD>          # dynamic CRT (match /MD host)
             $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>)
     endif()
     # Propagate the MICROMAG_CUDA flag so headers can guard GPU code
