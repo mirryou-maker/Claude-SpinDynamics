@@ -1,11 +1,35 @@
 """Phase 1a demo: create a vortex magnetization and save to VTK."""
-import sys
+import os, sys
 from pathlib import Path
 
-# Add build output to path (adjust if your build dir differs)
-BUILD_PY = Path(__file__).resolve().parents[1] / "build" / "windows-msvc" / "python"
-sys.path.insert(0, str(BUILD_PY))
+def _add_micromag_to_path():
+    """Find the micromag module + its DLLs in either a downloaded release package
+    (../runtime-dll + ../<variant>/python, or ../python for the CPU package) or a
+    source build (../build/<preset>/python + the system CUDA toolkit)."""
+    # numpy (MKL) and the bundled module both ship an OpenMP runtime; allow both
+    # to load instead of aborting with "OMP: Error #15".
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    root = Path(__file__).resolve().parent.parent
+    rtd = root / "runtime-dll"                          # 1) GPU release package
+    if rtd.is_dir():
+        os.add_dll_directory(str(rtd))
+        for v in ("cuFFT-f64", "cuFFT-f32", "VkFFT-f64", "VkFFT-f32"):
+            py = root / v / "python"
+            if list(py.glob("_micromag*.pyd")):
+                sys.path.insert(0, str(py)); return
+    if list((root / "python").glob("_micromag*.pyd")):  # 2) CPU release package
+        os.add_dll_directory(str(root / "python"))
+        sys.path.insert(0, str(root / "python")); return
+    cuda_bin = r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64"
+    if os.path.isdir(cuda_bin):                          # 3) source build tree
+        os.add_dll_directory(cuda_bin)
+    for preset in ("windows-msvc-cuda", "windows-msvc"):
+        py = root / "build" / preset / "python"
+        if py.is_dir():
+            sys.path.insert(0, str(py)); return
+    raise RuntimeError("micromag module not found (release package or source build).")
 
+_add_micromag_to_path()
 import micromag as mm
 
 def main():

@@ -13,30 +13,45 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-
-# Prefer a GPU build if present (falls back to the CPU build otherwise).
-GPU_PY = ROOT / "build" / "windows-msvc-cuda" / "python"
-CPU_PY = ROOT / "build" / "windows-msvc" / "python"
-if GPU_PY.exists():
-    # GPU module needs the CUDA runtime DLLs on the search path before import.
+def _add_micromag_to_path():
+    """Find the micromag module + its DLLs in either a downloaded release package
+    (../runtime-dll + ../<variant>/python, or ../python for the CPU package) or a
+    source build (../build/<preset>/python + the system CUDA toolkit)."""
+    # numpy (MKL) and the bundled module both ship an OpenMP runtime; allow both
+    # to load instead of aborting with "OMP: Error #15".
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    root = Path(__file__).resolve().parent.parent
+    rtd = root / "runtime-dll"                          # 1) GPU release package
+    if rtd.is_dir():
+        os.add_dll_directory(str(rtd))
+        for v in ("cuFFT-f64", "cuFFT-f32", "VkFFT-f64", "VkFFT-f32"):
+            py = root / v / "python"
+            if list(py.glob("_micromag*.pyd")):
+                sys.path.insert(0, str(py)); return
+    if list((root / "python").glob("_micromag*.pyd")):  # 2) CPU release package
+        os.add_dll_directory(str(root / "python"))
+        sys.path.insert(0, str(root / "python")); return
     cuda_bin = r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64"
-    if os.path.isdir(cuda_bin):
+    if os.path.isdir(cuda_bin):                          # 3) source build tree
         os.add_dll_directory(cuda_bin)
-    sys.path.insert(0, str(GPU_PY))
-else:
-    sys.path.insert(0, str(CPU_PY))
+    for preset in ("windows-msvc-cuda", "windows-msvc"):
+        py = root / "build" / preset / "python"
+        if py.is_dir():
+            sys.path.insert(0, str(py)); return
+    raise RuntimeError("micromag module not found (release package or source build).")
 
+_add_micromag_to_path()
 import micromag as mm
 
 
 def main():
-    script = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "examples" / "mx3" / "sp4.mx3"
-    outdir = ROOT / "mx3_out"
+    here = Path(__file__).resolve().parent          # examples/ (repo or package)
+    script = Path(sys.argv[1]) if len(sys.argv) > 1 else here / "mx3" / "sp4.mx3"
+    outdir = Path.cwd() / "mx3_out"
 
     print(f"backend      : {'GPU (CUDA)' if mm.cuda_available() else 'CPU'}")
     print(f"running .mx3 : {script}")
-    print("(mumax3 syntax, executed on the Claude-SD engine — mumax3 is not invoked)\n")
+    print("(mumax3 syntax, executed on the Claude-SD engine; mumax3 is not invoked)\n")
 
     eng = mm.run_mx3(str(script), outdir=str(outdir))   # CPU/GPU auto-selected
 
