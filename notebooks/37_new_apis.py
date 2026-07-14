@@ -2,15 +2,34 @@
 OVFReader/OVFWriter, VectorField3D.__setitem__, MaterialField3D.__setitem__,
 ZeemanFieldSpatialGPU."""
 import sys, os, tempfile
-_repo = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-_gpu_path = os.path.join(_repo, 'build', 'windows-msvc-cuda', 'python')
-_cpu_path = os.path.join(_repo, 'build', 'windows-msvc', 'python')
-_gpu_pyd = os.path.join(_gpu_path, '_micromag.cp313-win_amd64.pyd')
-if os.path.isfile(_gpu_pyd):
-    sys.path.insert(0, _gpu_path)
-    os.add_dll_directory('C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64')
-else:
-    sys.path.insert(0, _cpu_path)
+from pathlib import Path
+
+def _add_micromag_to_path():
+    """Locate the micromag module + its DLLs in a release package
+    (../runtime-dll + ../<variant>/python for GPU, ../python for CPU) or a source
+    build (../build/<preset>/python + system CUDA). Works from any working dir."""
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    root = Path(__file__).resolve().parent.parent
+    rtd = root / "runtime-dll"
+    if rtd.is_dir():
+        os.add_dll_directory(str(rtd))
+        for _v in ("cuFFT-f64", "cuFFT-f32", "VkFFT-f64", "VkFFT-f32"):
+            _py = root / _v / "python"
+            if list(_py.glob("_micromag*.pyd")):
+                sys.path.insert(0, str(_py)); return
+    if list((root / "python").glob("_micromag*.pyd")):
+        os.add_dll_directory(str(root / "python"))
+        sys.path.insert(0, str(root / "python")); return
+    _cuda = r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64"
+    if os.path.isdir(_cuda):
+        os.add_dll_directory(_cuda)
+    for _p in ("windows-msvc-cuda", "windows-msvc"):
+        _py = root / "build" / _p / "python"
+        if _py.is_dir():
+            sys.path.insert(0, str(_py)); return
+    raise RuntimeError("micromag module not found (release package or source build).")
+
+_add_micromag_to_path()
 import numpy as np
 import math
 import micromag as mm
