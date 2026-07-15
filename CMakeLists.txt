@@ -377,7 +377,12 @@ if(MICROMAG_BUILD_PYTHON)
             find_package(pybind11 CONFIG REQUIRED)   # emit the standard error
         endif()
     endif()
-    pybind11_add_module(_micromag python/bindings.cpp)
+    pybind11_add_module(_micromag
+        python/bindings.cpp
+        python/bind_core.cpp
+        python/bind_fields.cpp
+        python/bind_dynamics.cpp
+        python/bind_gpu.cpp)
     target_link_libraries(_micromag PRIVATE micromag_core)
 
     # When building with CUDA, expose GPU classes in the Python module too
