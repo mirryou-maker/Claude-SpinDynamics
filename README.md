@@ -99,6 +99,21 @@ cmake --build build/windows-msvc-cuda --config Release
 .\build\windows-msvc-cuda\bin\Release\unit_tests_gpu.exe   # 113 tests
 ```
 
+### Linux / WSL build (CPU)
+```bash
+# Deps (Ubuntu): sudo apt install build-essential cmake ninja-build libfftw3-dev
+#                pip install --user pybind11 numpy      # Catch2 auto-fetched
+cmake --preset linux-gcc
+cmake --build build/linux-gcc -j$(nproc)
+./build/linux-gcc/bin/unit_tests                        # 231/232 pass*
+```
+FFTW is found via pkg-config and pybind11 via `python -m pybind11 --cmakedir`
+when no CMake config package is present (`linux-gcc-cuda` adds the CUDA backend
+on a host with the NVIDIA toolkit). CPU performance is on par with the Windows
+build — see [CPU parity benchmark](benchmarks/linux_cpu_parity.md). *The one
+skipped assertion is an FFTW-implementation-sensitive MFM peak location, not a
+portability defect.*
+
 ### Build variants (CPU / GPU · precision · FFT backend)
 
 The build is chosen at **configure time** by a CMake preset — precision and FFT backend are compile-time,
@@ -107,6 +122,7 @@ not run-time. Full guidance: [User Guide §2.5](docs/USER_GUIDE.md).
 | Preset | Target | Precision | FFT | Pick it for |
 |--------|--------|-----------|-----|-------------|
 | `windows-msvc` | CPU | f64 | FFTW | development, portability, reference (no GPU) |
+| `linux-gcc` | CPU | f64 | FFTW | Linux / WSL CPU build (`linux-gcc-cuda` for GPU) |
 | `windows-msvc-cuda` | GPU | f64 | cuFFT | reference accuracy, topology-sensitive (skyrmion *Q*) |
 | `windows-msvc-cuda-f32` | GPU | f32 | cuFFT | fastest small / 2-D runs |
 | `windows-msvc-cuda-vkfft` | GPU | f64 | VkFFT | large 3-D, f64 accuracy |

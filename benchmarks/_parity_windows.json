@@ -1,0 +1,79 @@
+{
+  "os": "Windows AMD64",
+  "python": "3.13.5",
+  "cuda": false,
+  "rows": [
+    {
+      "grid": "SP#4  (200x50x1)",
+      "cells": 10000,
+      "ms_step": 13.206,
+      "threads": "1"
+    },
+    {
+      "grid": "Med   (200x200x1)",
+      "cells": 40000,
+      "ms_step": 43.826,
+      "threads": "1"
+    },
+    {
+      "grid": "Med2  (200x200x5)",
+      "cells": 200000,
+      "ms_step": 161.056,
+      "threads": "1"
+    },
+    {
+      "grid": "SP#4  (200x50x1)",
+      "cells": 10000,
+      "ms_step": 9.203,
+      "threads": "2"
+    },
+    {
+      "grid": "Med   (200x200x1)",
+      "cells": 40000,
+      "ms_step": 26.037,
+      "threads": "2"
+    },
+    {
+      "grid": "Med2  (200x200x5)",
+      "cells": 200000,
+      "ms_step": 91.724,
+      "threads": "2"
+    },
+    {
+      "grid": "SP#4  (200x50x1)",
+      "cells": 10000,
+      "ms_step": 4.763,
+      "threads": "4"
+    },
+    {
+      "grid": "Med   (200x200x1)",
+      "cells": 40000,
+      "ms_step": 19.287,
+      "threads": "4"
+    },
+    {
+      "grid": "Med2  (200x200x5)",
+      "cells": 200000,
+      "ms_step": 77.665,
+      "threads": "4"
+    },
+    {
+      "grid": "SP#4  (200x50x1)",
+      "cells": 10000,
+      "ms_step": 6.177,
+      "threads": "8"
+    },
+    {
+      "grid": "Med   (200x200x1)",
+      "cells": 40000,
+      "ms_step": 18.768,
+      "threads": "8"
+    },
+    {
+      "grid": "Med2  (200x200x5)",
+      "cells": 200000,
+      "ms_step": 76.475,
+      "threads": "8"
+    }
+  ]
+}

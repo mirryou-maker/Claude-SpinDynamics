@@ -42,6 +42,23 @@ cmake --build build/windows-msvc-cuda --config Release
 .\build\windows-msvc-cuda\bin\Release\llg_large_bench.exe      # 2.5 M cell scaling
 ```
 
+### Linux / WSL build (CPU)
+
+```bash
+# Ubuntu deps: sudo apt install build-essential cmake ninja-build libfftw3-dev
+#              pip install --user pybind11 numpy        # Catch2 auto-fetched
+cmake --preset linux-gcc
+cmake --build build/linux-gcc -j$(nproc)
+./build/linux-gcc/bin/unit_tests                        # 231/232 pass (1 MFM peak-loc, FFTW-sensitive)
+```
+
+FFTW resolves via pkg-config (`libfftw3` + `libfftw3_threads`) when no
+`FFTW3Config.cmake` exists; pybind11 via `python -m pybind11 --cmakedir`; Catch2
+via FetchContent. `linux-gcc-cuda` adds the CUDA backend on a host with the
+NVIDIA toolkit. CPU speed is on par with Windows (Linux single-thread is
+actually faster) — see `benchmarks/linux_cpu_parity.md` and regenerate with
+`benchmarks/cpu_parity_bench.py --threads 1,2,4,8`.
+
 ### CPU validation apps
 
 ```powershell
