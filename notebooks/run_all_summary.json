@@ -2,7 +2,7 @@
   {
     "nb": "01_sp4_dynamics.py",
     "ok": true,
-    "wall_s": 20.9,
+    "wall_s": 20.8,
     "tail": [
       "t_sim : 1.000 ns    wall : 19.9 s",
       "Final <m> = (-0.94436, 0.29624, -0.01238)",
@@ -24,7 +24,7 @@
   {
     "nb": "02_sp1_phase_diagram.py",
     "ok": true,
-    "wall_s": 16.4,
+    "wall_s": 17.2,
     "tail": [
       "  \u03b2 = -0.785 (negative \u2192 L_c decreases with thickness)",
       "  Thicker elements: vortex core distributed over more volume \u2192 cheaper",
@@ -33,7 +33,7 @@
       "  S-state: E = 4.1251 aJ,  |<m>| = 0.971",
       "  Vortex:  E = 4.0369 aJ,  |<m>| = 0.017",
       "  \u0394E/E_u = -2.14%  \u2192  Ground state: Vortex",
-      "  wall = 15.1 s",
+      "  wall = 15.9 s",
       "===STDERR===",
       "D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\02_sp1_phase_diagram.py:63: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown",
       "  plt.show()",
@@ -46,16 +46,16 @@
   {
     "nb": "03_thermal_sp4.py",
     "ok": true,
-    "wall_s": 53.4,
+    "wall_s": 53.6,
     "tail": [
       "Grid: 200\u00d750\u00d71 = 10000 cells",
       "H_ext = (-24.6, 4.3) kA/m",
-      "T=0 K (RK45):  1756 steps,  9.9 s",
+      "T=0 K (RK45):  1756 steps,  9.8 s",
       "  Final <mx> = -0.9135",
-      "T=300K (Heun): 5000 steps,  10.5 s",
+      "T=300K (Heun): 5000 steps,  10.7 s",
       "  Final <mx> = -0.7298",
       "seed 42: <mx> final = -0.7298  (11 s)",
-      "seed 43: <mx> final = -0.6945  (10 s)",
+      "seed 43: <mx> final = -0.6945  (11 s)",
       "seed 44: <mx> final = -0.7039  (11 s)",
       "===STDERR===",
       "D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\03_thermal_sp4.py:109: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown",
@@ -67,17 +67,17 @@
   {
     "nb": "04_sp4_gpu.py",
     "ok": true,
-    "wall_s": 5.8,
+    "wall_s": 6.1,
     "tail": [
       "CUDA available: True",
       "Grid: 200x50x1 = 10000 cells",
       "Ms = 800 kA/m,  A = 13 pJ/m,  alpha = 0.02",
       "Fields: DemagFieldGPU / ExchangeFieldGPU / ZeemanFieldGPU",
-      "Wall time : 3.80 s  (0.63 ms/step)",
+      "Wall time : 3.89 s  (0.65 ms/step)",
       "Final <m> : (-0.6941, 0.5809, 0.0939)",
-      "CPU RK4:   8.66 ms/step",
-      "GPU RK4:   0.63 ms/step",
-      "Speedup:   13.7x",
+      "CPU RK4:   6.43 ms/step",
+      "GPU RK4:   0.65 ms/step",
+      "Speedup:   9.9x",
       "===STDERR===",
       "D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\04_sp4_gpu.py:87: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown",
       "  plt.show()",
@@ -88,14 +88,14 @@
   {
     "nb": "05_thermal_gpu.py",
     "ok": true,
-    "wall_s": 42.3,
+    "wall_s": 56.8,
     "tail": [
-      "GPU RK4  (T=0 K)  : 3.18 s  (0.636 ms/step)",
-      "CPU Heun (T=300K) : 27.22 s  (5.443 ms/step)",
+      "GPU RK4  (T=0 K)  : 3.34 s  (0.668 ms/step)",
+      "CPU Heun (T=300K) : 40.15 s  (8.029 ms/step)",
       "=== Performance (ms/step) ===",
-      "CPU HeunIntegrator     : 5.443 ms/step",
-      "GPU HeunIntegratorGPU  : 0.430 ms/step   (12.7x speedup)",
-      "GPU RK4IntegratorGPU   : 0.636 ms/step   (8.6x speedup vs CPU Heun)",
+      "CPU HeunIntegrator     : 8.029 ms/step",
+      "GPU HeunIntegratorGPU  : 0.445 ms/step   (18.0x speedup)",
+      "GPU RK4IntegratorGPU   : 0.668 ms/step   (12.0x speedup vs CPU Heun)",
       "seed 42: <mx> final = -0.7219",
       "seed 43: <mx> final = -0.7368",
       "seed 44: <mx> final = -0.7217",
@@ -109,30 +109,30 @@
   },
   {
     "nb": "06_sp3_hysteresis.py",
-    "ok": true,
-    "wall_s": 8.0,
+    "ok": false,
+    "wall_s": 1.0,
     "tail": [
-      "  10 nm cells (current): l_ex/dx = 1.8   |<m>|_min \u2248 0.42  H_sw \u2248 -20 mT",
-      "  5 nm cells (accurate):  l_ex/dx = 0.9  |<m>|_min \u2192 0.02  H_sw \u2248 -20\u00b15 mT (est)",
-      "  Reference (\u00b5MAG SP#3): H_nuc \u2248 -10 to -30 mT depending on element size/resolution",
-      "  Our result (10 nm):    H_sw = -20.0 mT  (switching field, coarse grid)",
-      "After +150 mT saturation: <mx> = 0.9929",
-      "After relaxation at H = -15.0 mT: <mx> = 0.5582  (wall: 2.6 s)",
-      "===STDERR===",
-      "D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\06_sp3_hysteresis.py:94: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown",
-      "  plt.show()",
-      "D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\06_sp3_hysteresis.py:127: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown",
-      "  plt.show()",
-      "D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\06_sp3_hysteresis.py:214: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown",
-      "  plt.show()",
-      "D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\06_sp3_hysteresis.py:240: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown",
-      "  plt.show()"
+      "  File \"D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\06_sp3_hysteresis.py\", line 26, in <module>",
+      "    data = np.loadtxt('../sp3_hysteresis.csv', delimiter=',', skiprows=1)",
+      "  File \"D:\\anaconda3\\Lib\\site-packages\\numpy\\lib\\_npyio_impl.py\", line 1397, in loadtxt",
+      "    arr = _read(fname, dtype=dtype, comment=comment, delimiter=delimiter,",
+      "                converters=converters, skiplines=skiprows, usecols=usecols,",
+      "                unpack=unpack, ndmin=ndmin, encoding=encoding,",
+      "                max_rows=max_rows, quote=quotechar)",
+      "  File \"D:\\anaconda3\\Lib\\site-packages\\numpy\\lib\\_npyio_impl.py\", line 1012, in _read",
+      "    fh = np.lib._datasource.open(fname, 'rt', encoding=encoding)",
+      "  File \"D:\\anaconda3\\Lib\\site-packages\\numpy\\lib\\_datasource.py\", line 192, in open",
+      "    return ds.open(path, mode, encoding=encoding, newline=newline)",
+      "           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+      "  File \"D:\\anaconda3\\Lib\\site-packages\\numpy\\lib\\_datasource.py\", line 529, in open",
+      "    raise FileNotFoundError(f\"{path} not found.\")",
+      "FileNotFoundError: ../sp3_hysteresis.csv not found."
     ]
   },
   {
     "nb": "07_hysteresis.py",
     "ok": true,
-    "wall_s": 384.9,
+    "wall_s": 394.6,
     "tail": [
       "  H=  -65 mT  <mx>=-0.8371  E=-6.168 aJ",
       "  H=  -70 mT  <mx>=-0.8426  E=-7.048 aJ",
@@ -142,7 +142,7 @@
       "  H=  -90 mT  <mx>=-0.8604  E=-10.622 aJ",
       "  H=  -95 mT  <mx>=-0.8640  E=-11.526 aJ",
       "  H= -100 mT  <mx>=-0.8674  E=-12.434 aJ",
-      "Total: 363.7 s",
+      "Total: 370.9 s",
       "Saved: hysteresis_loop.png",
       "Remanence (H~0): <mx>=0.9635",
       "Saved: hysteresis_remanence.png",
@@ -154,7 +154,7 @@
   {
     "nb": "08_stt_switching.py",
     "ok": true,
-    "wall_s": 352.3,
+    "wall_s": 484.5,
     "tail": [
       "  J=-1.10e12 A/m2  <mx>=+0.793  switched",
       "  J=-1.30e12 A/m2  <mx>=+0.466  no switch",
@@ -176,14 +176,14 @@
   {
     "nb": "09_initial_magnetization.py",
     "ok": true,
-    "wall_s": 63.7,
+    "wall_s": 66.6,
     "tail": [
-      "Constructing DemagField... 237 ms",
+      "Constructing DemagField... 245 ms",
       "Relaxing initial states...",
-      "  [Uniform +x  ]  E=17.4428 aJ  |<m>|=0.863  (15.8 s)",
-      "  [Vortex CCW  ]  E=8.2406 aJ  |<m>|=0.001  (16.2 s)",
-      "  [Two-domain  ]  E=41.3879 aJ  |<m>|=0.001  (14.8 s)",
-      "  [Random      ]  E=22.8910 aJ  |<m>|=0.178  (15.3 s)",
+      "  [Uniform +x  ]  E=17.4428 aJ  |<m>|=0.863  (17.4 s)",
+      "  [Vortex CCW  ]  E=8.2406 aJ  |<m>|=0.001  (16.7 s)",
+      "  [Two-domain  ]  E=41.3879 aJ  |<m>|=0.001  (15.1 s)",
+      "  [Random      ]  E=22.8910 aJ  |<m>|=0.178  (15.8 s)",
       "Saved: initial_magnetization.png",
       "Saved: initial_magnetization_energies.png",
       "=== Summary: Energy comparison ===",
@@ -197,54 +197,54 @@
   },
   {
     "nb": "10_skyrmion_dynamics.py",
-    "ok": true,
-    "wall_s": 48.5,
+    "ok": false,
+    "wall_s": 51.1,
     "tail": [
       "Relaxing skyrmion...",
       "  Q after relax = 0.450   (expect \u2248 -1 for charge=1, pol=-1)",
       "SOT dynamics...",
       "  Saved table_skyrmion.csv  (199 rows)",
-      "  Saved skyrmion_trajectory.png",
-      "===STDERR==="
+      "===STDERR===",
+      "Traceback (most recent call last):",
+      "  File \"D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\10_skyrmion_dynamics.py\", line 137, in <module>",
+      "    t_vals = [float(r) for r in open(os.path.join(out_dir, \"table_skyrmion.csv\")).readlines()[1:] if r.strip()]",
+      "              ~~~~~^^^",
+      "ValueError: could not convert string to float: '1.01e-11,-3.08751233398e-05,-0.00713335452595,-0.0122787993536,2.49317648414e-18,0.432848092326,-57.5,97.5\\n'"
     ]
   },
   {
     "nb": "11_cubic_anisotropy.py",
-    "ok": true,
-    "wall_s": 2.1,
+    "ok": false,
+    "wall_s": 0.9,
     "tail": [
       "Relaxing Fe film (cubic anisotropy Kc1=48 kJ/m\u00b3)...",
-      "  <mx,my,mz> = (0.249, 0.249, -0.000)",
-      "  Saved cubic_domains_mx.png",
-      "  Saved cubic_energy_map.png",
-      "  E_exch  = 2.76 aJ",
-      "  E_cubic = 0.26 aJ",
-      "  E_demag = 1.54 aJ",
-      "===STDERR==="
+      "===STDERR===",
+      "Traceback (most recent call last):",
+      "  File \"D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\11_cubic_anisotropy.py\", line 60, in <module>",
+      "    opts.tol = 1e-6",
+      "    ^^^^^^^^",
+      "AttributeError: '_micromag.RelaxOptions' object has no attribute 'tol' and no __dict__ for setting new attributes"
     ]
   },
   {
     "nb": "12_energy_landscape.py",
-    "ok": true,
-    "wall_s": 3.2,
+    "ok": false,
+    "wall_s": 2.2,
     "tail": [
       "Grid: 100\u00d725\u00d71 cells, dx=5 nm",
       "Relaxing SP#4 element...",
-      "  <mx,my,mz> = (0.9866, -0.0000, -0.0000)",
-      "  Saved energy_landscape_sp4.png",
-      "Energy breakdown:",
-      "  E_exch  = 0.10 aJ",
-      "  E_demag = 0.61 aJ",
-      "  E_zee   = 4.57 aJ",
-      "  E_total = 5.28 aJ",
-      "  Saved table_energy.csv",
-      "===STDERR==="
+      "===STDERR===",
+      "Traceback (most recent call last):",
+      "  File \"D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\12_energy_landscape.py\", line 57, in <module>",
+      "    opts.tol = 1e-7",
+      "    ^^^^^^^^",
+      "AttributeError: '_micromag.RelaxOptions' object has no attribute 'tol' and no __dict__ for setting new attributes"
     ]
   },
   {
     "nb": "13_fmr_spectrum.py",
     "ok": true,
-    "wall_s": 4.3,
+    "wall_s": 4.6,
     "tail": [
       "  Grid: 20\u00d720\u00d71, dx = 4 nm",
       "  B_bias = 20 mT along x  (in-plane geometry)",
@@ -266,7 +266,7 @@
   {
     "nb": "14_inter_exchange_and_rotating_geometry.py",
     "ok": true,
-    "wall_s": 4.8,
+    "wall_s": 5.7,
     "tail": [
       "    Right region: my = 1.000",
       "  Saved \u2192 D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\inter_exchange.png",
@@ -309,7 +309,7 @@
   {
     "nb": "16_spinning_hard_disk.py",
     "ok": true,
-    "wall_s": 29.6,
+    "wall_s": 39.9,
     "tail": [
       "=== B. Initial Demagnetised State ===",
       "  Relaxed in 3459 steps",
@@ -331,7 +331,7 @@
   {
     "nb": "17_afm_and_zhangli.py",
     "ok": true,
-    "wall_s": 1.6,
+    "wall_s": 1.8,
     "tail": [
       "=== B. Zhang-Li STT Domain-Wall Motion ===",
       "  Bloch wall width Delta = 29.2 nm",
@@ -353,20 +353,20 @@
   {
     "nb": "18_periodic_demag_gpu_bench.py",
     "ok": true,
-    "wall_s": 454.7,
+    "wall_s": 623.2,
     "tail": [
       "Small  32\u00d732\u00d74 (4,096 cells)",
-      "  Open BC (DemagFieldGPU): 0.308 ms/step",
-      "  Periodic BC (DemagFieldPeriodicGPU): 0.210 ms/step",
-      "  Speedup (Periodic / Open): 1.47\u00d7",
+      "  Open BC (DemagFieldGPU): 0.309 ms/step",
+      "  Periodic BC (DemagFieldPeriodicGPU): 0.226 ms/step",
+      "  Speedup (Periodic / Open): 1.37\u00d7",
       "Medium 64\u00d764\u00d78 (32,768 cells)",
-      "  Open BC (DemagFieldGPU): 2.043 ms/step",
-      "  Periodic BC (DemagFieldPeriodicGPU): 0.379 ms/step",
-      "  Speedup (Periodic / Open): 5.39\u00d7",
+      "  Open BC (DemagFieldGPU): 2.129 ms/step",
+      "  Periodic BC (DemagFieldPeriodicGPU): 0.374 ms/step",
+      "  Speedup (Periodic / Open): 5.69\u00d7",
       "Large  128\u00d7128\u00d716 (262,144 cells)",
-      "  Open BC (DemagFieldGPU): 17.163 ms/step",
-      "  Periodic BC (DemagFieldPeriodicGPU): 3.656 ms/step",
-      "  Speedup (Periodic / Open): 4.70\u00d7",
+      "  Open BC (DemagFieldGPU): 17.069 ms/step",
+      "  Periodic BC (DemagFieldPeriodicGPU): 2.942 ms/step",
+      "  Speedup (Periodic / Open): 5.80\u00d7",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\14_periodic_demag_gpu_bench.png",
       "===STDERR==="
     ]
@@ -374,9 +374,9 @@
   {
     "nb": "19_periodic_gpu_llg_loop.py",
     "ok": true,
-    "wall_s": 1.8,
+    "wall_s": 1.9,
     "tail": [
-      "  GPU speedup: 0.4x  (GPU ran 1x longer)",
+      "  GPU speedup: 0.6x  (GPU ran 1x longer)",
       "  CPU vs GPU mz RMS error: 3.81e-16  (first 500 snapshots)",
       "--- Dispersion spectrum (GPU data, 1 ns) ---",
       "  Time samples: 500   Space cells: 128",
@@ -384,9 +384,9 @@
       "  k resolution:    1.562 rad/um",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\19_periodic_gpu_llg_loop.png",
       "=== Summary ===",
-      "  GPU periodic LLG: 2000 steps in 0.27 s = 0.133 ms/step",
-      "  CPU periodic LLG: 2000 steps in 0.12 s = 0.059 ms/step",
-      "  Speedup per step: 0.4x",
+      "  GPU periodic LLG: 2000 steps in 0.26 s = 0.129 ms/step",
+      "  CPU periodic LLG: 2000 steps in 0.15 s = 0.077 ms/step",
+      "  Speedup per step: 0.6x",
       "  CPU vs GPU physics agreement: RMS mz err = 3.81e-16",
       "  Fields used: DemagFieldPeriodicGPU + ExchangeFieldGPU(Periodic) + ZeemanFieldGPU",
       "  Integrator: RK4IntegratorGPU -- ZERO PCIe transfers per step",
@@ -396,20 +396,20 @@
   {
     "nb": "20_skyrmion_gpu_relax.py",
     "ok": true,
-    "wall_s": 66.8,
+    "wall_s": 114.4,
     "tail": [
       "  D=1.6 mJ/m2  Q=0.13  mz_core=0.82  -> Uniform/Stripe",
       "  D=2.8 mJ/m2  Q=0.12  mz_core=0.86  -> Uniform/Stripe",
       "  D=3.9 mJ/m2  Q=0.16  mz_core=-0.92  -> Uniform/Stripe",
       "  D=5.0 mJ/m2  Q=1.22  mz_core=0.50  -> Skyrmion",
       "--- GPU vs CPU Timing (RelaxGPU, no DMI, larger grid) ---",
-      "  50x50 (2500 cells): GPU 0.159 ms/step  CPU 0.225 ms/step  Speedup 1.4x",
-      "  100x100 (10000 cells): GPU 0.198 ms/step  CPU 0.594 ms/step  Speedup 3.0x",
-      "  200x200 (40000 cells): GPU 0.541 ms/step  CPU 1.431 ms/step  Speedup 2.6x",
+      "  50x50 (2500 cells): GPU 0.234 ms/step  CPU 0.470 ms/step  Speedup 2.0x",
+      "  100x100 (10000 cells): GPU 0.232 ms/step  CPU 0.759 ms/step  Speedup 3.3x",
+      "  200x200 (40000 cells): GPU 0.605 ms/step  CPU 1.702 ms/step  Speedup 2.8x",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\20_skyrmion_gpu_relax.png",
       "=== Summary ===",
-      "  GPU relax (100x100, no DMI): 5000 steps in 3.13 s = 0.625 ms/step",
-      "  CPU relax (100x100, with DMI): 10000 steps in 10.90 s",
+      "  GPU relax (100x100, no DMI): 5000 steps in 3.13 s = 0.626 ms/step",
+      "  CPU relax (100x100, with DMI): 10000 steps in 10.12 s",
       "  Topological charges: initial=-0.97  GPU=0.01  CPU(DMI)=-0.46",
       "  Skyrmion survived DMI stabilisation: NO/collapsed",
       "===STDERR==="
@@ -418,7 +418,7 @@
   {
     "nb": "21_skyrmion_phase_diagram_gpu.py",
     "ok": true,
-    "wall_s": 110.9,
+    "wall_s": 119.8,
     "tail": [
       "  0.63 MJ:  -0.13  -0.13  -0.13  -0.14  -1.62  -0.15  +0.14  +0.43",
       "  0.77 MJ:  -0.14  -0.13  -0.13  -0.13  -0.15  -1.23  -0.62  -0.30",
@@ -431,7 +431,7 @@
       "=== Summary ===",
       "  Grid: 64x64x1, dx=3 nm  (4096 cells)",
       "  Sweep: D in [0.5, 5.0] mJ/m2 x K in [0.20, 1.20] MJ/m3",
-      "  Time: 109.9 s = 1718 ms/pt (64 pts)",
+      "  Time: 118.5 s = 1852 ms/pt (64 pts)",
       "  Phases: Skyrmion=11  Stripe=8  Uniform=45",
       "  Best skyrmion: D=1.8 mJ/m2  K=0.20 MJ/m3  Q=-1.054",
       "===STDERR==="
@@ -440,12 +440,12 @@
   {
     "nb": "22_stt_switching_gpu.py",
     "ok": true,
-    "wall_s": 111.1,
+    "wall_s": 123.6,
     "tail": [
       "  J = 1.307e12  t_sw =       225 ps  mz_fin = -0.744",
       "  J = 1.403e12  t_sw =       200 ps  mz_fin = -0.656",
       "  J = 1.500e12  t_sw =       200 ps  mz_fin = -0.846",
-      "Time: 110.1 s  (6884 ms/pt)",
+      "Time: 122.6 s  (7666 ms/pt)",
       "Simulated J_c < 0.437 e12 A/m2",
       "Theory    J_c = 0.210 e12 A/m2",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\22_stt_switching_gpu.png",
@@ -455,14 +455,14 @@
       "  mu0*Heff = 995.3 mT (net PMA after demag)",
       "  Theory J_c = 0.210 e12 A/m2",
       "  Simulated: first switch at J=0.437 e12 A/m2",
-      "  Sweep: 110.1 s  (6884 ms/pt)",
+      "  Sweep: 122.6 s  (7666 ms/pt)",
       "===STDERR==="
     ]
   },
   {
     "nb": "23_sot_thermal_switching_gpu.py",
     "ok": true,
-    "wall_s": 66.7,
+    "wall_s": 72.7,
     "tail": [
       "  J=0.50e12  P_sw=0.00  (0/5)",
       "  J=1.00e12  P_sw=0.00  (0/5)",
@@ -471,7 +471,7 @@
       "  J=2.50e12  P_sw=0.00  (0/5)",
       "  J=3.00e12  P_sw=0.00  (0/5)",
       "  J=5.00e12  P_sw=0.00  (0/5)",
-      "  Time: 40.1 s",
+      "  Time: 43.0 s",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\23_sot_thermal_switching_gpu.png",
       "=== Summary ===",
       "  Theory J_c_SOT = 1.052 e12 A/m2  mu0*Heff=995.3 mT",
@@ -484,7 +484,7 @@
   {
     "nb": "23_stt_thermal_sllg_gpu.py",
     "ok": true,
-    "wall_s": 261.5,
+    "wall_s": 290.0,
     "tail": [
       "  J=0.125e12  T=0: N  T=300K: 0/8",
       "  J=0.200e12  T=0: N  T=300K: 0/8",
@@ -492,7 +492,7 @@
       "  J=0.350e12  T=0: N  T=300K: 0/8",
       "  J=0.425e12  T=0: N  T=300K: 0/8",
       "  J=0.500e12  T=0: N  T=300K: 0/8",
-      "  Time: 155.3 s",
+      "  Time: 171.9 s",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\23_stt_thermal_sllg_gpu.png",
       "=== Summary ===",
       "  J_c (theory) = 0.210 e12 A/m2",
@@ -506,11 +506,11 @@
   {
     "nb": "24_zhangli_dw_gpu.py",
     "ok": true,
-    "wall_s": 227.5,
+    "wall_s": 253.9,
     "tail": [
       "  J = 3.00e12  u = 101.0 m/s  v_dw = -93.3 m/s  (v/u = -0.92)",
       "  J = 4.00e12  u = 134.6 m/s  v_dw = -124.4 m/s  (v/u = -0.92)",
-      "Total sweep: 226.7 s",
+      "Total sweep: 252.8 s",
       "Above-Walker theory (K=0 Py): v=-xi/sqrt(a2+xi2)*u = -0.981*u",
       "  Predicted: ['-7', '-16', '-33', '-49', '-66', '-99', '-132'] m/s",
       "  Simulated: ['-6', '-15', '-31', '-47', '-62', '-93', '-124'] m/s",
@@ -521,44 +521,44 @@
       "  alpha=0.01, P=0.5, xi=0.05",
       "  Walker J_W=0.000 e12  v_W=0.1 m/s",
       "  Max simulated velocity: -6.1 m/s at J=0.20e12",
-      "  Sweep: 226.7 s (32384 ms/pt)",
+      "  Sweep: 252.8 s (36119 ms/pt)",
       "===STDERR==="
     ]
   },
   {
     "nb": "25_stt_gpu_bench.py",
     "ok": true,
-    "wall_s": 25.6,
+    "wall_s": 38.7,
     "tail": [
       "          Grid        N   CPU ms/step   GPU ms/step   Speedup",
       "--------------------------------------------------------------",
-      "  1x1x1        1         0.004         0.416       0.0x",
-      "  10x10x1      100         0.926         0.444       2.1x",
-      "  32x32x1    1,024         2.637         0.498       5.3x",
-      "  64x64x1    4,096         5.518         0.576       9.6x",
-      "  128x128x1   16,384        10.940         0.896      12.2x",
+      "  1x1x1        1         0.004         0.412       0.0x",
+      "  10x10x1      100         0.987         0.474       2.1x",
+      "  32x32x1    1,024         3.278         0.553       5.9x",
+      "  64x64x1    4,096         4.904         0.590       8.3x",
+      "  128x128x1   16,384        10.449         0.903      11.6x",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\25_stt_gpu_bench.png",
       "=== Summary ===",
-      "  1x1x1  N=1  CPU=0.004ms  GPU=0.416ms  0.0x",
-      "  10x10x1  N=100  CPU=0.926ms  GPU=0.444ms  2.1x",
-      "  32x32x1  N=1,024  CPU=2.637ms  GPU=0.498ms  5.3x",
-      "  64x64x1  N=4,096  CPU=5.518ms  GPU=0.576ms  9.6x",
-      "  128x128x1  N=16,384  CPU=10.940ms  GPU=0.896ms  12.2x",
+      "  1x1x1  N=1  CPU=0.004ms  GPU=0.412ms  0.0x",
+      "  10x10x1  N=100  CPU=0.987ms  GPU=0.474ms  2.1x",
+      "  32x32x1  N=1,024  CPU=3.278ms  GPU=0.553ms  5.9x",
+      "  64x64x1  N=4,096  CPU=4.904ms  GPU=0.590ms  8.3x",
+      "  128x128x1  N=16,384  CPU=10.449ms  GPU=0.903ms  11.6x",
       "===STDERR==="
     ]
   },
   {
     "nb": "26_sot_skyrmion_motion_gpu.py",
     "ok": true,
-    "wall_s": 30.5,
+    "wall_s": 32.2,
     "tail": [
       "SOT dynamics: dt=5e-14s, t=0.5ns, 10000 steps/J",
       "    Skyrmion annihilated at t=380ps (Q=0.20)",
       "  J=0.5e12  v_x=402m/s  v_y=72m/s  theta_H=10.1deg  Q_fin=0.20  11s [ANNIHILATED]",
       "  J=1.5e12  v_x=286m/s  v_y=30m/s  theta_H=6.0deg  Q_fin=3.40  14s [OK]",
       "    Skyrmion annihilated at t=200ps (Q=0.08)",
-      "  J=3.0e12  v_x=381m/s  v_y=-324m/s  theta_H=-40.4deg  Q_fin=0.08  5s [ANNIHILATED]",
-      "Total: 30 s",
+      "  J=3.0e12  v_x=381m/s  v_y=-324m/s  theta_H=-40.4deg  Q_fin=0.08  6s [ANNIHILATED]",
+      "Total: 31 s",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\26_sot_skyrmion_motion_gpu.png",
       "=== Summary ===",
       "  Track: 200x100x1, dx=3nm, D=2.0mJ/m2, alpha=0.05",
@@ -572,7 +572,7 @@
   {
     "nb": "26_sot_skyrmion_nucleation_gpu.py",
     "ok": true,
-    "wall_s": 101.9,
+    "wall_s": 108.3,
     "tail": [
       "  J=1.5e12  Q_final=-0.00",
       "  J=2.0e12  Q_final=-0.00",
@@ -580,9 +580,9 @@
       "  J=5.0e12  Q_final=-0.00",
       "  J=8.0e12  Q_final=-0.00",
       "  J=12.0e12  Q_final=0.00",
-      "  Sweep: 73.1 s",
+      "  Sweep: 76.7 s",
       "--- Part C: Time evolution at J_nuc=8.0e12 (Q~-1) ---",
-      "  Time: 9.1 s  Q_final=-0.00",
+      "  Time: 9.5 s  Q_final=-0.00",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\26_sot_skyrmion_nucleation_gpu.png",
       "=== Summary ===",
       "  Disc: 100x100x1, dx=2nm, D=2.5mJ/m2, H_bias=50mT",
@@ -594,10 +594,10 @@
   {
     "nb": "27_zhangli_subwalker_gpu.py",
     "ok": true,
-    "wall_s": 110.4,
+    "wall_s": 121.4,
     "tail": [
       "  J=2.5*J_W (above): final pos=660nm  delta_x=-240nm",
-      "Part B: 24s",
+      "Part B: 25s",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\27_zhangli_subwalker_gpu.png",
       "=== Summary ===",
       "  J_W = 3.797 e12 A/m2,  u_W = 127.78 m/s",
@@ -616,11 +616,11 @@
   {
     "nb": "28_sp4_gpu_validation.py",
     "ok": true,
-    "wall_s": 28.4,
+    "wall_s": 36.2,
     "tail": [
       "  t_switch ~ 147 ps  (muMAG: 175 ps)",
       "--- Part C: CPU RK4 (first 25 ps = 500 steps) ---",
-      "  CPU 50 ps (1000 steps): <mx>=0.938542  <my>=0.307600  (7.78 s)",
+      "  CPU 50 ps (1000 steps): <mx>=0.938542  <my>=0.307600  (14.22 s)",
       "  GPU RK4 ~50 ps: <mx>=0.938542  (t=50 ps)",
       "  CPU/GPU diff: 1.21e-10  (should be < 1e-4)",
       "=== Summary ===",
@@ -629,8 +629,8 @@
       "  Method                  <mx>(1ns)     err%   t_switch(ps)   wall(s)",
       "  --------------------------------------------------------------------",
       "  muMAG consensus           -0.9862       --           ~175        --",
-      "  GPU RK4                   -0.9444     4.24            150      15.3",
-      "  GPU RK45                  -0.9445     4.23            147       4.2",
+      "  GPU RK4                   -0.9444     4.24            150      15.7",
+      "  GPU RK45                  -0.9445     4.23            147       4.3",
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\28_sp4_gpu_validation.png",
       "===STDERR==="
     ]
@@ -638,7 +638,7 @@
   {
     "nb": "29_walker_breakdown_gpu.py",
     "ok": true,
-    "wall_s": 226.6,
+    "wall_s": 248.5,
     "tail": [
       "Plot saved: D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\29_walker_breakdown_gpu.png",
       "=== Summary ===",
@@ -660,7 +660,7 @@
   {
     "nb": "30_thermal_stt_statistics_gpu.py",
     "ok": false,
-    "wall_s": 1500.1,
+    "wall_s": 1500.0,
     "tail": [
       "TIMEOUT"
     ]
@@ -668,7 +668,7 @@
   {
     "nb": "31_phase_m_features.py",
     "ok": true,
-    "wall_s": 0.9,
+    "wall_s": 5.4,
     "tail": [
       "  Max |torque| without PythonField = 5.6067e+10 rad/s (back to original)",
       "--- (C) stray_field() (external dipole) ---",
@@ -690,7 +690,7 @@
   {
     "nb": "32_phase_n_features.py",
     "ok": true,
-    "wall_s": 0.3,
+    "wall_s": 0.4,
     "tail": [
       "--- (C) poisson_disk_grains ---",
       "  Box: 500x500 nm, dx=5 nm, avg_radius=50 nm",
@@ -712,7 +712,7 @@
   {
     "nb": "33_phase_op_features.py",
     "ok": true,
-    "wall_s": 0.2,
+    "wall_s": 0.6,
     "tail": [
       "  name = 'SurfaceAnisotropy'   (expect 'SurfaceAnisotropy')",
       "  After set: Ks = 8.00e-04, n_hat = (1.0,0.0,0.0)",
@@ -734,7 +734,7 @@
   {
     "nb": "34_phase_qr_features.py",
     "ok": true,
-    "wall_s": 18.0,
+    "wall_s": 21.8,
     "tail": [
       "--- (R2) run_until_converged: max_steps guard ---",
       "  max_steps guard: steps=50, converged=False  OK",
@@ -756,7 +756,7 @@
   {
     "nb": "35_phase_uvs_features.py",
     "ok": true,
-    "wall_s": 74.2,
+    "wall_s": 102.7,
     "tail": [
       "--- (S) GPU fields ---",
       "  [SKIP] CUDA build not available - skipping GPU field tests",
@@ -777,90 +777,69 @@
   },
   {
     "nb": "36_phase_wxyz_features.py",
-    "ok": true,
-    "wall_s": 72.2,
+    "ok": false,
+    "wall_s": 0.6,
     "tail": [
-      "  wall/bg ratio: 93.7  (expect > 1)",
-      "  blurred peak / unblurred peak = 0.614  (expect < 1.0)",
-      "  mfm_overlap_integral OK",
-      "  Phase Z OK",
-      "=== Phase W + X + Y + Z API Summary ===",
-      "  W: MagnetoelasticFieldGPU / SurfaceAnisotropyFieldGPU -> IEffectiveFieldGPU",
-      "     fsum.add(me_gpu)  # now valid for FieldSumGPU",
-      "  X: mm.gpu_hysteresis_loop(integ, mat, demag, fsum, zee_gpu, H_list, m_cpu)",
-      "     mm.run_until_converged_gpu(integ, mat, demag, fsum, m_cpu)",
-      "  Y: mm.bilayer(grid, mat_top, mat_bot, t_top)",
-      "     mm.trilayer(grid, mat_top, mat_mid, mat_bot, t_top, t_mid)",
-      "     mm.saf_stack(grid, mat_fl, mat_rl, t_fl, t_rl)",
-      "  Z: mm.mfm_overlap_integral(m, mat, lift_m, tip_sigma, tip_mode)",
-      "     -> (ny,nx) FFT-propagated MFM frequency shift map",
-      "===STDERR==="
+      "  [  2/7] H=+1.592e+05 A/m  mx=+0.9992  my=+0.0000  mz=-0.0000",
+      "  [  3/7] H=+7.958e+04 A/m  mx=+0.9995  my=-0.0000  mz=-0.0000",
+      "  [  4/7] H=-2.910e-11 A/m  mx=+0.9995  my=-0.0000  mz=-0.0000",
+      "  [  5/7] H=-7.958e+04 A/m  mx=+0.9993  my=+0.0000  mz=+0.0000",
+      "  [  6/7] H=-1.592e+05 A/m  mx=+0.9995  my=-0.0000  mz=+0.0000",
+      "  [  7/7] H=-2.387e+05 A/m  mx=+0.9994  my=+0.0000  mz=-0.0000",
+      "  H sweep: 7 points",
+      "  Return keys: ['H', 'Hvec', 'mx', 'my', 'mz']",
+      "  mx values: ['1.000', '0.999', '0.999', '0.999', '0.999', '1.000', '0.999']",
+      "===STDERR===",
+      "Traceback (most recent call last):",
+      "  File \"D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\36_phase_wxyz_features.py\", line 112, in <module>",
+      "    assert res[\"mx\"][-1] < -0.5, f\"mx at -300mT: {res['mx'][-1]}\"",
+      "           ^^^^^^^^^^^^^^^^^^^^",
+      "AssertionError: mx at -300mT: 0.9993633589977603"
     ]
   },
   {
     "nb": "37_new_apis.py",
-    "ok": true,
-    "wall_s": 0.3,
+    "ok": false,
+    "wall_s": 1500.0,
     "tail": [
-      "  OVFWriter+OVFReader roundtrip: max diff=0.00e+00  OK",
-      "  Context-manager form also OK",
-      "--- 6. ZeemanFieldSpatialGPU ---",
-      "  CPU fallback accumulate OK",
-      "  GPU path: left_mx=0.953  right_mx=0.087  (left > right expected)",
-      "  After field flip: left_mx=0.401  right_mx=0.756",
-      "  ZeemanFieldSpatialGPU OK",
-      "=== All new APIs verified ===",
-      "  1. normalize_field(m)",
-      "  2. VectorField3D.__setitem__   m[idx] = Vec3(...)",
-      "  3. MaterialField3D.__setitem__ matf[idx] = Material(...)",
-      "  4. load_profile(fname) -> (pos, vals)",
-      "  5. OVFWriter / OVFReader classes",
-      "  6. ZeemanFieldSpatialGPU  (GPU spatial Zeeman drop-in)",
-      "===STDERR==="
+      "TIMEOUT"
     ]
   },
   {
     "nb": "38_percell_sweep.py",
-    "ok": true,
-    "wall_s": 1.4,
+    "ok": false,
+    "wall_s": 1.0,
     "tail": [
-      "[parameter_sweep] 9/9  D=0.004  K=1100000.0",
-      "  Sweep done in 0.1s (9 cases)",
-      "     D (mJ/m\u00b2)    K (MJ/m\u00b3)        Q",
-      "           2.0         0.50    0.000",
-      "           2.0         0.80    0.000",
-      "           2.0         1.10    0.000",
-      "           3.0         0.50    0.000",
-      "           3.0         0.80    0.000",
-      "           3.0         1.10    0.000",
-      "           4.0         0.50    0.000",
-      "           4.0         0.80    0.000",
-      "           4.0         1.10    0.000",
-      "  Skyrmion states: 0/9",
-      "=== Notebook 38 complete ===",
-      "===STDERR==="
+      "=== Notebook 38: Per-cell GPU Fields + parameter_sweep ===",
+      "    CUDA available: True",
+      "--- 1. voronoi_grains polycrystalline texture ---",
+      "===STDERR===",
+      "Traceback (most recent call last):",
+      "  File \"D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\38_percell_sweep.py\", line 43, in <module>",
+      "    grain_id = mm.voronoi_grains(g, n_grains=12, seed=42)",
+      "TypeError: voronoi_grains(): incompatible function arguments. The following argument types are supported:",
+      "    1. (grid: _micromag.StructuredGrid, n_grains: typing.SupportsInt, base: _micromag.Material, sigma_K: typing.SupportsFloat = 0.0, seed: typing.SupportsInt = 42) -> _micromag.MaterialField3D",
+      "Invoked with: <_micromag.StructuredGrid object at 0x000002C021049670>; kwargs: n_grains=12, seed=42"
     ]
   },
   {
     "nb": "39_write_head_dynamics.py",
-    "ok": true,
-    "wall_s": 0.7,
+    "ok": false,
+    "wall_s": 0.4,
     "tail": [
-      "  Bit 6: x=162nm pol=+, mz=-1.000 [??]",
-      "Write done in 0.40s",
-      "--- Bit pattern readback ---",
-      "Correctly written: 3/8",
-      "Track mz profile (averaged over y) along x:",
-      "  \u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc\u25bc",
-      "  (\u25b2=+z, \u25bc=-z, \u00b7=intermediate)",
-      "  Domain walls detected: 0",
-      "  Expected domain walls: 7",
-      "--- moving_gaussian_field API smoke test ---",
-      "  Peak Hz at head centre: 9.692e+05 A/m (expect \u22481e6)",
-      "  Hz at mid-track (head at edge): 1.035e+00 A/m (expect \u22480)",
-      "All moving_gaussian_field checks passed.",
-      "=== Notebook 39 complete ===",
-      "===STDERR==="
+      "=== Notebook 39: Moving Write-Head Dynamics (Phase D) ===",
+      "    CUDA available: True",
+      "Track: 40\u00d74\u00d71 cells, 200nm \u00d7 20nm \u00d7 5nm",
+      "Material: Ms=0.580 MA/m, K=0.4 MJ/m\u00b3, \u03b1=0.5",
+      "Write-head: H_peak=1.2 MA/m, \u03c3=8nm, v=20m/s",
+      "Bit positions: 7 bits, pitch=25nm",
+      "Polarities: [1, -1, 1, -1, 1, -1, 1, -1]",
+      "===STDERR===",
+      "Traceback (most recent call last):",
+      "  File \"D:\\Claude-Code-R\\Claude-SpinDynamics\\notebooks\\39_write_head_dynamics.py\", line 100, in <module>",
+      "    opts = mm.RelaxGPU.Options()",
+      "           ^^^^^^^^^^^^^^^^^^^",
+      "AttributeError: type object '_micromag.RelaxGPU' has no attribute 'Options'"
     ]
   }
 ]
