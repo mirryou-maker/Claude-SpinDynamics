@@ -100,7 +100,7 @@ void SurfaceAnisotropyField::accumulate(const VectorField3D& m,
 
 // ---------------------------------------------------------------------------
 Real SurfaceAnisotropyField::energy(const VectorField3D& m,
-                                     const Material& mat) const
+                                     [[maybe_unused]] const Material& mat) const
 {
     const auto& g  = m.grid();
     const Real  t  = cell_thickness(g);

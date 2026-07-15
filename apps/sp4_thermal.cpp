@@ -123,7 +123,6 @@ int main() {
     constexpr int  N_real  = 3;        // realizations (balance speed/stats)
 
     // Report thermal noise magnitude
-    const Real V   = dx*dy*dz;
     const Real sig = ThermalField::sigma(300.0, dt, mat, grid);
     std::cout << "=== SP#4  T=300K  (stochastic LLG) ===\n";
     std::cout << "Grid : 200x50x1, " << dx*1e9 << "x" << dy*1e9 << "x" << dz*1e9 << " nm\n";

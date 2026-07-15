@@ -38,7 +38,7 @@ void BulkDMIField::accumulate(const VectorField3D& m,
     }
 }
 
-Real BulkDMIField::energy(const VectorField3D& m, const Material& mat) const {
+Real BulkDMIField::energy(const VectorField3D& m, [[maybe_unused]] const Material& mat) const {
     if (D_ == 0.0) return 0.0;
 
     const StructuredGrid& g = m.grid();
@@ -59,7 +59,7 @@ Real BulkDMIField::energy(const VectorField3D& m, const Material& mat) const {
 }
 
 ScalarField3D BulkDMIField::energy_density(const VectorField3D& m,
-                                            const Material& mat) const {
+                                            [[maybe_unused]] const Material& mat) const {
     ScalarField3D edens(m.grid());
     if (D_ == 0.0) return edens;
 
@@ -105,7 +105,7 @@ void InterfacialDMIField::accumulate(const VectorField3D& m,
 }
 
 Real InterfacialDMIField::energy(const VectorField3D& m,
-                                  const Material& mat) const {
+                                  [[maybe_unused]] const Material& mat) const {
     if (D_ == 0.0) return 0.0;
 
     const StructuredGrid& g = m.grid();
@@ -127,7 +127,7 @@ Real InterfacialDMIField::energy(const VectorField3D& m,
 }
 
 ScalarField3D InterfacialDMIField::energy_density(const VectorField3D& m,
-                                                   const Material& mat) const {
+                                                   [[maybe_unused]] const Material& mat) const {
     ScalarField3D edens(m.grid());
     if (D_ == 0.0) return edens;
 

@@ -657,7 +657,6 @@ TEST_CASE("InterExchange: A_IEC=0 cuts exchange at region boundary", "[inter_exc
 
 TEST_CASE("InterExchange: set_inter_exchange is symmetric", "[inter_exchange]") {
     StructuredGrid g(1, 1, 1, 5e-9, 5e-9, 5e-9);
-    Material mat = Material::permalloy();
     ExchangeField exch(BoundaryCondition::Neumann);
     exch.set_inter_exchange(uint8_t{3}, uint8_t{7}, Real{5e-12});
     REQUIRE_THAT(exch.inter_exchange(3, 7), WithinRel(5e-12, 1e-10));

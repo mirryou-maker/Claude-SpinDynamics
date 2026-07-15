@@ -46,7 +46,7 @@ void CubicAnisotropyField::accumulate(const VectorField3D& m,
 }
 
 Real CubicAnisotropyField::energy(const VectorField3D& m,
-                                   const Material& mat) const {
+                                   [[maybe_unused]] const Material& mat) const {
     if (Kc1_ == 0 && Kc2_ == 0) return 0;
 
     Vec3 c3 = c1_.cross(c2_);
@@ -66,7 +66,7 @@ Real CubicAnisotropyField::energy(const VectorField3D& m,
 }
 
 ScalarField3D CubicAnisotropyField::energy_density(const VectorField3D& m,
-                                                    const Material& mat) const {
+                                                    [[maybe_unused]] const Material& mat) const {
     ScalarField3D edens(m.grid());
     if (Kc1_ == 0 && Kc2_ == 0) return edens;
 

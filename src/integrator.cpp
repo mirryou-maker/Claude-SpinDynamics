@@ -123,45 +123,6 @@ void axpy_rk45(VectorField3D& out, const VectorField3D& a,
         out[i] = a[i] + k[i] * s;
 }
 
-// in-place multi-axpy helper
-void multi_axpy(VectorField3D& out, const VectorField3D& base,
-                Real h,
-                Real c1, const VectorField3D& k1,
-                Real c2, const VectorField3D& k2,
-                Real c3, const VectorField3D& k3) {
-    const Real hc1 = h * c1, hc2 = h * c2, hc3 = h * c3;
-    const Index N = base.size();
-    #pragma omp parallel for schedule(static) if(N > 4096)
-    for (Index i = 0; i < N; ++i)
-        out[i] = base[i] + k1[i]*hc1 + k2[i]*hc2 + k3[i]*hc3;
-}
-void multi_axpy4(VectorField3D& out, const VectorField3D& base,
-                 Real h,
-                 Real c1, const VectorField3D& k1,
-                 Real c2, const VectorField3D& k2,
-                 Real c3, const VectorField3D& k3,
-                 Real c4, const VectorField3D& k4) {
-    const Real hc1=h*c1, hc2=h*c2, hc3=h*c3, hc4=h*c4;
-    const Index N = base.size();
-    #pragma omp parallel for schedule(static) if(N > 4096)
-    for (Index i = 0; i < N; ++i)
-        out[i] = base[i] + k1[i]*hc1 + k2[i]*hc2 + k3[i]*hc3 + k4[i]*hc4;
-}
-void multi_axpy5(VectorField3D& out, const VectorField3D& base,
-                 Real h,
-                 Real c1, const VectorField3D& k1,
-                 Real c2, const VectorField3D& k2,
-                 Real c3, const VectorField3D& k3,
-                 Real c4, const VectorField3D& k4,
-                 Real c5, const VectorField3D& k5) {
-    const Real hc1=h*c1, hc2=h*c2, hc3=h*c3, hc4=h*c4, hc5=h*c5;
-    const Index N = base.size();
-    #pragma omp parallel for schedule(static) if(N > 4096)
-    for (Index i = 0; i < N; ++i)
-        out[i] = base[i] + k1[i]*hc1 + k2[i]*hc2 + k3[i]*hc3
-               + k4[i]*hc4 + k5[i]*hc5;
-}
-
 }  // namespace
 
 RK45Integrator::RK45Integrator(Options opts)

@@ -246,7 +246,6 @@ void bind_core(py::module_& m) {
                 const VectorField3D& mv,
                 const Material& mat) -> py::array_t<double> {
                  auto signal = mfm.compute(mv, mat);
-                 const Index nx = mfm.lift() >= 0 ? mv.grid().nx() : mv.grid().nx();
                  const Index ny = mv.grid().ny();
                  const Index nxg = mv.grid().nx();
                  py::array_t<double> arr({(Py_ssize_t)ny, (Py_ssize_t)nxg});

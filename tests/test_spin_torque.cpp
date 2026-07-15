@@ -25,11 +25,6 @@ static StructuredGrid single_cell() {
     return StructuredGrid(1, 1, 1, 2e-9, 2e-9, 2e-9);
 }
 
-static Material cobalt_nm() {
-    // Cobalt with 2 nm thickness (d used in STT/SOT formulas)
-    return Material::cobalt();
-}
-
 // ============================================================
 // a_J / a_SOT formula checks
 // ============================================================

@@ -17,8 +17,8 @@
 // ---------------------------------------------------------------
 static void print_row(int step, double dt,
                       const micromag::VectorField3D& m,
-                      const micromag::EffectiveFieldSum& heff,
-                      const micromag::Material& mat) {
+                      [[maybe_unused]] const micromag::EffectiveFieldSum& heff,
+                      [[maybe_unused]] const micromag::Material& mat) {
     micromag::Vec3 mv = m.at(0, 0, 0);
     std::cout << std::left
               << std::setw(8)  << step

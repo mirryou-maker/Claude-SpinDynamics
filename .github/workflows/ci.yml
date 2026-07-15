@@ -99,3 +99,30 @@ jobs:
         run: |
           $env:PYTHONPATH = "build/ci-windows/python"
           python -m pytest tests/python -q
+
+  # Static analysis — informational only (continue-on-error): findings appear
+  # in the log/summary but never block the build jobs.
+  clang-tidy:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential cmake ninja-build libfftw3-dev clang-tidy
+          python3 -m pip install --user --break-system-packages "pybind11>=2.12,<4"
+
+      - name: Configure (compile database)
+        run: cmake --preset linux-gcc -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run clang-tidy (C++ sources only; .cu excluded)
+        run: |
+          clang-tidy --version
+          clang-tidy -p build/linux-gcc --quiet \
+            --extra-arg=-Wno-unknown-warning-option \
+            src/*.cpp 2>/dev/null | tee tidy.log || true
+          echo "=== clang-tidy findings: $(grep -cE 'warning:|error:' tidy.log || echo 0) ==="
+          echo "### clang-tidy: $(grep -cE 'warning:|error:' tidy.log || echo 0) findings" >> "$GITHUB_STEP_SUMMARY"

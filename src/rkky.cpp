@@ -23,7 +23,7 @@ void RKKYField::accumulate(const VectorField3D& /*m*/,
 
 // E = -mu_0/2 * Ms * Sum(m . H_RKKY) * dV
 //   = (J / (2 * d)) * Sum(m . m_ref) * dV
-Real RKKYField::energy(const VectorField3D& m, const Material& mat) const
+Real RKKYField::energy(const VectorField3D& m, [[maybe_unused]] const Material& mat) const
 {
     const Real dV    = m.grid().cell_volume();
     // E = -J/(2d) * Sum(m.m_ref) * dV

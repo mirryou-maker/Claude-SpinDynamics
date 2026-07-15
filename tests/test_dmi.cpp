@@ -62,7 +62,6 @@ TEST_CASE("BulkDMI: gradient in x produces Hz via curl", "[dmi]") {
     // Set up linear mz variation along x: mz(i) = 0.1*i*dx/L
     StructuredGrid g(5, 1, 1, 4e-9, 4e-9, 4e-9);
     VectorField3D mv(g), H(g);
-    const Real dx = g.dx();
     // mx=1 everywhere, mz varies linearly
     for (Index ix = 0; ix < g.nx(); ++ix) {
         Real mz = static_cast<Real>(ix) * 0.1;

@@ -25,15 +25,18 @@ endif()
 
 # Warnings -------------------------------------------------------------------
 # CXX only — nvcc host-compiler warning passthrough is noisy and non-actionable.
-# Not -Werror (yet): the goal is visibility in CI logs; promote once clean.
+# Warnings are errors: the tree is warning-clean on MSVC /W4 and GCC
+# -Wall -Wextra; CI (both jobs) enforces it stays that way.
 if(MSVC)
-    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>
+                        $<$<COMPILE_LANGUAGE:CXX>:/WX>)
     # ovf_io/vtk_writer use portable C stdio (fopen) on purpose — the
     # std::ofstream path deadlocked under the CUDA build's mixed CRT.
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall>
-                        $<$<COMPILE_LANGUAGE:CXX>:-Wextra>)
+                        $<$<COMPILE_LANGUAGE:CXX>:-Wextra>
+                        $<$<COMPILE_LANGUAGE:CXX>:-Werror>)
 endif()
 
 # Position-independent code (needed for pybind11) ---------------------------

@@ -16,18 +16,6 @@ using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
 
 // ---------------------------------------------------------------------------
-// Helper: single-cell grid with Zeeman only (no exchange, no demag)
-// ---------------------------------------------------------------------------
-static std::pair<VectorField3D, EffectiveFieldSum>
-make_single_spin(Vec3 H_ext) {
-    StructuredGrid g(1, 1, 1, 1e-9, 1e-9, 1e-9);
-    VectorField3D m(g);
-    EffectiveFieldSum heff;
-    heff.add(std::make_shared<ZeemanField>(H_ext));
-    return {m, std::move(heff)};
-}
-
-// ---------------------------------------------------------------------------
 // 1. Pure Larmor precession (α = 0): |m| and m·Ĥ conserved
 // ---------------------------------------------------------------------------
 TEST_CASE("RK45: Larmor precession conserves |m| and m·H", "[rk45]") {

@@ -205,7 +205,7 @@ TEST_CASE("HeunIntegratorGPU T=300K: |m|=1 after 20 steps", "[heun][gpu]") {
     // (if still exactly at m0, something is wrong)
     Vec3 avg{0,0,0};
     for (Index i=0; i<g.size(); ++i) {avg.x+=m[i].x; avg.y+=m[i].y; avg.z+=m[i].z;}
-    const double N = g.size();
+    const double N = static_cast<double>(g.size());
     // System is driven by field — check that it changed from initial state
     REQUIRE(std::abs(avg.x/N - 1.0) > 1e-6);  // moved from mx=1
 }

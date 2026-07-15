@@ -60,6 +60,11 @@ must sit at the package root. Without it every example fails at import.
 - **.bat files**: CRLF line endings (LF-only bats mis-execute).
 - Shell scripts destined for Linux: LF (`sed -i 's/\r$//'` after editing on
   Windows).
+- **Stale Python package in build trees**: `build/<preset>/python/micromag/` is
+  a POST_BUILD **copy** of `python/micromag/` — editing the source package
+  without rebuilding `_micromag` (or manually `cmake -E copy_directory`) leaves
+  every build tree running the old code. Always rebuild (or re-copy) after
+  touching `python/micromag/**` before packaging or testing.
 
 ## 4. Smoke test each package (fresh shell, no dev env)
 

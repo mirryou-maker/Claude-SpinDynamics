@@ -53,7 +53,6 @@ static Material make_py() {
 // ---------------------------------------------------------------------------
 static Vec3 run_stt_gpu(ISpinTorqueGPU& stt_gpu, Vec3 m_vec, const Material& mat) {
     const StructuredGrid g = single_cell_grid();
-    const int N = 1;
 
     // Upload m to device (device buffers use GReal to match accumulate_gpu_ptr)
     GReal h_m[3] = {static_cast<GReal>(m_vec.x),

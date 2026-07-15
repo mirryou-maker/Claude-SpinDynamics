@@ -189,8 +189,6 @@ VectorField3D load_ovf(const std::string& filename) {
     bool   binary8 = false;
     bool   binary4 = false;
     bool   in_data = false;
-    bool   header_done = false;
-    int    ovf_version = 2;
 
     std::string line;
     std::string val;
@@ -211,9 +209,7 @@ VectorField3D load_ovf(const std::string& filename) {
 
         // Parse known header keys
         if (parse_header_line(line, "OOMMF", val)) {
-            if (val.find("1.0") != std::string::npos) ovf_version = 1;
-            else ovf_version = 2;
-            continue;
+            continue;   // OVF 1.0 and 2.0 headers are parsed identically below
         }
         if (parse_header_line(line, "xnodes", val)) { nx = std::stoi(val); continue; }
         if (parse_header_line(line, "ynodes", val)) { ny = std::stoi(val); continue; }

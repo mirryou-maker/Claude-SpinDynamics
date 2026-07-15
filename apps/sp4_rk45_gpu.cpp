@@ -164,8 +164,6 @@ int main() {
 
         // Speedup vs GPU RK4 (same step count as baseline)
         const int rk4_steps = 6000;
-        const double rk4_ms_step = 1.4;   // from G7 benchmark
-        const double rk4_equiv_wall = rk4_steps * rk4_ms_step / 1000.0;
         std::cout << "  vs GPU RK4 (6000 steps):  RK45 used "
                   << std::setprecision(1)
                   << 100.0 * n_acc / rk4_steps << "% as many accepted steps\n";

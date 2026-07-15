@@ -54,7 +54,7 @@ void MagnetoelasticField::accumulate(const VectorField3D& m,
 
 // ---------------------------------------------------------------------------
 Real MagnetoelasticField::energy(const VectorField3D& m,
-                                  const Material& mat) const
+                                  [[maybe_unused]] const Material& mat) const
 {
     const auto& g  = m.grid();
     const Real  dV = g.dx() * g.dy() * g.dz();

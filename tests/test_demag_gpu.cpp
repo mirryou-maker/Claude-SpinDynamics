@@ -41,16 +41,6 @@ compute_both(const StructuredGrid& g, const Material& mat, const Vec3& m_dir)
 }
 
 // Per-cell max absolute and relative errors
-static double max_abs_diff(const VectorField3D& a, const VectorField3D& b)
-{
-    double mx = 0;
-    for (Index i = 0; i < a.size(); ++i) {
-        mx = std::max(mx, std::abs(a[i].x - b[i].x));
-        mx = std::max(mx, std::abs(a[i].y - b[i].y));
-        mx = std::max(mx, std::abs(a[i].z - b[i].z));
-    }
-    return mx;
-}
 static double max_rel_diff(const VectorField3D& a, const VectorField3D& b, double tol_abs)
 {
     double mx = 0;
