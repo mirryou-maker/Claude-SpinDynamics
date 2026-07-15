@@ -15,6 +15,15 @@ if(NOT Catch2_FOUND)
         GIT_SHALLOW    TRUE)
     FetchContent_MakeAvailable(Catch2)
     list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)  # for catch_discover_tests
+    # GCC 15 (Ubuntu 26.04) LTO regression: Catch2's Release interprocedural
+    # optimisation makes the test exes fail to link (undefined reference to
+    # __cxa_call_terminate, even though libstdc++ exports it). Force LTO off on
+    # the fetched Catch2 targets — harmless on older toolchains, unblocks GCC 15.
+    foreach(_c2 Catch2 Catch2WithMain)
+        if(TARGET ${_c2})
+            set_target_properties(${_c2} PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+        endif()
+    endforeach()
 endif()
 
 add_executable(unit_tests
@@ -80,4 +89,9 @@ if(MICROMAG_USE_CUDA)
         target_link_options(unit_tests_gpu PRIVATE /NODEFAULTLIB:LIBCMT)
     endif()
     catch_discover_tests(unit_tests_gpu)
+    set_target_properties(unit_tests_gpu PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 endif()
+
+# Belt-and-suspenders for the GCC 15 LTO issue (see Catch2 note above): keep the
+# test executables themselves out of LTO too.
+set_target_properties(unit_tests PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)

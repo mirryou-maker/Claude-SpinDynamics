@@ -110,9 +110,17 @@ cmake --build build/linux-gcc -j$(nproc)
 FFTW is found via pkg-config and pybind11 via `python -m pybind11 --cmakedir`
 when no CMake config package is present (`linux-gcc-cuda` adds the CUDA backend
 on a host with the NVIDIA toolkit). CPU performance is on par with the Windows
-build — see [CPU parity benchmark](benchmarks/linux_cpu_parity.md). *The one
-skipped assertion is an FFTW-implementation-sensitive MFM peak location, not a
+build, and GPU performance matches within ~1% on a native-Linux GPU host — see
+[Linux parity benchmark](benchmarks/linux_cpu_parity.md). *The one WSL-skipped
+assertion is an FFTW-implementation-sensitive MFM peak location, not a
 portability defect.*
+
+> **Toolchain matching:** to build the C++ **test** executables, keep the host
+> GCC within the CUDA toolkit's supported range (CUDA 12.x → GCC ≤ 13; CUDA 13.x
+> → newer). On an unsupported combo (e.g. GCC 15 + CUDA 12.4) the *tests* may not
+> link — the library, CUDA backend, and Python module build regardless; pass
+> `-DMICROMAG_BUILD_TESTS=OFF` if you only need the simulator. Details in the
+> parity doc above.
 
 ### Build variants (CPU / GPU · precision · FFT backend)
 

@@ -87,16 +87,27 @@ launch-bound and the L4 (with CUDA-graph replay) is actually faster there. This
 validates the **f64** path end-to-end on Linux; f32/Blackwell Tensor-Core-FFT
 speedups are not exercised on L4 (would need `p6-b200`, `CUDA_ARCH=100`).
 
-> **Build note (Ubuntu 26.04 / GCC 15 — bleeding edge):** the library, the CUDA
-> backend, and the Python module all build and run cleanly (this is how the GPU
-> parity above was measured). Only the C++ **test executables** (`unit_tests`,
-> `unit_tests_gpu`) fail to *link* — `undefined reference to
-> __cxa_call_terminate`, emitted by **Catch2's own Release LTO** under GCC 15
-> (reproduced with both Catch2 v3.5.2 and v3.8.1, so it is a toolchain issue, not
-> a Catch2-version one). It does **not** affect the library or Python module.
-> On the realistic **Ubuntu 24.04 LTS (GCC 13)** target the tests build and pass
-> 231/232. Workaround if you need the C++ tests on GCC 15: disable Catch2's LTO
-> or use the GCC-13 toolchain.
+### Build note — C++ test executables on bleeding-edge toolchains
+
+The library, the CUDA backend, and the **Python module always build and run**
+(this is how the GPU parity above was measured). Only the C++ **test
+executables** can fail to *link* on very new toolchains — two distinct,
+**toolchain** causes (neither is a code defect nor instance-specific):
+
+| target | cause | status |
+|---|---|---|
+| `unit_tests` (CPU) | Catch2's Release **LTO** mis-links `__cxa_call_terminate` under **GCC 15** (the symbol *is* in libstdc++). | **Fixed** — `tests/CMakeLists.txt` forces `INTERPROCEDURAL_OPTIMIZATION OFF` on the Catch2 + test targets. 232/232 pass on GCC 15. |
+| `unit_tests_gpu` (GPU) | **CUDA 12.4 + GCC 15.2 is an unsupported combo** (CUDA 12.4 supports host GCC ≤ 13). The nvcc-driven link can't resolve Catch2's versioned `__cxa_call_terminate`. | Environmental — resolved by matching the toolchain (below). |
+
+**Countermeasures for anyone building from source on native Linux:**
+1. **Match CUDA toolkit ↔ host GCC** (a standard CUDA requirement): CUDA 12.x →
+   GCC ≤ 13; CUDA 13.x → newer GCC. On **Ubuntu 24.04 LTS (GCC 13)** with CUDA
+   12.x — or the project's target CUDA 13.2 — the full test suite builds and
+   passes. If stuck on GCC 15 + CUDA 12.x, install GCC 13 and point CUDA at it:
+   `cmake --preset linux-gcc-cuda -DCMAKE_CUDA_HOST_COMPILER=g++-13`.
+2. **Just want to *use* the simulator?** `-DMICROMAG_BUILD_TESTS=OFF` — the
+   library + CUDA backend + Python module build cleanly on any toolchain,
+   including GCC 15 / CUDA 12.4. The tests are a developer convenience only.
 
 ## Reproduce
 ```bash
