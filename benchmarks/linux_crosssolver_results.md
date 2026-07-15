@@ -31,6 +31,25 @@ tier, not a like-for-like comparison.)
 | S5 |   2.5 M | 3D | 299.1  | 80.27  | 69.46  | 1.16× |
 | L4M | 4.19 M | 3D |   —    | 133.2  | 121.4  | **1.10× — near parity** |
 
+## Realistic multi-field workload — DMI + PMA (skyrmion film)
+
+Same sweep with `--physics dmi` (Pt/Co-like: demag + exchange + **interfacial
+DMI + uniaxial PMA**, Ms = 580 kA/m, A = 15 pJ/m, K = 0.8 MJ/m³, D = 3 mJ/m²) —
+the workload class where CS's per-field kernels and mumax3's fused pipeline
+differ most, and the physics regime (skyrmions) where CS's f64/topology
+capabilities matter. Raw: `_crosssolver_linux_L4_dmi.json`.
+
+| grid | cells | CS f32 | mumax3 f32 | CS/mumax3 |
+|---|--:|--:|--:|:--:|
+| S2 |  10 K | 0.178 | 0.431 | **0.41× — CS 2.4× faster** |
+| S1 |  65 K | 0.680 | 0.706 | **0.96× — on par** |
+| S3 | 540 K | 13.97 | 8.32 | 1.68× |
+| S5 | 2.5 M | 82.7 | 70.7 | 1.17× |
+
+**The crossover curve is unchanged from the demag+exchange case** (0.42/0.96/
+1.63/1.16 there) — the small-grid advantage is robust to adding DMI + anisotropy,
+i.e. it is not an artifact of a minimal field set.
+
 ## Interpretation
 
 Three regimes, all on the same Linux host:
@@ -61,8 +80,12 @@ platform-robust, not a Windows artefact.
 - To state the **headline f32/Blackwell** numbers on Linux with identical silicon,
   run this same harness on a Blackwell-Linux host (RTX 50-series workstation or
   AWS `p6-b200`, `CUDA_ARCH=100`). That is the one remaining measurement.
-- mumax3 v3.12 (Linux) vs v3.11.1 (Windows campaign): a minor version delta;
-  mumax3 throughput is stable across these releases.
+- mumax3 v3.12 (Linux) vs v3.11.1 (Windows campaign): **measured on the campaign
+  GPU** (RTX 5060 Ti, Win11, same grids/methodology —
+  `_mumax_version_delta_win_5060ti.json`): v3.12/v3.11.1 = 1.08× @ 10 K,
+  1.00× @ 65 K, 1.01× @ 540 K. The ≤8 % small-grid delta (v3.12 slightly
+  *slower*) is far below the 2.4× CS margin there — the version difference does
+  not affect any conclusion.
 
 ## Bottom line
 
