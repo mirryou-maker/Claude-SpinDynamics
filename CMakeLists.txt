@@ -355,6 +355,10 @@ if(MICROMAG_BUILD_PYTHON)
                 OUTPUT_VARIABLE _pb11_dir OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
         endif()
         if(_pb11_dir)
+            # `python -m pybind11 --cmakedir` prints backslashes on Windows,
+            # which break downstream string parsing (e.g. vcpkg's find_package
+            # wrapper). Normalise to forward slashes first.
+            file(TO_CMAKE_PATH "${_pb11_dir}" _pb11_dir)
             find_package(pybind11 CONFIG REQUIRED PATHS "${_pb11_dir}")
         else()
             find_package(pybind11 CONFIG REQUIRED)   # emit the standard error

@@ -48,6 +48,10 @@ DEFAULT_GRIDS = [
 
 # Matched physics (mumax3 fair-comparison .mx3).
 MSAT, AEX, ALPHA, DT = 860e3, 13e-12, 0.02, 5e-14
+# --physics dmi: skyrmion-type PMA film (Pt/Co-like) — demag + exchange +
+# interfacial DMI + uniaxial PMA. Exercises the realistic multi-field workload
+# where CS's per-field kernels and mumax3's fused pipeline differ most.
+DMI_MSAT, DMI_AEX, DMI_K, DMI_D = 580e3, 1.5e-11, 0.8e6, 3.0e-3
 REPEATS = 5
 EVALS = 4  # eval/step used for ms/eval column
 
@@ -55,7 +59,7 @@ EVALS = 4  # eval/step used for ms/eval column
 # ---------------------------------------------------------------------------
 # Claude-SD side (runs inside one build's module via --cs-worker re-exec)
 # ---------------------------------------------------------------------------
-def cs_worker(build_dir, grids):
+def cs_worker(build_dir, grids, physics="basic"):
     if hasattr(os, "add_dll_directory"):
         pass  # Linux: no-op
     sys.path.insert(0, build_dir)
@@ -71,15 +75,28 @@ def cs_worker(build_dir, grids):
         dx = 3.0e-9
         g = mm.StructuredGrid(nx, ny, nz, dx, dx, dx)
         mat = mm.Material.permalloy()
-        mat.Ms = MSAT
-        mat.A_exchange = AEX
         mat.alpha = ALPHA
         demag = mm.DemagFieldGPU(g)
         exch  = mm.ExchangeFieldGPU(g)
         zee   = mm.ZeemanFieldGPU(g, mm.Vec3(0.0, 0.0, 0.0))
         fs = mm.FieldSumGPU(); fs.add(exch); fs.add(zee)
+        if physics == "dmi":
+            mat.Ms = DMI_MSAT
+            mat.A_exchange = DMI_AEX
+            mat.K_uniaxial = DMI_K
+            mat.easy_axis = mm.Vec3(0, 0, 1)
+            fs.add(mm.UniaxialAnisotropyFieldGPU(g))
+            fs.add(mm.InterfacialDMIFieldGPU(g, DMI_D))
+        else:
+            mat.Ms = MSAT
+            mat.A_exchange = AEX
         rk = mm.RK4IntegratorGPU(g, DT)
-        m0 = mm.VectorField3D(g); m0.set_uniform(mm.Vec3(1.0, 0.05, 0.0)); m0.normalize()
+        m0 = mm.VectorField3D(g)
+        if physics == "dmi":
+            m0.set_uniform(mm.Vec3(0.05, 0.0, 1.0))
+        else:
+            m0.set_uniform(mm.Vec3(1.0, 0.05, 0.0))
+        m0.normalize()
         rk.upload(m0)
         m_cpu = mm.VectorField3D(g)
         cells = nx * ny * nz
@@ -109,10 +126,10 @@ def cs_worker(build_dir, grids):
     print("RESULT_JSON " + json.dumps(out))
 
 
-def run_cs_build(py, build_dir, grids):
+def run_cs_build(py, build_dir, grids, physics="basic"):
     arg = json.dumps(grids)
     p = subprocess.run([py, "-u", str(HERE / "linux_crosssolver_bench.py"),
-                        "--cs-worker", build_dir, arg],
+                        "--cs-worker", build_dir, arg, physics],
                        capture_output=True, text=True, timeout=2400)
     for line in p.stdout.splitlines():
         if line.startswith("RESULT_JSON "):
@@ -124,13 +141,21 @@ def run_cs_build(py, build_dir, grids):
 # ---------------------------------------------------------------------------
 # mumax3 side (subprocess, two-run subtraction)
 # ---------------------------------------------------------------------------
-def mx3_text(nx, ny, nz, nsteps):
+def mx3_text(nx, ny, nz, nsteps, physics="basic"):
     dz = 20e-9 if nz == 1 else 5e-9
+    if physics == "dmi":
+        body = (f"Msat  = {DMI_MSAT}\nAex = {DMI_AEX}\nalpha = {ALPHA}\n"
+                f"Ku1 = {DMI_K}\nanisU = vector(0, 0, 1)\n"
+                f"Dind = {DMI_D}\n"
+                f"m = uniform(0.05, 0, 1)\n")
+    else:
+        body = (f"Msat  = {MSAT}\nAex = {AEX}\nalpha = {ALPHA}\n"
+                f"m = uniform(1, 0.05, 0)\n")
     return (f"SetGridSize({nx}, {ny}, {nz})\n"
             f"SetCellSize(5e-9, 5e-9, {dz})\n"
-            f"Msat  = {MSAT}\nAex = {AEX}\nalpha = {ALPHA}\n"
+            + body +
             f"setsolver(4)\nFixDt = {DT}\n"
-            f"m = uniform(1, 0.05, 0)\nB_ext = vector(0,0,0)\n"
+            f"B_ext = vector(0,0,0)\n"
             f"steps({nsteps})\n")
 
 
@@ -141,9 +166,9 @@ def step_counts_mx(cells):
     return 50, 250
 
 
-def run_mumax(exe, nx, ny, nz, nsteps, tmp):
+def run_mumax(exe, nx, ny, nz, nsteps, tmp, physics="basic"):
     mx = tmp / f"_x_{nx}_{ny}_{nz}_{nsteps}.mx3"
-    mx.write_text(mx3_text(nx, ny, nz, nsteps))
+    mx.write_text(mx3_text(nx, ny, nz, nsteps, physics))
     out = tmp / f"{mx.stem}.out"
     if out.exists():
         shutil.rmtree(out, ignore_errors=True)
@@ -158,14 +183,14 @@ def run_mumax(exe, nx, ny, nz, nsteps, tmp):
     return wall, ok
 
 
-def bench_mumax(exe, nx, ny, nz, tmp):
+def bench_mumax(exe, nx, ny, nz, tmp, physics="basic"):
     cells = nx * ny * nz
     n1, n2 = step_counts_mx(cells)
-    run_mumax(exe, nx, ny, nz, 10, tmp)          # warmup
+    run_mumax(exe, nx, ny, nz, 10, tmp, physics) # warmup
     ms = []
     for _ in range(REPEATS):
-        t1, ok1 = run_mumax(exe, nx, ny, nz, n1, tmp)
-        t2, ok2 = run_mumax(exe, nx, ny, nz, n2, tmp)
+        t1, ok1 = run_mumax(exe, nx, ny, nz, n1, tmp, physics)
+        t2, ok2 = run_mumax(exe, nx, ny, nz, n2, tmp, physics)
         if ok1 and ok2:
             ms.append((t2 - t1) / (n2 - n1) * 1e3)
     if not ms:
@@ -188,19 +213,21 @@ def parse_grids(spec):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cs-worker", nargs=2, default=None,
-                    help=argparse.SUPPRESS)   # <build_dir> <grids_json>
+    ap.add_argument("--cs-worker", nargs=3, default=None,
+                    help=argparse.SUPPRESS)   # <build_dir> <grids_json> <physics>
     ap.add_argument("--mumax", default="")
     ap.add_argument("--cs-f64", default="")
     ap.add_argument("--cs-f32", default="")
     ap.add_argument("--grids", default="")
     ap.add_argument("--json", default="")
     ap.add_argument("--py", default=sys.executable)
+    ap.add_argument("--physics", choices=["basic", "dmi"], default="basic",
+                    help="basic = demag+exchange; dmi = +interfacial DMI +PMA (skyrmion film)")
     args = ap.parse_args()
 
     if args.cs_worker:
-        build_dir, grids_json = args.cs_worker
-        cs_worker(build_dir, json.loads(grids_json))
+        build_dir, grids_json, physics = args.cs_worker
+        cs_worker(build_dir, json.loads(grids_json), physics)
         return
 
     grids = parse_grids(args.grids) if args.grids else DEFAULT_GRIDS
@@ -216,7 +243,7 @@ def main():
         if not bd or not pathlib.Path(bd).exists():
             print(f"# skip {name}: build dir missing ({bd})")
             continue
-        res = run_cs_build(args.py, bd, [list(g) for g in grids])
+        res = run_cs_build(args.py, bd, [list(g) for g in grids], args.physics)
         if res:
             for r in res:
                 if r.get("ok"):
@@ -227,7 +254,7 @@ def main():
     if args.mumax and pathlib.Path(args.mumax).expanduser().exists():
         exe = str(pathlib.Path(args.mumax).expanduser())
         for sid, nx, ny, nz, dim in grids:
-            r = bench_mumax(exe, nx, ny, nz, tmp)
+            r = bench_mumax(exe, nx, ny, nz, tmp, args.physics)
             if r:
                 data[sid]["mumax3_f32"] = r
             else:
