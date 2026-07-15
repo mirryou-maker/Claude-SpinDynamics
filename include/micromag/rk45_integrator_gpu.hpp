@@ -31,18 +31,23 @@
 
 namespace micromag {
 
+// Hoisted to namespace scope so `Options opts = {}` default arguments below do
+// not trip a GCC bug (a nested aggregate with default member initializers used
+// as an in-class default argument). The in-class `using` keeps RK45IntegratorGPU::Options.
+struct RK45IntegratorGPUOptions {
+    Real rtol    = 1e-4;
+    Real atol    = 1e-6;
+    Real dt_init = 5e-14;
+    Real dt_min  = 1e-16;
+    Real dt_max  = 1e-11;
+    Real safety  = 0.9;
+    Real fac_min = 0.2;
+    Real fac_max = 5.0;
+};
+
 class RK45IntegratorGPU {
 public:
-    struct Options {
-        Real rtol    = 1e-4;
-        Real atol    = 1e-6;
-        Real dt_init = 5e-14;
-        Real dt_min  = 1e-16;
-        Real dt_max  = 1e-11;
-        Real safety  = 0.9;
-        Real fac_min = 0.2;
-        Real fac_max = 5.0;
-    };
+    using Options = RK45IntegratorGPUOptions;
 
     explicit RK45IntegratorGPU(const StructuredGrid& grid, Options opts = {});
     ~RK45IntegratorGPU();

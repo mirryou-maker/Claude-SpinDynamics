@@ -30,16 +30,21 @@ namespace micromag {
 //   relax.run(mat, demag, exch, zeeman);  // blocks until converged
 //   relax.download(m_out);
 // ---------------------------------------------------------------------------
+// Hoisted to namespace scope (see RK45IntegratorGPUOptions note) so the
+// `Options opts = {}` default arguments below compile on GCC. The in-class
+// `using` alias preserves RelaxGPU::Options for callers and Python bindings.
+struct RelaxGPUOptions {
+    Real alpha_relax   = 1.0;    // effective alpha during relaxation
+    Real threshold     = 1.0;    // |m×H|_max [A/m]
+    Real dt            = 1e-12;  // fixed step [s]
+    int  max_steps     = 500'000;
+    int  check_every   = 200;    // convergence check interval (GPU iterations)
+    bool throw_on_max  = false;  // throw if max_steps reached without convergence
+};
+
 class RelaxGPU {
 public:
-    struct Options {
-        Real alpha_relax   = 1.0;    // effective alpha during relaxation
-        Real threshold     = 1.0;    // |m×H|_max [A/m]
-        Real dt            = 1e-12;  // fixed step [s]
-        int  max_steps     = 500'000;
-        int  check_every   = 200;    // convergence check interval (GPU iterations)
-        bool throw_on_max  = false;  // throw if max_steps reached without convergence
-    };
+    using Options = RelaxGPUOptions;
 
     explicit RelaxGPU(const StructuredGrid& grid);
     ~RelaxGPU();
@@ -106,17 +111,19 @@ private:
 // grows dt on successful energy decrease, shrinks on energy increase.
 // Requires GPU energy computation (dot-product reduction).
 // ---------------------------------------------------------------------------
+struct MinimizeGPUOptions {
+    Real threshold   = 1.0;    // |m×H|_max [A/m]
+    Real dt_init     = 1e-12;
+    Real dt_max      = 1e-10;
+    Real dt_min      = 1e-17;
+    int  max_steps   = 200'000;
+    int  check_every = 100;
+    bool throw_on_max = false;
+};
+
 class MinimizeGPU {
 public:
-    struct Options {
-        Real threshold   = 1.0;    // |m×H|_max [A/m]
-        Real dt_init     = 1e-12;
-        Real dt_max      = 1e-10;
-        Real dt_min      = 1e-17;
-        int  max_steps   = 200'000;
-        int  check_every = 100;
-        bool throw_on_max = false;
-    };
+    using Options = MinimizeGPUOptions;
 
     explicit MinimizeGPU(const StructuredGrid& grid);
     ~MinimizeGPU();
