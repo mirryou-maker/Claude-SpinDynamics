@@ -31,7 +31,9 @@ jobs:
         # One MFM peak-location assertion is FFTW-implementation-sensitive
         # (passes on some FFTW builds, off-by-a-cell on others) — excluded here;
         # every physics test runs. See benchmarks/linux_cpu_parity.md.
-        run: ./build/linux-gcc/bin/unit_tests '~"MFMImage: dipole signal peaks at domain wall"'
+        run: >-
+          ./build/linux-gcc/bin/unit_tests
+          '~"MFMImage: dipole signal peaks at domain wall"'
 
       - name: Python module import + example
         run: |
