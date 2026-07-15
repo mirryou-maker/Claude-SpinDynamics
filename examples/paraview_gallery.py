@@ -30,23 +30,27 @@ def _add_micromag_to_path():
     (../runtime-dll + ../<variant>/python for GPU, ../python for CPU) or a source
     build (../build/<preset>/python + system CUDA). Works from any working dir."""
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    def _adddll(_d):                      # add_dll_directory is Windows-only
+        if hasattr(os, "add_dll_directory") and os.path.isdir(_d):
+            os.add_dll_directory(_d)
+    def _hasmod(_p):
+        _pat = "_micromag*.pyd" if sys.platform == "win32" else "_micromag*.so"
+        return bool(list(_p.glob(_pat)))
     root = Path(__file__).resolve().parent.parent
     rtd = root / "runtime-dll"
     if rtd.is_dir():
-        os.add_dll_directory(str(rtd))
+        _adddll(str(rtd))
         for _v in ("cuFFT-f64", "cuFFT-f32", "VkFFT-f64", "VkFFT-f32"):
             _py = root / _v / "python"
-            if list(_py.glob("_micromag*.pyd")):
+            if _hasmod(_py):
                 sys.path.insert(0, str(_py)); return
-    if list((root / "python").glob("_micromag*.pyd")):
-        os.add_dll_directory(str(root / "python"))
+    if _hasmod(root / "python"):
+        _adddll(str(root / "python"))
         sys.path.insert(0, str(root / "python")); return
-    _cuda = r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64"
-    if os.path.isdir(_cuda):
-        os.add_dll_directory(_cuda)
-    for _p in ("windows-msvc-cuda", "windows-msvc"):
+    _adddll(r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64")
+    for _p in ("windows-msvc-cuda", "windows-msvc", "linux-gcc-cuda", "linux-gcc"):
         _py = root / "build" / _p / "python"
-        if _py.is_dir():
+        if _hasmod(_py):
             sys.path.insert(0, str(_py)); return
     raise RuntimeError("micromag module not found (release package or source build).")
 

@@ -164,6 +164,8 @@ void multi_axpy5(VectorField3D& out, const VectorField3D& base,
 RK45Integrator::RK45Integrator(Options opts)
     : opts_(opts), dt_(opts.dt_init) {}
 
+RK45Integrator::RK45Integrator() : RK45Integrator(Options{}) {}
+
 void RK45Integrator::ensure_scratch(const StructuredGrid& g) {
     if (H_) return;
     H_     = std::make_unique<VectorField3D>(g);

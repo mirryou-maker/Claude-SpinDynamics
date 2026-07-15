@@ -68,7 +68,8 @@ public:
         Real fac_max = 5.0;     // maximum step-growth factor per acceptance
     };
 
-    explicit RK45Integrator(Options opts = {});
+    RK45Integrator();
+    explicit RK45Integrator(Options opts);
 
     // Advance m by one adaptive step; returns dt actually used.
     Real step(VectorField3D& m, const Material& mat,

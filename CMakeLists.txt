@@ -64,7 +64,40 @@ option(MICROMAG_VKFFT        "Replace cuFFT batch plans with VkFFT (faster for n
 set(MICROMAG_VKFFT_PATH "" CACHE PATH "Root directory of VkFFT (containing vkFFT/vkFFT.h)")
 
 # FFTW3 (required for demagnetisation field) --------------------------------
-find_package(FFTW3 CONFIG REQUIRED)
+# Prefer the CMake config (vcpkg / Windows). On Linux distros where libfftw3-dev
+# ships only fftw3.pc (no FFTW3Config.cmake), fall back to pkg-config. Both paths
+# provide the FFTW3::fftw3 target that the rest of the build links against.
+find_package(FFTW3 CONFIG QUIET)
+if(NOT TARGET FFTW3::fftw3)
+    find_package(PkgConfig QUIET)
+    find_package(Threads QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(FFTW3_PC IMPORTED_TARGET fftw3)
+    endif()
+    if(TARGET PkgConfig::FFTW3_PC)
+        add_library(micromag_fftw3 INTERFACE)
+        target_link_libraries(micromag_fftw3 INTERFACE PkgConfig::FFTW3_PC)
+        # demag.cpp calls fftw_init_threads/fftw_plan_with_nthreads. On Linux the
+        # threading symbols live in a separate libfftw3_threads (the vcpkg/Windows
+        # config bundles them into the main lib). Link it when present.
+        find_library(FFTW3_THREADS_LIB NAMES fftw3_threads
+                     HINTS ${FFTW3_PC_LIBRARY_DIRS})
+        if(FFTW3_THREADS_LIB)
+            target_link_libraries(micromag_fftw3 INTERFACE ${FFTW3_THREADS_LIB} Threads::Threads)
+            message(STATUS "  FFTW3:         found via pkg-config (+threads)")
+        else()
+            message(STATUS "  FFTW3:         found via pkg-config")
+        endif()
+        add_library(FFTW3::fftw3 ALIAS micromag_fftw3)
+    else()
+        message(FATAL_ERROR
+            "FFTW3 not found. Install it via:\n"
+            "  Linux:   sudo apt install libfftw3-dev   (or the equivalent)\n"
+            "  Windows: vcpkg install fftw3:x64-windows")
+    endif()
+else()
+    message(STATUS "  FFTW3:         found via CMake config")
+endif()
 
 # OpenMP — parallelise CPU per-cell loops (field accumulate, integrator
 # stages, demag pack/unpack). Optional: pragmas are no-ops without it.
@@ -311,7 +344,22 @@ endif()
 
 # Python bindings -----------------------------------------------------------
 if(MICROMAG_BUILD_PYTHON)
-    find_package(pybind11 CONFIG REQUIRED)
+    # Prefer a normal config (vcpkg on Windows). If that fails, fall back to a
+    # pip-installed pybind11 (`pip install pybind11`) by asking it for its CMake
+    # dir — lets Linux users build without a system pybind11-dev package.
+    find_package(pybind11 CONFIG QUIET)
+    if(NOT pybind11_FOUND)
+        find_program(_PYEXE NAMES python3 python)
+        if(_PYEXE)
+            execute_process(COMMAND ${_PYEXE} -m pybind11 --cmakedir
+                OUTPUT_VARIABLE _pb11_dir OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        endif()
+        if(_pb11_dir)
+            find_package(pybind11 CONFIG REQUIRED PATHS "${_pb11_dir}")
+        else()
+            find_package(pybind11 CONFIG REQUIRED)   # emit the standard error
+        endif()
+    endif()
     pybind11_add_module(_micromag python/bindings.cpp)
     target_link_libraries(_micromag PRIVATE micromag_core)
 

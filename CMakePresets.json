@@ -73,6 +73,36 @@
             "cacheVariables": {
                 "MICROMAG_FLOAT32": "ON"
             }
+        },
+        {
+            "name": "linux-gcc",
+            "displayName": "Linux GCC (Ninja, CPU)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/linux-gcc",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "MICROMAG_USE_CUDA": "OFF"
+            }
+        },
+        {
+            "name": "linux-gcc-cuda",
+            "displayName": "Linux GCC + CUDA (Ninja)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/linux-gcc-cuda",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "MICROMAG_USE_CUDA": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -105,6 +135,14 @@
             "name": "windows-msvc-cuda-vkfft-f32",
             "configurePreset": "windows-msvc-cuda-vkfft-f32",
             "configuration": "Release"
+        },
+        {
+            "name": "linux-gcc",
+            "configurePreset": "linux-gcc"
+        },
+        {
+            "name": "linux-gcc-cuda",
+            "configurePreset": "linux-gcc-cuda"
         }
     ],
     "testPresets": [

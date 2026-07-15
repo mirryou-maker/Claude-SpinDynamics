@@ -1,4 +1,17 @@
-find_package(Catch2 3 CONFIG REQUIRED)
+# Catch2 v3: prefer an installed config (vcpkg / system). If absent (e.g. a Linux
+# box without catch2 installed), fetch and build it from source so the tests
+# still build without a system package.
+find_package(Catch2 3 CONFIG QUIET)
+if(NOT Catch2_FOUND)
+    message(STATUS "  Catch2:        not found — fetching v3.5.2 via FetchContent")
+    include(FetchContent)
+    FetchContent_Declare(Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.5.2
+        GIT_SHALLOW    TRUE)
+    FetchContent_MakeAvailable(Catch2)
+    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)  # for catch_discover_tests
+endif()
 
 add_executable(unit_tests
     test_grid.cpp

@@ -20,23 +20,27 @@ def _add_micromag_to_path():
     # numpy (MKL) and the bundled module both ship an OpenMP runtime; allow both
     # to load instead of aborting with "OMP: Error #15".
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    def _adddll(_d):                      # add_dll_directory is Windows-only
+        if hasattr(os, "add_dll_directory") and os.path.isdir(_d):
+            os.add_dll_directory(_d)
+    def _hasmod(_p):
+        _pat = "_micromag*.pyd" if sys.platform == "win32" else "_micromag*.so"
+        return bool(list(_p.glob(_pat)))
     root = Path(__file__).resolve().parent.parent
     rtd = root / "runtime-dll"                          # 1) GPU release package
     if rtd.is_dir():
-        os.add_dll_directory(str(rtd))
+        _adddll(str(rtd))
         for v in ("cuFFT-f64", "cuFFT-f32", "VkFFT-f64", "VkFFT-f32"):
             py = root / v / "python"
-            if list(py.glob("_micromag*.pyd")):
+            if _hasmod(py):
                 sys.path.insert(0, str(py)); return
-    if list((root / "python").glob("_micromag*.pyd")):  # 2) CPU release package
-        os.add_dll_directory(str(root / "python"))
+    if _hasmod(root / "python"):                        # 2) CPU release package
+        _adddll(str(root / "python"))
         sys.path.insert(0, str(root / "python")); return
-    cuda_bin = r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64"
-    if os.path.isdir(cuda_bin):                          # 3) source build tree
-        os.add_dll_directory(cuda_bin)
-    for preset in ("windows-msvc-cuda", "windows-msvc"):
+    _adddll(r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64")
+    for preset in ("windows-msvc-cuda", "windows-msvc", "linux-gcc-cuda", "linux-gcc"):
         py = root / "build" / preset / "python"
-        if py.is_dir():
+        if _hasmod(py):
             sys.path.insert(0, str(py)); return
     raise RuntimeError("micromag module not found (release package or source build).")
 
