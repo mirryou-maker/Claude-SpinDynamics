@@ -85,7 +85,11 @@ platform-robust, not a Windows artefact.
   `_mumax_version_delta_win_5060ti.json`): v3.12/v3.11.1 = 1.08× @ 10 K,
   1.00× @ 65 K, 1.01× @ 540 K. The ≤8 % small-grid delta (v3.12 slightly
   *slower*) is far below the 2.4× CS margin there — the version difference does
-  not affect any conclusion.
+  not affect any conclusion. *Measurement note: the host was running other
+  workloads at the time; both versions ran back-to-back under the same load, so
+  the ratio is robust, but the 10 K point (launch-bound, most load-sensitive)
+  carries extra noise — treat 1.08× as "≈1, within noise", and re-measure on an
+  idle host if a precise number is ever needed.*
 
 ## Bottom line
 
