@@ -52,6 +52,26 @@ three reasons — all of which the paper must acknowledge:
    Blackwell Tensor-Core FFT, so it neither reproduces nor refutes the f32
    magnitude that underpins the headline numbers.
 
+## 3a. UPDATE — same-host Linux cross-solver run DONE (Ada / L4)
+
+The gap in §3 has been closed for the **Ada** regime: Claude-SD (f32) and mumax3
+(v3.12, f32) were run on the **same** Linux GPU host (AWS L4). Full data +
+methodology: [`linux_crosssolver_results.md`](linux_crosssolver_results.md).
+
+| cells | CS f32 / mumax3 | verdict |
+|--:|:--:|---|
+| 10 K | 0.42× | **CS 2.4× faster** |
+| 65 K | 0.96× | **on par** |
+| 540 K – 1 M | 1.6–1.7× | mumax3 leads (its FFT sweet spot) |
+| 4.2 M | 1.10× | near parity |
+
+**The small-grid competitive advantage is confirmed on native Linux** — and
+crucially it is the launch-overhead-bound regime that the self-parity of §2 could
+not settle. The crossover shape matches the Windows/Blackwell campaign. What still
+requires **Blackwell-Linux** (RTX 50-series or `p6-b200`) is only the *headline
+f32/Blackwell magnitude*, since L4 (Ada) lacks the Blackwell Tensor-Core FFT that
+lifts Claude-SD's mid/large throughput on the campaign card.
+
 ## 4. Defensible wording for the paper (as of now)
 
 - ✅ *"Claude-SD's GPU performance is platform-independent: the Linux CUDA build
