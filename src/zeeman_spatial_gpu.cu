@@ -6,6 +6,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -121,7 +122,7 @@ void ZeemanFieldSpatialGPU::accumulate_gpu_ptr(const GReal* /*d_m*/,
         d_H_out,
         d_H_field_,
         static_cast<int>(N_));
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 }  // namespace micromag

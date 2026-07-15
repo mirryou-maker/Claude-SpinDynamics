@@ -1,6 +1,13 @@
 #pragma once
 
 #include <vector>
+#include <version>
+// std::span accessors are C++20; the CUDA TUs compile this header as C++17
+// (CMAKE_CUDA_STANDARD 17), so they are feature-guarded. Device code never
+// touches host cell storage, so the narrower C++17 view is fine there.
+#if defined(__cpp_lib_span)
+#include <span>
+#endif
 #include "types.hpp"
 #include "grid.hpp"
 
@@ -33,6 +40,14 @@ public:
 
     void set_uniform(Real v) { std::fill(data_.begin(), data_.end(), v); }
 
+#if defined(__cpp_lib_span)
+    // Preferred cell-data accessors: views that do not expose the container.
+    std::span<const Real> span() const { return data_; }
+    std::span<Real>       span()       { return data_; }
+#endif
+
+    // Container access — kept for existing call sites; prefer span() in new
+    // code so the storage strategy stays an implementation detail.
     const std::vector<Real>& data() const { return data_; }
     std::vector<Real>&       data()       { return data_; }
 
@@ -65,6 +80,15 @@ public:
     }
 
     Index size() const { return static_cast<Index>(data_.size()); }
+
+#if defined(__cpp_lib_span)
+    // Preferred cell-data accessors: views that do not expose the container.
+    std::span<const Vec3> span() const { return data_; }
+    std::span<Vec3>       span()       { return data_; }
+#endif
+
+    // Container access — kept for existing call sites; prefer span() in new
+    // code so the storage strategy stays an implementation detail.
     const std::vector<Vec3>& data() const { return data_; }
     std::vector<Vec3>& data() { return data_; }
 

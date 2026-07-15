@@ -6,6 +6,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -210,7 +211,7 @@ void SurfaceAnisotropyFieldGPU::accumulate(const VectorField3D& m,
         dIS, prefac,
         static_cast<double>(n_.x), static_cast<double>(n_.y),
         static_cast<double>(n_.z), static_cast<int>(N_));
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     std::vector<GReal> h_H(3 * N_);
     CUDA_CHECK(cudaStreamSynchronize(s));
@@ -259,7 +260,7 @@ void SurfaceAnisotropyFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             static_cast<double>(n_.x), static_cast<double>(n_.y),
             static_cast<double>(n_.z), static_cast<int>(N_));
     }
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void SurfaceAnisotropyFieldGPU::set_Ks_field(const ScalarField3D& Ks_f,

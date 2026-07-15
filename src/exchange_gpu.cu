@@ -13,6 +13,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -513,7 +514,7 @@ void ExchangeFieldGPU::accumulate(const VectorField3D& m,
             reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
             (int)nx_, (int)ny_, (int)nz_, fx, fy, fz);
     }
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     // ------------------------------------------------------------------
     // 4. Download H result and accumulate into H_out
@@ -559,7 +560,7 @@ void ExchangeFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             (int)nx_, (int)ny_, (int)nz_,
             constants::mu_0, idx2, idy2, idz2,
             bc_ == BoundaryCondition::Periodic);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
         return;
     }
 
@@ -590,7 +591,7 @@ void ExchangeFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
                 pre * idx2, pre * idy2, pre * idz2);
         }
     }
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void ExchangeFieldGPU::set_material_field(const MaterialField3D& matf) {

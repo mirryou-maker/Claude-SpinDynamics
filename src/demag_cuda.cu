@@ -13,6 +13,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cufft.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include "micromag/gpu_real.hpp"
 #include <cuda_runtime.h>
 #include <stdexcept>
@@ -742,7 +743,7 @@ void DemagFieldGPU::precompute_kernel() {
             reinterpret_cast<GREAL_CUFFT_REAL*>(d_K_dest),
             reinterpret_cast<const cufftDoubleComplex*>(d_c_buf_),
             fft_nx_, symm_ny_, symm_nz_, pad_ny_);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
     };
 
     auto fill_fft_diag = [&](void* d_K_dest, int perm) {
@@ -752,7 +753,7 @@ void DemagFieldGPU::precompute_kernel() {
             (int)nx_, (int)ny_, (int)nz_,
             (int)pad_nx_, (int)pad_ny_, (int)pad_nz_,
             dx_, dy_, dz_, perm);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
         CUFFT_CHECK(cufftExecD2Z(plan_fwd_,
             reinterpret_cast<cufftDoubleReal*>(d_r_buf_),
             reinterpret_cast<cufftDoubleComplex*>(d_c_buf_)));
@@ -766,7 +767,7 @@ void DemagFieldGPU::precompute_kernel() {
             (int)nx_, (int)ny_, (int)nz_,
             (int)pad_nx_, (int)pad_ny_, (int)pad_nz_,
             dx_, dy_, dz_, sx, sy, sz, perm);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
         CUFFT_CHECK(cufftExecD2Z(plan_fwd_,
             reinterpret_cast<cufftDoubleReal*>(d_r_buf_),
             reinterpret_cast<cufftDoubleComplex*>(d_c_buf_)));
@@ -850,7 +851,7 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
         static_cast<size_t>(nz_),
         static_cast<size_t>(pad_nx_), static_cast<size_t>(pad_ny_),
         real_sz_, unpad_sz_);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     // ------------------------------------------------------------------
     // 3. Batch forward FFT
@@ -898,7 +899,7 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
                 as_cxc(d_MF_all_),
                 fft_nx_, pad_ny_, pad_nz_, symm_ny_, symm_nz_, cplx_sz_);
         }
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
     }
 
     // ------------------------------------------------------------------
@@ -937,7 +938,7 @@ void DemagFieldGPU::accumulate(const VectorField3D& m,
         static_cast<size_t>(nz_),
         static_cast<size_t>(pad_nx_), static_cast<size_t>(pad_ny_),
         real_sz_, unpad_sz_, norm);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     // ------------------------------------------------------------------
     // 7. Async download (pinned buffer ??returns immediately)
@@ -1017,7 +1018,7 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
         const int grd = (N3 + BLK - 1) / BLK;
         scale_copy_kernel<<<grd, BLK, 0, s>>>(
             reinterpret_cast<GReal*>(d_M_compact_), d_m, Ms, N3);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
     }
 
     // 2. Zero padded M buffer
@@ -1032,7 +1033,7 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             reinterpret_cast<const GReal*>(d_M_compact_),
             (size_t)nx_, (size_t)ny_, (size_t)nz_,
             (size_t)pad_nx_, (size_t)pad_ny_, real_sz_, unpad_sz_);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
     }
     mark(1);  // prep done (scale+memset+scatter)
 
@@ -1075,7 +1076,7 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
                 as_cxc(d_MF_all_),
                 fft_nx_, pad_ny_, pad_nz_, symm_ny_, symm_nz_, cplx_sz_);
         }
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
     }
     mark(3);  // MAC done (mac_symm_2d or mac_symm_3d)
 
@@ -1104,7 +1105,7 @@ void DemagFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             (size_t)nx_, (size_t)ny_, (size_t)nz_,
             (size_t)pad_nx_, (size_t)pad_ny_,
             real_sz_, unpad_sz_, norm);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
     }
     mark(5);  // extract done
     // Sync only in standalone mode (caller may be on a different stream).

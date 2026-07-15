@@ -44,8 +44,7 @@
 #include "grid.hpp"
 #include "types.hpp"
 
-// Forward-declare FFTW plan type without including fftw3.h in the header.
-struct fftw_plan_s;
+#include "fftw_plan_handle.hpp"
 
 namespace micromag {
 
@@ -87,8 +86,8 @@ private:
     mutable std::vector<double>               r_buf_;
     mutable std::vector<std::complex<double>> c_buf_;
 
-    fftw_plan_s* plan_fwd_ = nullptr;
-    fftw_plan_s* plan_inv_ = nullptr;
+    FFTWPlan plan_fwd_;
+    FFTWPlan plan_inv_;
 
     // Newell (1993) helpers
     static double newell_f(double x, double y, double z);

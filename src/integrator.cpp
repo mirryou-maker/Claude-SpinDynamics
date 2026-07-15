@@ -6,7 +6,10 @@
 
 namespace micromag {
 
-RK4Integrator::RK4Integrator(Real dt) : dt_(dt) {}
+RK4Integrator::RK4Integrator(Real dt) : dt_(dt) {
+    if (!(dt > Real{0}))
+        throw std::invalid_argument("RK4Integrator: dt must be positive");
+}
 
 void RK4Integrator::ensure_scratch(const StructuredGrid& g) {
     if (H_) return;
@@ -162,7 +165,13 @@ void multi_axpy5(VectorField3D& out, const VectorField3D& base,
 }  // namespace
 
 RK45Integrator::RK45Integrator(Options opts)
-    : opts_(opts), dt_(opts.dt_init) {}
+    : opts_(opts), dt_(opts.dt_init) {
+    if (!(opts.rtol > 0) || !(opts.atol > 0) ||
+        !(opts.dt_min > 0) || !(opts.dt_init >= opts.dt_min) ||
+        !(opts.dt_max >= opts.dt_init))
+        throw std::invalid_argument(
+            "RK45Integrator: require rtol,atol > 0 and dt_min <= dt_init <= dt_max");
+}
 
 RK45Integrator::RK45Integrator() : RK45Integrator(Options{}) {}
 
@@ -329,7 +338,10 @@ Real RK45Integrator::step(VectorField3D& m, const Material& mat,
 // HeunIntegrator  —  fixed-Δt stochastic Heun for SLLG
 // ===========================================================================
 
-HeunIntegrator::HeunIntegrator(Real dt) : dt_(dt) {}
+HeunIntegrator::HeunIntegrator(Real dt) : dt_(dt) {
+    if (!(dt > Real{0}))
+        throw std::invalid_argument("HeunIntegrator: dt must be positive");
+}
 
 void HeunIntegrator::ensure_scratch(const StructuredGrid& g) {
     if (H_) return;

@@ -1,0 +1,32 @@
+# clang-tidy configuration for Claude-SpinDynamics.
+#
+# Run locally (needs a compile database; use the Ninja Linux preset):
+#   cmake --preset linux-gcc -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+#   clang-tidy -p build/linux-gcc src/*.cpp
+#
+# Scope: C++ sources only (.cu files are compiled by nvcc; clang-tidy chokes on
+# them without --cuda flags — skip them). Checks are chosen to catch real bugs
+# and modernisation wins without style churn:
+#   - bugprone-*      : real-defect patterns (the thermal_equilibrium NaN-divide
+#                       class of bug)
+#   - performance-*   : unnecessary copies, inefficient loops
+#   - modernize-*     : C++20 idioms; loop/auto/override hygiene
+#   - clang-analyzer-*: path-sensitive static analysis
+# Noisy or opinionated checks are disabled below.
+Checks: >
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  clang-analyzer-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-use-nodiscard,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions
+
+WarningsAsErrors: ''
+HeaderFilterRegex: 'include/micromag/.*'
+FormatStyle: file
+CheckOptions:
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: 'Vec3'   # 24-byte POD: pass-by-value is fine and often faster

@@ -5,6 +5,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cufft.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include <cuda_runtime.h>
 #include <stdexcept>
 #include <string>
@@ -316,7 +317,7 @@ void DemagFieldPeriodicGPU::accumulate_gpu_ptr(const GReal* d_m,
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_zz_),
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         cplx_sz_);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     // 4. Batch C2R IFFT: d_HF_all_ ??d_H_all_
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(handle(plan_inv_batch_),
@@ -328,12 +329,12 @@ void DemagFieldPeriodicGPU::accumulate_gpu_ptr(const GReal* d_m,
     const double scale = -1.0 / static_cast<double>(real_sz_);
     scale_all3<<<(int)((N3+BLK-1)/BLK), BLK, 0, s>>>(
         reinterpret_cast<GReal*>(d_M_all_), scale, N3);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     // 6. d_H_out += d_H_all_
     add_all3<<<(int)((N3+BLK-1)/BLK), BLK, 0, s>>>(
         d_H_out, reinterpret_cast<const GReal*>(d_M_all_), N3);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     // Standalone mode: sync so caller on a different stream sees the writes.
     // Shared-stream mode: stream ordering on the integrator stream suffices.
@@ -382,7 +383,7 @@ void DemagFieldPeriodicGPU::accumulate(const VectorField3D& m,
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_K_zz_),
         reinterpret_cast<const GREAL_CUFFT_COMPLEX*>(d_MF_all_),
         cplx_sz_);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     CUFFT_CHECK(GREAL_CUFFT_EXEC_INV(handle(plan_inv_batch_),
         reinterpret_cast<GREAL_CUFFT_COMPLEX*>(d_MF_all_),
@@ -391,7 +392,7 @@ void DemagFieldPeriodicGPU::accumulate(const VectorField3D& m,
     const double scale = -1.0 / static_cast<double>(N);
     scale_all3<<<(int)((N3+BLK-1)/BLK), BLK, 0, s>>>(
         reinterpret_cast<GReal*>(d_M_all_), scale, N3);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     // D2H
     CUDA_CHECK(cudaMemcpyAsync(h_H_pinned_, d_M_all_,

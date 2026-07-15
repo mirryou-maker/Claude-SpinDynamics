@@ -9,6 +9,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -232,7 +233,7 @@ void ZeemanFieldGPU::accumulate_gpu_ptr(const GReal* /*d_m*/,
     zeeman_kernel<<<grd, blk, 0, s>>>(
         reinterpret_cast<GReal*>(d_H_out),
         H_ext_.x, H_ext_.y, H_ext_.z, static_cast<int>(N_));
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 // ===========================================================================
@@ -294,7 +295,7 @@ void UniaxialAnisotropyFieldGPU::accumulate(const VectorField3D& m,
     anisotropy_kernel<<<grd, blk, 0, s>>>(
         reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
         factor, k2_factor, u.x, u.y, u.z, static_cast<int>(N_));
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     std::vector<GReal> h_H(3 * N_);
     CUDA_CHECK(cudaStreamSynchronize(s));
@@ -391,7 +392,7 @@ void UniaxialAnisotropyFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
         anisotropy_kernel<<<grd, blk, 0, s>>>(
             gH, gm, factor, k2_factor, u.x, u.y, u.z, static_cast<int>(N_));
     }
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void UniaxialAnisotropyFieldGPU::set_material_field(const MaterialField3D& matf) {
@@ -552,7 +553,7 @@ void CubicAnisotropyFieldGPU::accumulate(const VectorField3D& m,
         c2_.x, c2_.y, c2_.z,
         c3_.x, c3_.y, c3_.z,
         static_cast<int>(N_));
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
     std::vector<GReal> h_H(3 * N_);
     CUDA_CHECK(cudaStreamSynchronize(s));
     CUDA_CHECK(cudaMemcpy(h_H.data(), dH, 3*N_*sizeof(GReal), cudaMemcpyDeviceToHost));
@@ -603,7 +604,7 @@ void CubicAnisotropyFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             c3_.x, c3_.y, c3_.z,
             static_cast<int>(N_));
     }
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void CubicAnisotropyFieldGPU::set_Kc_field(

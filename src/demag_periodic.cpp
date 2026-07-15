@@ -107,13 +107,13 @@ DemagFieldPeriodic::DemagFieldPeriodic(const StructuredGrid& grid, int n_rep)
     fftw_import_wisdom_from_filename("fftw_wisdom.dat");
 
     const unsigned flags = FFTW_MEASURE;
-    plan_fwd_ = reinterpret_cast<fftw_plan_s*>(
+    plan_fwd_ = FFTWPlan(
         fftw_plan_dft_r2c_3d(
             static_cast<int>(nz_), static_cast<int>(ny_), static_cast<int>(nx_),
             r_buf_.data(),
             reinterpret_cast<fftw_complex*>(c_buf_.data()),
             flags));
-    plan_inv_ = reinterpret_cast<fftw_plan_s*>(
+    plan_inv_ = FFTWPlan(
         fftw_plan_dft_c2r_3d(
             static_cast<int>(nz_), static_cast<int>(ny_), static_cast<int>(nx_),
             reinterpret_cast<fftw_complex*>(c_buf_.data()),
@@ -129,8 +129,7 @@ DemagFieldPeriodic::DemagFieldPeriodic(const StructuredGrid& grid, int n_rep)
 }
 
 DemagFieldPeriodic::~DemagFieldPeriodic() {
-    if (plan_fwd_) fftw_destroy_plan(reinterpret_cast<fftw_plan>(plan_fwd_));
-    if (plan_inv_) fftw_destroy_plan(reinterpret_cast<fftw_plan>(plan_inv_));
+    // plans are RAII (FFTWPlan)
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +166,7 @@ void DemagFieldPeriodic::precompute_kernel() {
             r_buf_[static_cast<std::size_t>(kx + nx_*(ky + ny_*kz))] = val;
         }
 
-        fftw_execute(reinterpret_cast<fftw_plan>(plan_fwd_));
+        fftw_execute(plan_fwd_.get());
         K_dest = c_buf_;
         K_dest[0] = 0.0;   // k=0: no demag field for uniform m (periodic convention)
     };
@@ -217,7 +216,7 @@ void DemagFieldPeriodic::accumulate(const VectorField3D& m,
             const double Ms_cell = matf_ ? matf_->Ms(static_cast<Index>(i)) : Ms;
             r_buf_[static_cast<std::size_t>(i)] = Ms_cell * (c == 0 ? v.x : c == 1 ? v.y : v.z);
         }
-        fftw_execute(reinterpret_cast<fftw_plan>(plan_fwd_));
+        fftw_execute(plan_fwd_.get());
         out = c_buf_;
     };
 
@@ -236,7 +235,7 @@ void DemagFieldPeriodic::accumulate(const VectorField3D& m,
         #pragma omp parallel for schedule(static) if(Nc > 4096)
         for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(Nc); ++i)
             c_buf_[static_cast<std::size_t>(i)] = Ka[i]*Ma[i] + Kb[i]*Mb[i] + Kc[i]*Mc[i];
-        fftw_execute(reinterpret_cast<fftw_plan>(plan_inv_));
+        fftw_execute(plan_inv_.get());
         #pragma omp parallel for schedule(static) if(N > 4096)
         for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(N); ++i) {
             const double h = -r_buf_[static_cast<std::size_t>(i)] * norm;

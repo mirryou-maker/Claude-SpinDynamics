@@ -9,6 +9,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -293,7 +294,7 @@ void BulkDMIFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             (int)nx_, (int)ny_, (int)nz_,
             i2dx, idx, i2dy, idy, i2dz, idz, prefac);
     }
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void BulkDMIFieldGPU::set_D_field(const ScalarField3D& D_field,
@@ -338,7 +339,7 @@ void BulkDMIFieldGPU::accumulate(const VectorField3D& m,
         (int)nx_, (int)ny_, (int)nz_,
         1.0/(2.0*dx_), 1.0/dx_, 1.0/(2.0*dy_), 1.0/dy_,
         1.0/(2.0*dz_), 1.0/dz_, prefac);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     std::vector<GReal> h_H(3*N_);
     CUDA_CHECK(cudaStreamSynchronize(s));
@@ -400,7 +401,7 @@ void InterfacialDMIFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             (int)nx_, (int)ny_, (int)nz_,
             i2dx, idx, i2dy, idy, prefac);
     }
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void InterfacialDMIFieldGPU::set_D_field(const ScalarField3D& D_field,
@@ -444,7 +445,7 @@ void InterfacialDMIFieldGPU::accumulate(const VectorField3D& m,
         reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
         (int)nx_, (int)ny_, (int)nz_,
         1.0/(2.0*dx_), 1.0/dx_, 1.0/(2.0*dy_), 1.0/dy_, prefac);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     std::vector<GReal> h_H(3*N_);
     CUDA_CHECK(cudaStreamSynchronize(s));

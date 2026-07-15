@@ -8,9 +8,7 @@
 #include "grid.hpp"
 #include "material.hpp"
 #include "types.hpp"
-
-// Forward-declare FFTW plan handle to avoid including fftw3.h in headers.
-struct fftw_plan_s;
+#include "fftw_plan_handle.hpp"
 
 namespace micromag {
 
@@ -84,10 +82,10 @@ private:
     // FFTW plans (forward r2c and inverse c2r).
     // plan_fwd_ / plan_inv_: single-component, used by precompute_kernel().
     // plan_fwd_3_ / plan_inv_3_: 3-component batch, used by accumulate() (faster).
-    fftw_plan_s* plan_fwd_   = nullptr;
-    fftw_plan_s* plan_inv_   = nullptr;
-    fftw_plan_s* plan_fwd_3_ = nullptr;  // fftw_plan_many: 3 r2c in one call
-    fftw_plan_s* plan_inv_3_ = nullptr;  // fftw_plan_many: 3 c2r in one call
+    FFTWPlan plan_fwd_;
+    FFTWPlan plan_inv_;
+    FFTWPlan plan_fwd_3_;   // fftw_plan_many: 3 r2c in one call
+    FFTWPlan plan_inv_3_;   // fftw_plan_many: 3 c2r in one call
 
     // Helpers -----------------------------------------------------------------
     void precompute_kernel();

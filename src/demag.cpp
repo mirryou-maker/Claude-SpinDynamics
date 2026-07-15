@@ -155,21 +155,21 @@ DemagField::DemagField(const StructuredGrid& grid)
     const unsigned fftw_flags = FFTW_MEASURE;
 
     // Single-component plans — used only by precompute_kernel().
-    plan_fwd_ = fftw_plan_dft_r2c_3d(
+    plan_fwd_ = FFTWPlan(fftw_plan_dft_r2c_3d(
         static_cast<int>(pad_nz_),
         static_cast<int>(pad_ny_),
         static_cast<int>(pad_nx_),
         r_buf_.data(),
         reinterpret_cast<fftw_complex*>(c_buf_.data()),
-        fftw_flags);
+        fftw_flags));
 
-    plan_inv_ = fftw_plan_dft_c2r_3d(
+    plan_inv_ = FFTWPlan(fftw_plan_dft_c2r_3d(
         static_cast<int>(pad_nz_),
         static_cast<int>(pad_ny_),
         static_cast<int>(pad_nx_),
         reinterpret_cast<fftw_complex*>(c_buf_.data()),
         r_buf_.data(),
-        fftw_flags);
+        fftw_flags));
 
     if (!plan_fwd_ || !plan_inv_)
         throw std::runtime_error("DemagField: FFTW plan creation failed");
@@ -180,7 +180,7 @@ DemagField::DemagField(const StructuredGrid& grid)
                        static_cast<int>(pad_ny_),
                        static_cast<int>(pad_nx_) };
 
-    plan_fwd_3_ = reinterpret_cast<fftw_plan_s*>(
+    plan_fwd_3_ = FFTWPlan(
         fftw_plan_many_dft_r2c(
             3, n, 3,
             r_buf_3_.data(),              nullptr, 1, static_cast<int>(real_size),
@@ -188,7 +188,7 @@ DemagField::DemagField(const StructuredGrid& grid)
                                           nullptr, 1, static_cast<int>(complex_size),
             fftw_flags));
 
-    plan_inv_3_ = reinterpret_cast<fftw_plan_s*>(
+    plan_inv_3_ = FFTWPlan(
         fftw_plan_many_dft_c2r(
             3, n, 3,
             reinterpret_cast<fftw_complex*>(c_buf_3_.data()),
@@ -205,12 +205,7 @@ DemagField::DemagField(const StructuredGrid& grid)
     precompute_kernel();
 }
 
-DemagField::~DemagField() {
-    if (plan_fwd_)   fftw_destroy_plan(plan_fwd_);
-    if (plan_inv_)   fftw_destroy_plan(plan_inv_);
-    if (plan_fwd_3_) fftw_destroy_plan(reinterpret_cast<fftw_plan>(plan_fwd_3_));
-    if (plan_inv_3_) fftw_destroy_plan(reinterpret_cast<fftw_plan>(plan_inv_3_));
-}
+DemagField::~DemagField() = default;   // plans are RAII (FFTWPlan)
 
 // ---------------------------------------------------------------------------
 // precompute_kernel — fill K_xx … K_yz in frequency space.
@@ -251,7 +246,7 @@ void DemagField::precompute_kernel() {
             if (kx > 0 && ky > 0 && kz > 0) put(-kx, -ky, -kz, val);
         }
 
-        fftw_execute(plan_fwd_);
+        fftw_execute(plan_fwd_.get());
         K_dest = c_buf_;
     };
 
@@ -290,7 +285,7 @@ void DemagField::precompute_kernel() {
                 put(ix ? -kx : kx, iy ? -ky : ky, iz ? -kz : kz, sign * val);
             }
         }
-        fftw_execute(plan_fwd_);
+        fftw_execute(plan_fwd_.get());
         K_dest = c_buf_;
     };
 
@@ -339,7 +334,7 @@ void DemagField::accumulate(const VectorField3D& m,
 
     // Step 2: batch forward FFT — 3 transforms in one call.
     // c_buf_3_ layout after: [Mx_f | My_f | Mz_f]
-    fftw_execute(reinterpret_cast<fftw_plan>(plan_fwd_3_));
+    fftw_execute(plan_fwd_3_.get());
 
     // Step 3: pointwise tensor multiply  H_f = -N * M_f  (all 3 rows at once).
     // Read Mx/My/Mz before overwriting (in-place within c_buf_3_).
@@ -355,7 +350,7 @@ void DemagField::accumulate(const VectorField3D& m,
 
     // Step 4: batch inverse FFT — 3 transforms in one call.
     // r_buf_3_ layout after: [Hx_padded | Hy_padded | Hz_padded]
-    fftw_execute(reinterpret_cast<fftw_plan>(plan_inv_3_));
+    fftw_execute(plan_inv_3_.get());
 
     // Step 5: unpack and accumulate into H_out (all 3 components, one loop).
     // Flattened over the unpadded grid (dst == linear index); each iteration

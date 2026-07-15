@@ -130,6 +130,7 @@ add_library(micromag_core
     src/integrator.cpp
     src/spin_torque.cpp
     src/demag.cpp
+    src/fftw_plan_handle.cpp
     src/demag_periodic.cpp
     src/rkky.cpp
     src/zeeman_spatial.cpp

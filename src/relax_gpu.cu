@@ -8,6 +8,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include <cub/device/device_reduce.cuh>
 #include <stdexcept>
 #include <string>
@@ -213,7 +214,7 @@ double RelaxGPU::reduce_max_torque(const GReal* d_m_src) {
     const int N = static_cast<int>(N_);
     const int blk = 256, grd = (N + blk - 1) / blk;
     torque_sq_kernel<<<grd, blk, 0, s>>>(d_percell_, d_m_src, d_H_, N);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
     cub_max(d_cub_tmp_, cub_bytes_, d_percell_, d_max_, N, s);
     double h_max;
     CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
@@ -291,7 +292,7 @@ int RelaxGPU::run(const Material& mat,
             d_m_,
             d_H_,
             N, gp_alpha, dt);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
     }
 
     CUDA_CHECK(cudaStreamSynchronize(s));
@@ -321,7 +322,7 @@ double MinimizeGPU::reduce_max_torque(const GReal* d_m_src) {
     const int N = static_cast<int>(N_);
     const int blk = 256, grd = (N + blk - 1) / blk;
     torque_sq_kernel<<<grd, blk, 0, s>>>(d_energy_, d_m_src, d_H_, N);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
     cub_max(d_cub_tmp_, cub_bytes_, d_energy_, d_max_, N, s);
     double h_max;
     CUDA_CHECK(cudaMemcpyAsync(&h_max, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
@@ -335,7 +336,7 @@ double MinimizeGPU::reduce_mdotH_sum(const GReal* d_m_src) {
     const int N = static_cast<int>(N_);
     const int blk = 256, grd = (N + blk - 1) / blk;
     mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_, d_m_src, d_H_, N);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
     cub_sum(d_cub_tmp_, cub_bytes_, d_energy_, d_max_, N, s);
     double h_sum;
     CUDA_CHECK(cudaMemcpyAsync(&h_sum, d_max_, sizeof(double), cudaMemcpyDeviceToHost, s));
@@ -426,12 +427,12 @@ int MinimizeGPU::run(const Material& mat,
             d_m_trial_,
             d_m_,
             3*N);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
         damping_euler_kernel<<<grd, blk, 0, s>>>(
             d_m_trial_,
             d_H_,
             N, gp_alpha, dt);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
 
         // Energy after trial (need H_eff for m_trial)
         compute_H_eff_for(d_m_trial_, mat, demag, exch, zeeman, aniso);
@@ -499,7 +500,7 @@ int RelaxGPU::run(const Material& mat, IDemagGPU& demag,
             d_m_,
             d_H_,
             N, gp_alpha, dt);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
     }
 
     CUDA_CHECK(cudaStreamSynchronize(s));
@@ -561,12 +562,12 @@ int MinimizeGPU::run(const Material& mat, IDemagGPU& demag,
             d_m_trial_,
             d_m_,
             3*N);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
         damping_euler_kernel<<<grd, blk, 0, s>>>(
             d_m_trial_,
             d_H_,
             N, gp_alpha, dt);
-        CUDA_CHECK(cudaGetLastError());
+        MICROMAG_KERNEL_CHECK();
 
         compute_H_eff_for(d_m_trial_, mat, demag, extra_fields);
         const double E1 = reduce_mdotH_sum(d_m_trial_);

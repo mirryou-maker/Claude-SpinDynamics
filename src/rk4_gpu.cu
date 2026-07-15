@@ -11,6 +11,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include <stdexcept>
 #include <string>
 
@@ -130,7 +131,7 @@ void launch_llg_torque(GReal* d_ki, const GReal* d_m, const GReal* d_H,
     const int grd = (N + blk - 1) / blk;
     llg_torque_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(
         d_ki, d_m, d_H, gp, alpha, N);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void launch_rk4_stage(GReal* m_out, const GReal* m0, const GReal* ki,
@@ -141,7 +142,7 @@ void launch_rk4_stage(GReal* m_out, const GReal* m0, const GReal* ki,
     const int grd = (N3 + blk - 1) / blk;
     rk4_stage_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(
         m_out, m0, ki, scale, N3);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void launch_rk4_accumulate(GReal* k_acc, const GReal* ki,
@@ -152,7 +153,7 @@ void launch_rk4_accumulate(GReal* k_acc, const GReal* ki,
     const int grd = (N3 + blk - 1) / blk;
     rk4_accumulate_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(
         k_acc, ki, weight, N3);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void launch_rk4_finalize(GReal* m_new, const GReal* m0, const GReal* k_acc,
@@ -163,7 +164,7 @@ void launch_rk4_finalize(GReal* m_new, const GReal* m0, const GReal* k_acc,
     const int grd = (N3 + blk - 1) / blk;
     rk4_finalize_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(
         m_new, m0, k_acc, dt, N3);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void launch_normalize(GReal* m, int N, void* stream)
@@ -171,7 +172,7 @@ void launch_normalize(GReal* m, int N, void* stream)
     const int blk = 512;   // normalize is pure memory-bound; 512 → better SM occupancy
     const int grd = (N + blk - 1) / blk;
     normalize_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(m, N);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 // ===========================================================================
@@ -208,7 +209,7 @@ void launch_add_3N(GReal* dst, const GReal* src, int N, void* stream)
     const int blk = 512;   // memory-bound add; 512 improves occupancy
     const int grd = (N3 + blk - 1) / blk;
     add_3N_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(dst, src, N3);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 void launch_heun_corrector(GReal* m, const GReal* k1, const GReal* k2,
@@ -219,7 +220,7 @@ void launch_heun_corrector(GReal* m, const GReal* k1, const GReal* k2,
     const int grd = (N3 + blk - 1) / blk;
     heun_corrector_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(
         m, k1, k2, dt_half, N3);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 }
 
 // ===========================================================================
@@ -378,7 +379,7 @@ __global__ static void dopri5_err_norm_sq_kernel(
 #define LAUNCH3N(kernel, N, stream, ...) do { \
     const int N3_ = 3*(N); const int blk_ = 256; \
     kernel<<<(N3_+blk_-1)/blk_, blk_, 0, static_cast<cudaStream_t>(stream)>>>(__VA_ARGS__, N3_); \
-    CUDA_CHECK(cudaGetLastError()); } while(0)
+    MICROMAG_KERNEL_CHECK(); } while(0)
 
 void launch_dopri5_stage3(GReal* m_s, const GReal* m0, double h,
                            const GReal* k1, const GReal* k2, int N, void* stream)
@@ -422,7 +423,7 @@ double launch_dopri5_err_norm(double* d_sum,
                                 static_cast<cudaStream_t>(stream)));
     dopri5_err_norm_sq_kernel<<<grd, blk, 0, static_cast<cudaStream_t>(stream)>>>(
         d_sum, d_err, d_m, d_m5, rtol, atol, N3);
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
     CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream)));
     double h_sum;
     CUDA_CHECK(cudaMemcpy(&h_sum, d_sum, sizeof(double), cudaMemcpyDeviceToHost));

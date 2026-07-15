@@ -6,6 +6,7 @@
 #ifdef MICROMAG_CUDA
 
 #include <cuda_runtime.h>
+#include "micromag/cuda_sync_debug.hpp"
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -114,7 +115,7 @@ void MagnetoelasticFieldGPU::accumulate(const VectorField3D& m,
         static_cast<double>(ezz_), static_cast<double>(exy_),
         static_cast<double>(exz_), static_cast<double>(eyz_),
         static_cast<int>(N_));
-    CUDA_CHECK(cudaGetLastError());
+    MICROMAG_KERNEL_CHECK();
 
     std::vector<GReal> h_H(3 * N_);
     CUDA_CHECK(cudaStreamSynchronize(s));

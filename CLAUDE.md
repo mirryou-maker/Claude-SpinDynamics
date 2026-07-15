@@ -185,6 +185,19 @@ No zero-padding (FFT size = grid size → **8× smaller FFT** than open BC).
 1. **`precompute_kernel()`**: periodic Newell sum: `N^per(r) = Σ_n N^Newell(r + n·L)` over ±`n_rep` image cells per dimension (default `n_rep=2`, 125 images). Then FFT. **k=0 mode zeroed** (uniform m → H=0, toroidal convention).
 2. **`accumulate()`**: identical pipeline to `DemagField` but with unpadded buffers.
 
+## Error-handling policy
+
+- **Constructors validate their arguments** and throw `std::invalid_argument`
+  on nonsense input (non-positive grid dims/cell sizes, `dt <= 0`, inconsistent
+  RK45 tolerances). Resource failures (FFTW plan creation) throw
+  `std::runtime_error`. pybind11 translates both to Python exceptions.
+- **Hot loops do not validate** — per-cell code assumes constructor-checked
+  state; use `assert` for internal invariants there, never `throw`.
+- GPU code: every CUDA call goes through `CUDA_CHECK`; kernel launches are
+  followed by a `cudaGetLastError` check. Set `MICROMAG_SYNC_DEBUG=1` (env var)
+  to force a device-synchronize after every checked launch when hunting
+  stream races (slow; debugging only).
+
 ## SI conventions
 
 - H in A/m, M = Ms·m (m is unit vector)
