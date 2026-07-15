@@ -53,12 +53,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\vcpkg\installed
-          key: vcpkg-fftw3-x64-windows-${{ runner.os }}
+          key: vcpkg-fftw3-threads-x64-windows-${{ runner.os }}
 
       - name: Install dependencies
         shell: pwsh
         run: |
-          vcpkg install fftw3:x64-windows
+          # [threads] feature: demag.cpp calls fftw_init_threads/plan_with_nthreads
+          vcpkg install 'fftw3[threads]:x64-windows'
           python -m pip install --quiet "pybind11>=2.12,<4" numpy
 
       - name: Set up MSVC environment
