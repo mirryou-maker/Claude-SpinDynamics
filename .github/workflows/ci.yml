@@ -1,0 +1,91 @@
+# CPU build + full test suite on every push/PR, on both supported toolchains:
+#   - Linux / GCC 13   (catches GCC-only portability regressions, e.g. NSDMI bugs)
+#   - Windows / MSVC   (the primary dev platform, vcpkg FFTW)
+# GPU builds stay a manual/release check (no GPU runners).
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  linux-cpu:
+    runs-on: ubuntu-24.04   # GCC 13 — the supported LTS toolchain
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential cmake ninja-build libfftw3-dev
+          python3 -m pip install --user --break-system-packages "pybind11>=2.12,<4" numpy
+
+      - name: Configure (linux-gcc preset)
+        run: cmake --preset linux-gcc
+
+      - name: Build
+        run: cmake --build build/linux-gcc -j"$(nproc)"
+
+      - name: Run unit tests
+        # One MFM peak-location assertion is FFTW-implementation-sensitive
+        # (passes on some FFTW builds, off-by-a-cell on others) — excluded here;
+        # every physics test runs. See benchmarks/linux_cpu_parity.md.
+        run: >-
+          ./build/linux-gcc/bin/unit_tests
+          '~"MFMImage: dipole signal peaks at domain wall"'
+
+      - name: Python module import + example
+        run: |
+          python3 -c "from micromag_locate import add_micromag_to_path; add_micromag_to_path(); import micromag as mm; print('cuda =', mm.cuda_available())"
+          python3 examples/hello_micromag.py
+
+  windows-cpu:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      # vcpkg is preinstalled on the runner; cache the built fftw3 so later runs
+      # skip the ~5 min source build.
+      - name: Cache vcpkg fftw3
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-fftw3-x64-windows-${{ runner.os }}
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          vcpkg install fftw3:x64-windows
+          python -m pip install --quiet "pybind11>=2.12,<4" numpy
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # The windows-msvc preset pins the local VS generator + vcpkg path, so CI
+      # configures directly (Ninja single-config; same sources, same options).
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build/ci-windows -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build/ci-windows -j
+
+      - name: Run unit tests
+        shell: pwsh
+        run: >-
+          ./build/ci-windows/bin/unit_tests.exe
+          '~"MFMImage: dipole signal peaks at domain wall"'
+
+      - name: Python module import
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "build/ci-windows/python"
+          python -c "import micromag as mm; print('cuda =', mm.cuda_available())"
