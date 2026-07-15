@@ -1,0 +1,31 @@
+{
+  "os": "Linux x86_64",
+  "python": "3.14.4",
+  "gpu_note": "set via nvidia-smi at run time",
+  "rows": [
+    {
+      "key": "sp4",
+      "grid": "SP#4  (200x50x1)",
+      "cells": 10000,
+      "ms_step": 0.5318043433332302,
+      "win_ms": 1.51,
+      "ratio_lin_win": 0.35218830684319885
+    },
+    {
+      "key": "medium",
+      "grid": "Med   (200x200x5)",
+      "cells": 200000,
+      "ms_step": 17.772994323333176,
+      "win_ms": 21.89,
+      "ratio_lin_win": 0.8119229932998253
+    },
+    {
+      "key": "large",
+      "grid": "Large (500x500x10)",
+      "cells": 2500000,
+      "ms_step": 292.4051231966663,
+      "win_ms": 290.0,
+      "ratio_lin_win": 1.0082935282643666
+    }
+  ]
+}

@@ -3,6 +3,10 @@
 # still build without a system package.
 find_package(Catch2 3 CONFIG QUIET)
 if(NOT Catch2_FOUND)
+    # NOTE: on bleeding-edge GCC 15 (e.g. Ubuntu 26.04) Catch2's own Release LTO
+    # can fail to link the test exes (undefined reference to __cxa_call_terminate).
+    # The library + Python module build fine regardless; on Ubuntu 24.04 LTS
+    # (GCC 13) the tests build and pass. See benchmarks/linux_cpu_parity.md.
     message(STATUS "  Catch2:        not found — fetching v3.5.2 via FetchContent")
     include(FetchContent)
     FetchContent_Declare(Catch2

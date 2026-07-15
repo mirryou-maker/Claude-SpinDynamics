@@ -65,6 +65,39 @@ needed. GPU parity is deferred until a native Linux + NVIDIA host is available
 (WSL2 has no CUDA here), and is expected to be near-identical since the CUDA
 source is unchanged.
 
+## GPU parity (Phase 2 — AWS g6.xlarge / NVIDIA L4)
+
+Ran the CUDA build on a native-Linux GPU host (AWS g6.xlarge, NVIDIA L4 Ada
+`sm_89`, driver 580, Ubuntu 26.04, CUDA 12.4, Python 3.14). Harness:
+[`gpu_parity_bench.py`](gpu_parity_bench.py). Baseline = the Windows GPU column
+from CLAUDE.md (measured on the dev GPU — so this is Linux-L4 vs Windows-dev-GPU,
+not same-silicon; the **ratio at the compute-bound large size is the cleanest
+signal**).
+
+| grid | cells | Linux L4 ms/step | Win baseline | Lin/Win |
+|---|--:|--:|--:|--:|
+| SP#4  (200×50×1)  |    10 K | 0.53 | 1.51 | 0.35× |
+| Med   (200×200×5) |   200 K | 17.8 | 21.89 | 0.81× |
+| Large (500×500×10)|   2.5 M | 292.4 | 290.0 | **1.01×** |
+
+**Verdict — PASS ✅.** The Linux CUDA build is fully functional (`cuda_available
+= True`, GPU module links and runs) and performs on par: the 2.5 M-cell
+compute-bound case is **within 1 %** of the Windows number. Small grids are
+launch-bound and the L4 (with CUDA-graph replay) is actually faster there. This
+validates the **f64** path end-to-end on Linux; f32/Blackwell Tensor-Core-FFT
+speedups are not exercised on L4 (would need `p6-b200`, `CUDA_ARCH=100`).
+
+> **Build note (Ubuntu 26.04 / GCC 15 — bleeding edge):** the library, the CUDA
+> backend, and the Python module all build and run cleanly (this is how the GPU
+> parity above was measured). Only the C++ **test executables** (`unit_tests`,
+> `unit_tests_gpu`) fail to *link* — `undefined reference to
+> __cxa_call_terminate`, emitted by **Catch2's own Release LTO** under GCC 15
+> (reproduced with both Catch2 v3.5.2 and v3.8.1, so it is a toolchain issue, not
+> a Catch2-version one). It does **not** affect the library or Python module.
+> On the realistic **Ubuntu 24.04 LTS (GCC 13)** target the tests build and pass
+> 231/232. Workaround if you need the C++ tests on GCC 15: disable Catch2's LTO
+> or use the GCC-13 toolchain.
+
 ## Reproduce
 ```bash
 # Linux
