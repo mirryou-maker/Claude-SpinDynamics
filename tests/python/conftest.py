@@ -5,6 +5,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from micromag_locate import add_micromag_to_path  # noqa: E402
 
-add_micromag_to_path(prefer="cpu")
+# If the caller already put a build on PYTHONPATH (e.g. CI's build/ci-windows),
+# honour it; otherwise auto-locate a known build/release layout.
+try:
+    import micromag  # noqa: F401
+except ImportError:
+    from micromag_locate import add_micromag_to_path
+    add_micromag_to_path(prefer="cpu")
