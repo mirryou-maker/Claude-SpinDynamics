@@ -19,36 +19,11 @@ import matplotlib.ticker as ticker
 import os
 from pathlib import Path
 
-def _add_micromag_to_path():
-    """Locate the micromag module + its DLLs in a release package
-    (../runtime-dll + ../<variant>/python for GPU, ../python for CPU) or a source
-    build (../build/<preset>/python + system CUDA). Works from any working dir."""
-    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-    def _adddll(_d):                      # add_dll_directory is Windows-only
-        if hasattr(os, "add_dll_directory") and os.path.isdir(_d):
-            os.add_dll_directory(_d)
-    def _hasmod(_p):
-        _pat = "_micromag*.pyd" if sys.platform == "win32" else "_micromag*.so"
-        return bool(list(_p.glob(_pat)))
-    root = Path(__file__).resolve().parent.parent
-    rtd = root / "runtime-dll"
-    if rtd.is_dir():
-        _adddll(str(rtd))
-        for _v in ("cuFFT-f64", "cuFFT-f32", "VkFFT-f64", "VkFFT-f32"):
-            _py = root / _v / "python"
-            if _hasmod(_py):
-                sys.path.insert(0, str(_py)); return
-    if _hasmod(root / "python"):
-        _adddll(str(root / "python"))
-        sys.path.insert(0, str(root / "python")); return
-    _adddll(r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64")
-    for _p in ("windows-msvc-cuda", "windows-msvc", "linux-gcc-cuda", "linux-gcc"):
-        _py = root / "build" / _p / "python"
-        if _hasmod(_py):
-            sys.path.insert(0, str(_py)); return
-    raise RuntimeError("micromag module not found (release package or source build).")
-
-_add_micromag_to_path()
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from micromag_locate import add_micromag_to_path
+add_micromag_to_path()
 import micromag as mm
 
 # %% [markdown]

@@ -59,7 +59,7 @@ echo "nvcc: $(nvcc --version | tail -1)"
 # --- 3. Python deps (user site) ---------------------------------------------
 echo "--- pip deps ---"
 python3 -m pip install --user --quiet --break-system-packages \
-    pybind11 numpy matplotlib
+    "pybind11>=2.12,<4" numpy matplotlib
 
 # --- 4. Configure + build (CUDA) -------------------------------------------
 echo "--- cmake configure (linux-gcc-cuda, sm_$CUDA_ARCH) ---"

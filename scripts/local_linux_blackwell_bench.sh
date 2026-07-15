@@ -74,8 +74,8 @@ if [ "${SKIP_APT:-0}" != "1" ]; then
         libfftw3-dev git python3-pip python3-dev curl
 fi
 echo "--- pip deps ---"
-python3 -m pip install --user --quiet --break-system-packages pybind11 numpy matplotlib || \
-python3 -m pip install --user --quiet pybind11 numpy matplotlib
+python3 -m pip install --user --quiet --break-system-packages "pybind11>=2.12,<4" numpy matplotlib || \
+python3 -m pip install --user --quiet "pybind11>=2.12,<4" numpy matplotlib
 
 # --- 3. Build CS f64 + f32 --------------------------------------------------
 cd "$REPO"

@@ -26,39 +26,11 @@ import platform
 from pathlib import Path
 
 
-def _add_micromag_to_path():
-    """Locate the micromag module (release package or source build), any OS."""
-    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-
-    def _adddll(_d):                      # add_dll_directory is Windows-only
-        if hasattr(os, "add_dll_directory") and os.path.isdir(_d):
-            os.add_dll_directory(_d)
-
-    def _hasmod(_p):
-        _pat = "_micromag*.pyd" if sys.platform == "win32" else "_micromag*.so"
-        return bool(list(_p.glob(_pat)))
-
-    root = Path(__file__).resolve().parent.parent
-    rtd = root / "runtime-dll"
-    if rtd.is_dir():
-        _adddll(str(rtd))
-        for _v in ("cuFFT-f64", "cuFFT-f32", "VkFFT-f64", "VkFFT-f32"):
-            _py = root / _v / "python"
-            if _hasmod(_py):
-                sys.path.insert(0, str(_py)); return
-    if _hasmod(root / "python"):
-        _adddll(str(root / "python"))
-        sys.path.insert(0, str(root / "python")); return
-    _adddll(r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64")
-    # CPU build first: this is a CPU benchmark, prefer the CPU module if both exist
-    for _p in ("windows-msvc", "linux-gcc", "windows-msvc-cuda", "linux-gcc-cuda"):
-        _py = root / "build" / _p / "python"
-        if _hasmod(_py):
-            sys.path.insert(0, str(_py)); return
-    raise RuntimeError("micromag module not found (release package or source build).")
-
-
-_add_micromag_to_path()
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from micromag_locate import add_micromag_to_path
+add_micromag_to_path("cpu")
 import micromag as mm   # noqa: E402
 
 
@@ -102,12 +74,40 @@ def time_steps(nx, ny, nz, n_warm=5, n_meas=40):
     return dt / n_meas * 1e3              # ms/step
 
 
+def check_baseline(rows, baseline_path, tol):
+    """Smoke mode: fail (exit 1) if any grid is > tol slower than the baseline
+    JSON (matched on grid+threads). Faster-than-baseline never fails."""
+    base = json.loads(Path(baseline_path).read_text())
+    ref = {(r["grid"], str(r["threads"])): r["ms_step"] for r in base["rows"]}
+    worst, fails = 0.0, []
+    for r in rows:
+        key = (r["grid"], str(r["threads"]))
+        if key not in ref:
+            continue
+        ratio = r["ms_step"] / ref[key]
+        worst = max(worst, ratio)
+        if ratio > 1.0 + tol:
+            fails.append(f"  {r['grid']} (threads={r['threads']}): "
+                         f"{r['ms_step']:.3f} vs baseline {ref[key]:.3f} ms "
+                         f"({(ratio-1)*100:+.0f}%)")
+    print(f"\nbaseline check vs {baseline_path}: worst ratio {worst:.2f} "
+          f"(tolerance +{tol*100:.0f}%)")
+    if fails:
+        print("REGRESSION:\n" + "\n".join(fails))
+        raise SystemExit(1)
+    print("PASS")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--threads", default=os.environ.get("OMP_NUM_THREADS", ""),
                     help="comma list, e.g. 1,2,4,8 (spawns subprocesses). "
                          "Empty = single run at current OMP_NUM_THREADS.")
     ap.add_argument("--json", default="")
+    ap.add_argument("--baseline", default="",
+                    help="prior --json output to compare against (smoke mode)")
+    ap.add_argument("--tol", type=float, default=0.15,
+                    help="allowed fractional slowdown vs baseline (default 15%%)")
     ap.add_argument("--_single", action="store_true",
                     help=argparse.SUPPRESS)   # internal: one thread-count run
     args = ap.parse_args()
@@ -133,6 +133,8 @@ def main():
                 {"os": osname, "python": pyver, "cuda": cuda, "rows": rows},
                 indent=2))
             print(f"wrote {args.json}")
+        if args.baseline:
+            check_baseline(rows, args.baseline, args.tol)
         return
 
     # -- sweep mode: re-spawn self per thread count (clean FFTW/OMP init) -----
@@ -159,6 +161,8 @@ def main():
             {"os": osname, "python": pyver, "cuda": cuda, "rows": all_rows},
             indent=2))
         print(f"wrote {args.json}")
+    if args.baseline:
+        check_baseline(all_rows, args.baseline, args.tol)
 
 
 if __name__ == "__main__":

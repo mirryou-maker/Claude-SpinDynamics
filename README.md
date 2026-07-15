@@ -102,7 +102,7 @@ cmake --build build/windows-msvc-cuda --config Release
 ### Linux / WSL build (CPU)
 ```bash
 # Deps (Ubuntu): sudo apt install build-essential cmake ninja-build libfftw3-dev
-#                pip install --user pybind11 numpy      # Catch2 auto-fetched
+#                pip install --user "pybind11>=2.12,<4" numpy   # Catch2 auto-fetched
 cmake --preset linux-gcc
 cmake --build build/linux-gcc -j$(nproc)
 ./build/linux-gcc/bin/unit_tests                        # 231/232 pass*

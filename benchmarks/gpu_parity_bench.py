@@ -25,39 +25,11 @@ import platform
 from pathlib import Path
 
 
-def _add_micromag_to_path():
-    """Locate the micromag module (GPU release package or source build), any OS."""
-    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-
-    def _adddll(_d):                      # add_dll_directory is Windows-only
-        if hasattr(os, "add_dll_directory") and os.path.isdir(_d):
-            os.add_dll_directory(_d)
-
-    def _hasmod(_p):
-        _pat = "_micromag*.pyd" if sys.platform == "win32" else "_micromag*.so"
-        return bool(list(_p.glob(_pat)))
-
-    root = Path(__file__).resolve().parent.parent
-    rtd = root / "runtime-dll"
-    if rtd.is_dir():
-        _adddll(str(rtd))
-        for _v in ("cuFFT-f64", "cuFFT-f32", "VkFFT-f64", "VkFFT-f32"):
-            _py = root / _v / "python"
-            if _hasmod(_py):
-                sys.path.insert(0, str(_py)); return
-    if _hasmod(root / "python"):
-        _adddll(str(root / "python"))
-        sys.path.insert(0, str(root / "python")); return
-    _adddll(r"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/bin/x64")
-    # CUDA build first: this is a GPU benchmark
-    for _p in ("linux-gcc-cuda", "windows-msvc-cuda", "linux-gcc", "windows-msvc"):
-        _py = root / "build" / _p / "python"
-        if _hasmod(_py):
-            sys.path.insert(0, str(_py)); return
-    raise RuntimeError("micromag module not found (release package or source build).")
-
-
-_add_micromag_to_path()
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from micromag_locate import add_micromag_to_path
+add_micromag_to_path()
 import micromag as mm   # noqa: E402
 
 
@@ -112,6 +84,10 @@ def main():
     ap.add_argument("--steps", type=int, default=300, help="measured steps")
     ap.add_argument("--warm", type=int, default=20, help="warm-up steps")
     ap.add_argument("--json", default="")
+    ap.add_argument("--baseline", default="",
+                    help="prior --json output to compare against (smoke mode)")
+    ap.add_argument("--tol", type=float, default=0.15,
+                    help="allowed fractional slowdown vs baseline (default 15%%)")
     args = ap.parse_args()
 
     if not mm.cuda_available():
@@ -145,6 +121,27 @@ def main():
     print("\nVERDICT GUIDE: ratio ~1.0 => Linux GPU on par with Windows. The f64 "
           "path should match closely; f32/Blackwell-specific speedups will NOT "
           "reproduce on L4/A10G (no Blackwell Tensor-Core FFT).")
+
+    if args.baseline:
+        # Smoke mode: fail if any grid is > tol slower than the baseline JSON
+        # (same-GPU comparison only — cross-GPU baselines are meaningless).
+        base = json.loads(Path(args.baseline).read_text())
+        ref = {r["key"]: r["ms_step"] for r in base["rows"]}
+        worst, fails = 0.0, []
+        for r in rows:
+            if r["key"] not in ref:
+                continue
+            ratio = r["ms_step"] / ref[r["key"]]
+            worst = max(worst, ratio)
+            if ratio > 1.0 + args.tol:
+                fails.append(f"  {r['grid']}: {r['ms_step']:.3f} vs baseline "
+                             f"{ref[r['key']]:.3f} ms ({(ratio-1)*100:+.0f}%)")
+        print(f"\nbaseline check vs {args.baseline}: worst ratio {worst:.2f} "
+              f"(tolerance +{args.tol*100:.0f}%)")
+        if fails:
+            print("REGRESSION:\n" + "\n".join(fails))
+            raise SystemExit(1)
+        print("PASS")
 
 
 if __name__ == "__main__":
