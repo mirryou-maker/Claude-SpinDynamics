@@ -23,6 +23,19 @@ if(MSVC)
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/utf-8>)
 endif()
 
+# Warnings -------------------------------------------------------------------
+# CXX only — nvcc host-compiler warning passthrough is noisy and non-actionable.
+# Not -Werror (yet): the goal is visibility in CI logs; promote once clean.
+if(MSVC)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>)
+    # ovf_io/vtk_writer use portable C stdio (fopen) on purpose — the
+    # std::ofstream path deadlocked under the CUDA build's mixed CRT.
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+else()
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall>
+                        $<$<COMPILE_LANGUAGE:CXX>:-Wextra>)
+endif()
+
 # Position-independent code (needed for pybind11) ---------------------------
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 

@@ -20,7 +20,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential cmake ninja-build libfftw3-dev
-          python3 -m pip install --user --break-system-packages "pybind11>=2.12,<4" numpy
+          python3 -m pip install --user --break-system-packages "pybind11>=2.12,<4" numpy pytest
 
       - name: Configure (linux-gcc preset)
         run: cmake --preset linux-gcc
@@ -41,6 +41,9 @@ jobs:
           python3 -c "from micromag_locate import add_micromag_to_path; add_micromag_to_path(); import micromag as mm; print('cuda =', mm.cuda_available())"
           python3 examples/hello_micromag.py
 
+      - name: Python binding tests
+        run: python3 -m pytest tests/python -q
+
   windows-cpu:
     runs-on: windows-latest
     timeout-minutes: 45
@@ -60,7 +63,7 @@ jobs:
         run: |
           # [threads] feature: demag.cpp calls fftw_init_threads/plan_with_nthreads
           vcpkg install 'fftw3[threads]:x64-windows'
-          python -m pip install --quiet "pybind11>=2.12,<4" numpy
+          python -m pip install --quiet "pybind11>=2.12,<4" numpy pytest
 
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -90,3 +93,9 @@ jobs:
         run: |
           $env:PYTHONPATH = "build/ci-windows/python"
           python -c "import micromag as mm; print('cuda =', mm.cuda_available())"
+
+      - name: Python binding tests
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "build/ci-windows/python"
+          python -m pytest tests/python -q

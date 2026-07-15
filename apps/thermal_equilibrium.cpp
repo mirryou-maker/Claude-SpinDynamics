@@ -67,19 +67,6 @@ static void run_equipartition() {
     // Sampling
     std::cout << "  N_sample   <mx^2>    <my^2>    <mz^2>   sum\n";
     double sx2=0, sy2=0, sz2=0;
-    for (int milestone : {100,300,1000,3000}) {
-        const int step_target = milestone;
-        while (static_cast<int>(sx2/sx2*0+sz2/sz2*0) < step_target - 1) {
-            heun.step(m, mat, heff, &thermal);
-            for (Index i=0;i<m.size();++i){
-                sx2+=m[i].x*m[i].x; sy2+=m[i].y*m[i].y; sz2+=m[i].z*m[i].z;
-            }
-            break;  // one step at a time per iteration -- simplified
-        }
-        (void)step_target;
-        break;
-    }
-    sx2=sy2=sz2=0;
     const int N_s = 2000;
     for (int s=0;s<N_s;++s){
         heun.step(m,mat,heff,&thermal);
@@ -87,7 +74,7 @@ static void run_equipartition() {
             sx2+=m[i].x*m[i].x; sy2+=m[i].y*m[i].y; sz2+=m[i].z*m[i].z;
         }
     }
-    const double N=N_s*grid.size();
+    const double N = static_cast<double>(N_s) * static_cast<double>(grid.size());
     const double mx2=sx2/N, my2=sy2/N, mz2=sz2/N;
     std::cout << std::fixed << std::setprecision(4);
     std::cout << "  " << N_s << " steps  "
