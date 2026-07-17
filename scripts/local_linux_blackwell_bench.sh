@@ -80,12 +80,12 @@ python3 -m pip install --user --quiet "pybind11>=2.12,<4" numpy matplotlib
 # --- 3. Build CS f64 + f32 --------------------------------------------------
 cd "$REPO"
 echo "--- configure + build CS f64 (linux-gcc-cuda) ---"
-cmake --preset linux-gcc-cuda -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" ${CMAKE_ARGS:-}
+cmake --preset linux-gcc-cuda -DMICROMAG_CUDA_ARCHS="$CUDA_ARCH" ${CMAKE_ARGS:-}
 cmake --build "$BUILD64" --target _micromag -j"$(nproc)"
 echo "--- configure + build CS f32 (linux-gcc-cuda-f32, tests off) ---"
 cmake -S . -B "$BUILD32" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DMICROMAG_USE_CUDA=ON -DMICROMAG_FLOAT32=ON \
-    -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" -DMICROMAG_BUILD_TESTS=OFF ${CMAKE_ARGS:-}
+    -DMICROMAG_CUDA_ARCHS="$CUDA_ARCH" -DMICROMAG_BUILD_TESTS=OFF ${CMAKE_ARGS:-}
 cmake --build "$BUILD32" --target _micromag -j"$(nproc)"
 
 # --- 4. Install mumax3 ------------------------------------------------------

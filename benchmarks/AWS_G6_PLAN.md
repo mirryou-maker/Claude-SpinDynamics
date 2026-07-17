@@ -39,7 +39,7 @@ scp -i my-key.pem \
 2. apt: `build-essential cmake ninja-build libfftw3-dev git python3-pip`.
 3. Ensures `nvcc` on PATH (DLAMI: `/usr/local/cuda/bin`).
 4. pip `--user`: `pybind11 numpy matplotlib`.
-5. `cmake --preset linux-gcc-cuda -DCMAKE_CUDA_ARCHITECTURES=89` + build.
+5. `cmake --preset linux-gcc-cuda -DMICROMAG_CUDA_ARCHS=89` + build.
 6. `unit_tests_gpu` (full GPU suite).
 7. `import micromag; cuda_available()` check.
 8. `gpu_parity_bench.py --steps 300 --json …` → SP#4 / Medium / Large ms/step

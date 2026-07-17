@@ -249,6 +249,7 @@ if(MICROMAG_USE_CUDA)
         src/surface_anisotropy_gpu.cu   # Phase S: GPU surface anisotropy field
         src/zeeman_spatial_gpu.cu       # ZeemanFieldSpatialGPU — per-cell spatial Zeeman
         src/rkky_gpu.cu                 # RKKYFieldGPU — interlayer RKKY coupling GPU
+        src/gpu_probe.cu                # runtime kernel-compatibility probe
     )
     target_include_directories(micromag_cuda
         PUBLIC
@@ -261,8 +262,23 @@ if(MICROMAG_USE_CUDA)
             CUDA::cufft
             CUDA::curand
     )
+    # CUDA architectures. Dev default = 'native' (compile only for the installed
+    # GPU — fastest builds). RELEASE PACKAGES MUST USE -DMICROMAG_CUDA_ARCHS=release:
+    # real code for Turing..Blackwell + PTX for forward-compat. A single-arch
+    # sm_120 package shipped once and crashed on every other GPU generation with
+    # "no kernel image is available" (see claude-sd-gpu-arch-issue_JYCho.md).
+    # An explicit list (e.g. "89" or "86;89") is also accepted.
+    set(MICROMAG_CUDA_ARCHS "native" CACHE STRING
+        "CUDA architectures: 'native' (dev), 'release' (Turing..Blackwell + PTX), or an explicit list")
+    if(MICROMAG_CUDA_ARCHS STREQUAL "release")
+        set(_micromag_cuda_archs
+            75-real 80-real 86-real 89-real 90-real 100-real 120-real 120-virtual)
+    else()
+        set(_micromag_cuda_archs ${MICROMAG_CUDA_ARCHS})
+    endif()
+    message(STATUS "  CUDA archs:    ${_micromag_cuda_archs}")
     set_target_properties(micromag_cuda PROPERTIES
-        CUDA_ARCHITECTURES native          # auto-detect installed GPU arch
+        CUDA_ARCHITECTURES "${_micromag_cuda_archs}"
         CUDA_SEPARABLE_COMPILATION OFF
         CUDA_RUNTIME_LIBRARY Shared        # dynamic CUDA RT — avoids LNK4098
     )

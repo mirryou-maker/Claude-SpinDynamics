@@ -1,3 +1,4 @@
+#include "micromag/main_guard.hpp"
 // Large-grid GPU demag benchmark
 // Compares DemagField (CPU, FFTW) vs DemagFieldGPU (GPU, cuFFT)
 // on a realistic research-scale grid: 500x500x10 = 2.5M cells.
@@ -131,7 +132,7 @@ static void run_benchmark(int nx, int ny, int nz,
 }
 
 // ---------------------------------------------------------------------------
-int main() {
+static int run_main() {
     std::cout << "=== GPU demag benchmark -- large grids ===\n";
     std::cout << std::fixed;
 
@@ -149,6 +150,9 @@ int main() {
     std::cout << "Typical CPU/GPU speedup ratio for large grids: 50-200x.\n";
     return 0;
 }
+
+
+MICROMAG_GUARDED_MAIN(run_main)
 
 #else
 #include <iostream>

@@ -1,3 +1,4 @@
+#include "micromag/main_guard.hpp"
 // SP#4 GPU benchmark (Phase 3 Step 6)
 // Runs the SP#4 Field A scenario with DemagFieldGPU and compares
 // accuracy + wall-clock time against the CPU DemagField.
@@ -71,7 +72,7 @@ static void run(const char* label, bool use_gpu,
     std::cout << "  wall time = " << std::setprecision(1) << wall << " s\n\n";
 }
 
-int main() {
+static int run_main() {
     const StructuredGrid grid(200, 50, 1, 2.5e-9, 2.5e-9, 3.0e-9);
     const Material mat = Material::permalloy();
 
@@ -91,6 +92,9 @@ int main() {
     run("GPU (DemagFieldGPU, cuFFT)",     true,  grid, mat, H_app, dt, N_steps);
     return 0;
 }
+
+
+MICROMAG_GUARDED_MAIN(run_main)
 
 #else
 #include <iostream>

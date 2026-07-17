@@ -22,7 +22,7 @@ two packages:
 | Package | For | Size |
 |---------|-----|------|
 | `Claude-SD-…-cpu-py313.zip` | **CPU** — runs on any x64 Windows, no GPU | ~3 MB |
-| `Claude-SD-…-gpu-py313.zip` | **GPU (CUDA)** — needs an NVIDIA GPU; all four variants (cuFFT/VkFFT × f32/f64), CUDA runtime **bundled** (no CUDA Toolkit install) | ~280 MB |
+| `Claude-SD-…-gpu-py313.zip` | **GPU (CUDA)** — NVIDIA GPU **Turing or newer** (GTX 16 / RTX 20+, cc ≥ 7.5); all four variants (cuFFT/VkFFT × f32/f64), CUDA runtime **bundled** (no CUDA Toolkit install) | ~280 MB |
 
 Each package contains **every executable from the build** plus the `micromag` Python module:
 
@@ -33,7 +33,8 @@ Each package contains **every executable from the build** plus the `micromag` Py
   and `import micromag`. See each zip's `README.txt` for a copy-paste quick start.
 
 Requires **Windows 10/11 x64** (+ **Python 3.13** for the Python API; **NVIDIA GPU + driver** for the GPU
-package). To build from source instead, see [Quick Start](#quick-start).
+package — supported architectures: sm_75–sm_120, i.e. Turing/Ampere/Ada/Hopper/Blackwell, newer GPUs via
+embedded PTX. `micromag.gpu_diagnostic()` reports compatibility; include its output in bug reports). To build from source instead, see [Quick Start](#quick-start).
 
 ---
 

@@ -1,3 +1,4 @@
+#include "micromag/main_guard.hpp"
 // sp4_full_gpu_bench.cpp -- G7: Full-GPU LLG benchmark
 //
 // Compares CPU RK4Integrator vs GPU RK4IntegratorGPU for two grid sizes:
@@ -131,7 +132,7 @@ static void benchmark(const char* label,
 }
 
 // ---------------------------------------------------------------------------
-int main() {
+static int run_main() {
     std::cout << "=== G7: Full-GPU LLG benchmark (RK4IntegratorGPU) ===\n";
     std::cout << "Exchange + Demag + Zeeman, fixed-step RK4\n";
 
@@ -150,6 +151,9 @@ int main() {
 
     return 0;
 }
+
+
+MICROMAG_GUARDED_MAIN(run_main)
 
 #else
 #include <iostream>

@@ -64,7 +64,7 @@ python3 -m pip install --user --quiet --break-system-packages \
 # --- 4. Configure + build (CUDA) -------------------------------------------
 echo "--- cmake configure (linux-gcc-cuda, sm_$CUDA_ARCH) ---"
 cd "$REPO"
-cmake --preset linux-gcc-cuda -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH"
+cmake --preset linux-gcc-cuda -DMICROMAG_CUDA_ARCHS="$CUDA_ARCH"
 echo "--- build (this compiles CUDA — a few minutes) ---"
 cmake --build "$BUILD" -j"$(nproc)"
 

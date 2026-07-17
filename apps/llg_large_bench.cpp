@@ -1,3 +1,4 @@
+#include "micromag/main_guard.hpp"
 // llg_large_bench.cpp -- Large-grid full LLG scaling benchmark
 //
 // Benchmarks RK4IntegratorGPU (full LLG: Exchange + Demag + Zeeman)
@@ -204,7 +205,7 @@ static BenchResult benchmark(const char* label,
 }
 
 // ---------------------------------------------------------------------------
-int main() {
+static int run_main() {
     std::cout << "=== Large-grid full LLG scaling benchmark ===\n";
     std::cout << "Fields: Exchange + Demag + Zeeman   Integrator: RK4IntegratorGPU\n";
     std::cout << std::fixed;
@@ -286,6 +287,9 @@ int main() {
     std::cout << "CPU: RK4Integrator (FFTW demag)   GPU: RK4IntegratorGPU (cuFFT demag)\n";
     return 0;
 }
+
+
+MICROMAG_GUARDED_MAIN(run_main)
 
 #else
 #include <iostream>

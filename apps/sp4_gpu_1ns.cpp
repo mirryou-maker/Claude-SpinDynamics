@@ -1,3 +1,4 @@
+#include "micromag/main_guard.hpp"
 // sp4_gpu_1ns.cpp -- SP#4 Field A: GPU RK4IntegratorGPU to 1 ns
 //
 // Runs the uMAG Standard Problem #4 (Field A) entirely on GPU:
@@ -48,7 +49,7 @@ static Vec3 mean_m(const VectorField3D& m) {
     return {s.x/N, s.y/N, s.z/N};
 }
 
-int main() {
+static int run_main() {
     // SP#4 setup
     StructuredGrid grid(200, 50, 1, 2.5e-9, 2.5e-9, 3.0e-9);
     Material mat = Material::permalloy();
@@ -174,6 +175,9 @@ int main() {
 
     return 0;
 }
+
+
+MICROMAG_GUARDED_MAIN(run_main)
 
 #else
 #include <iostream>

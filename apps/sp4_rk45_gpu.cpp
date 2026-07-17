@@ -1,3 +1,4 @@
+#include "micromag/main_guard.hpp"
 // sp4_rk45_gpu.cpp -- G9: GPU adaptive RK45 benchmark
 //
 // Compares three integrators on SP#4 Field A (200x50x1 = 10K cells):
@@ -46,7 +47,7 @@ static Vec3 mean_m(const VectorField3D& m) {
 }
 
 // ---------------------------------------------------------------------------
-int main() {
+static int run_main() {
     const StructuredGrid grid(200, 50, 1, 2.5e-9, 2.5e-9, 3.0e-9);
     const Material mat = Material::permalloy();
     const Vec3 Hext{-24.6e3, 4.3e3, 0.0};   // SP#4 Field A
@@ -171,6 +172,9 @@ int main() {
 
     return 0;
 }
+
+
+MICROMAG_GUARDED_MAIN(run_main)
 
 #else
 #include <iostream>

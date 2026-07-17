@@ -1,3 +1,4 @@
+#include "micromag/main_guard.hpp"
 // demag_profile.cpp -- GPU demag phase-breakdown profiler using the GPU pipeline.
 // Set MICROMAG_DEMAG_PROFILE=1 before running to get per-phase timing output.
 // Uses RK4IntegratorGPU so that accumulate_gpu_ptr() is called each step.
@@ -50,7 +51,7 @@ static void profile_grid(const char* label,
     std::cout << "  done (" << n_steps << " steps)\n" << std::flush;
 }
 
-int main() {
+static int run_main() {
     if (!std::getenv("MICROMAG_DEMAG_PROFILE"))
         std::cerr << "Warning: set MICROMAG_DEMAG_PROFILE=1 for phase timing output.\n";
 
@@ -61,6 +62,9 @@ int main() {
     profile_grid("Large",  500, 500, 10, 2.0e-9, 2.0e-9, 2.0e-9, 10);
     return 0;
 }
+
+
+MICROMAG_GUARDED_MAIN(run_main)
 
 #else
 #include <iostream>

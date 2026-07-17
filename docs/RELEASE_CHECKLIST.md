@@ -8,6 +8,15 @@ must pass before proceeding.
 - [ ] CI green on `master` (both jobs: `linux-cpu`, `windows-cpu`) **[gate]**
 - [ ] All four CUDA variants build & `unit_tests_gpu` green locally
       (cuFFT/VkFFT × f32/f64) **[gate]**
+- [ ] **Release builds configured with `-DMICROMAG_CUDA_ARCHS=release`** — dev
+      `native` builds are single-arch and crash on every other GPU generation
+      (the v1.0.0 sm_120-only incident). Verify each shipped binary:
+      ```powershell
+      python scripts/check_fatbin_archs.py <variant>/python/_micromag*.pyd
+      python scripts/check_fatbin_archs.py <variant>/bin/sp4_gpu.exe
+      ```
+      Both must print PASS (sm_75..120 + compute_120 PTX) **[gate]**
+- [ ] `packaging/MANIFEST.md` copied to the package root (CPU/GPU binary map)
 - [ ] Performance smoke vs stored baselines (same machine as the baselines):
       ```powershell
       python benchmarks/cpu_parity_bench.py --threads 8 --baseline benchmarks/_parity_windows.json

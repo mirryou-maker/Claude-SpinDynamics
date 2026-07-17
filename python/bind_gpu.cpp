@@ -17,6 +17,7 @@
 #include "micromag/zeeman_spatial_gpu.hpp"
 #include "micromag/rkky_gpu.hpp"
 #include "micromag/spin_torque_gpu.hpp"
+#include "micromag/gpu_probe.hpp"
 #endif
 
 void bind_gpu(py::module_& m) {
@@ -24,11 +25,21 @@ void bind_gpu(py::module_& m) {
     // CUDA availability probe (always defined; returns False in CPU build)
     // ------------------------------------------------------------------
 #ifdef MICROMAG_CUDA
-    m.def("cuda_available", []() { return true; },
-          "True when the module was compiled with CUDA support.");
+    // Not just "compiled with CUDA": also verifies the device can RUN this
+    // build's kernel images (single-arch packages on a mismatched GPU used to
+    // pass this check and then crash in the first GPU constructor).
+    m.def("cuda_available", []() { return gpu_probe::kernel_ok(); },
+          "True when CUDA support is compiled in AND the installed GPU can "
+          "execute this build's kernels (probed once, cached).");
+    m.def("gpu_diagnostic", []() { return gpu_probe::diagnostic(); },
+          "Human-readable GPU/build compatibility report (device, compute "
+          "capability, embedded kernel archs, and why the GPU is unusable if so).");
 #else
     m.def("cuda_available", []() { return false; },
-          "True when the module was compiled with CUDA support.");
+          "True when CUDA support is compiled in AND the installed GPU can "
+          "execute this build's kernels.");
+    m.def("gpu_diagnostic", []() { return std::string("CPU-only build (no CUDA support compiled in)."); },
+          "Human-readable GPU/build compatibility report.");
 #endif
 #ifdef MICROMAG_FLOAT32
     m.def("gpu_float32", []() { return true; },
