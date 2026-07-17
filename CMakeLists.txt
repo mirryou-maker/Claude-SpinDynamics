@@ -271,8 +271,19 @@ if(MICROMAG_USE_CUDA)
     set(MICROMAG_CUDA_ARCHS "native" CACHE STRING
         "CUDA architectures: 'native' (dev), 'release' (Turing..Blackwell + PTX), or an explicit list")
     if(MICROMAG_CUDA_ARCHS STREQUAL "release")
-        set(_micromag_cuda_archs
-            75-real 80-real 86-real 89-real 90-real 100-real 120-real 120-virtual)
+        set(_micromag_cuda_archs 75-real 80-real 86-real 89-real 90-real)
+        if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+            # Blackwell targets exist only in CUDA >= 12.8.
+            list(APPEND _micromag_cuda_archs 100-real 120-real 120-virtual)
+        else()
+            # Older toolkit: embed the newest PTX it knows so future GPUs
+            # (incl. Blackwell) still run via driver JIT.
+            list(APPEND _micromag_cuda_archs 90-virtual)
+            message(WARNING
+                "MICROMAG_CUDA_ARCHS=release with CUDA ${CMAKE_CUDA_COMPILER_VERSION} (< 12.8): "
+                "no sm_100/sm_120 real code; embedding compute_90 PTX instead. "
+                "Official release packages must be built with CUDA >= 12.8.")
+        endif()
     else()
         set(_micromag_cuda_archs ${MICROMAG_CUDA_ARCHS})
     endif()
