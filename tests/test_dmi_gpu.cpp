@@ -52,8 +52,21 @@ TEST_CASE("BulkDMIFieldGPU: uniform m -> zero field", "[dmi][gpu]") {
     BulkDMIFieldGPU gpu(g, D);
     gpu.accumulate(m, mat, H);
 
-    for (Index i = 0; i < H.size(); ++i)
-        REQUIRE(H[i].norm() < 1.0);   // A/m tolerance (should be ~0)
+    // Interior: zero. Boundary cells carry the free-boundary DMI condition
+    // field (mumax3-equivalent; the old zero-everywhere expectation WAS the
+    // spurious-equilibrium bug). Interior cell of an 8x8x4 grid: (4,4,2).
+    REQUIRE(H[g.linear_index(4, 4, 2)].norm() < 1.0);
+    Real edge_sum = 0;
+    for (Index i = 0; i < H.size(); ++i) edge_sum += H[i].norm();
+    REQUIRE(edge_sum > 1e3);
+
+    // Legacy OpenBC mode restores the pre-fix zero field.
+    VectorField3D H2(g); for (Index i=0; i<H2.size(); ++i) H2[i]={0,0,0};
+    BulkDMIFieldGPU gpu_open(g, D);
+    gpu_open.set_open_bc(true);
+    gpu_open.accumulate(m, mat, H2);
+    for (Index i = 0; i < H2.size(); ++i)
+        REQUIRE(H2[i].norm() < 1.0);
 }
 
 TEST_CASE("BulkDMIFieldGPU: matches CPU (spiral along x)", "[dmi][gpu]") {
@@ -135,10 +148,21 @@ TEST_CASE("InterfacialDMIFieldGPU: uniform m -> zero field", "[dmi][gpu]") {
     InterfacialDMIFieldGPU gpu(g, 2e-3);
     gpu.accumulate(m, mat, H);
 
-    double hmax = 0;
-    for (Index i=0; i<H.size(); ++i)
-        hmax = std::max({hmax, std::abs(H[i].x), std::abs(H[i].y), std::abs(H[i].z)});
-    REQUIRE_THAT(hmax, WithinAbs(0.0, 1.0));
+    // Interior: zero; edges: finite Rohart-Thiaville BC field (see CPU test).
+    REQUIRE(H[g.linear_index(4, 4, 0)].norm() < 1.0);
+    Real edge_sum = 0;
+    for (Index i = 0; i < H.size(); ++i) edge_sum += H[i].norm();
+    REQUIRE(edge_sum > 1e3);
+
+    // Legacy OpenBC mode restores the pre-fix zero field.
+    VectorField3D H2(g); for (Index i=0; i<H2.size(); ++i) H2[i]={0,0,0};
+    InterfacialDMIFieldGPU gpu_open(g, 2e-3);
+    gpu_open.set_open_bc(true);
+    gpu_open.accumulate(m, mat, H2);
+    double hmax2 = 0;
+    for (Index i=0; i<H2.size(); ++i)
+        hmax2 = std::max({hmax2, std::abs(H2[i].x), std::abs(H2[i].y), std::abs(H2[i].z)});
+    REQUIRE_THAT(hmax2, WithinAbs(0.0, 1.0));
 }
 
 TEST_CASE("InterfacialDMIFieldGPU: matches CPU (thin film Neel spiral)", "[dmi][gpu]") {

@@ -17,6 +17,8 @@ using Catch::Matchers::WithinRel;
 // ============================================================
 // Helper: 3×3×1 grid with cell size 5 nm
 // ============================================================
+static const StructuredGrid& gv_grid_alias(const VectorField3D& v) { return v.grid(); }
+
 static StructuredGrid small_grid() {
     return StructuredGrid(3, 3, 1, 5e-9, 5e-9, 5e-9);
 }
@@ -45,7 +47,10 @@ TEST_CASE("BulkDMI: zero D gives zero field", "[dmi]") {
 }
 
 TEST_CASE("BulkDMI: uniform m gives zero field", "[dmi]") {
-    auto g = small_grid();
+    // 3x3x3 so the centre cell is a true interior cell: with nz=1 every cell
+    // sits on both z faces and the bulk z-surface BC field (correct physics,
+    // mumax3-validated) is nonzero even at the in-plane centre.
+    StructuredGrid g(3, 3, 3, 5e-9, 5e-9, 5e-9);
     VectorField3D mv(g), H(g);
     mv.set_uniform({1, 0, 0});
     H.set_uniform({0, 0, 0});
@@ -53,9 +58,24 @@ TEST_CASE("BulkDMI: uniform m gives zero field", "[dmi]") {
     BulkDMIField dmi(3e-3);
     dmi.accumulate(mv, py_mat(), H);
 
-    // ∇×(const) = 0  →  H_DMI = 0
-    for (Index i = 0; i < H.size(); ++i)
-        REQUIRE(H[i].norm() < 1e-10);
+    // ∇×(const) = 0 in the interior, but with the free-boundary DMI
+    // condition (default, mumax3-equivalent) the EDGE cells carry the
+    // Rohart-Thiaville canting field -- a uniform state must NOT be a
+    // spurious equilibrium. 3x3x1 grid: centre cell (1,1,0) is interior.
+    const StructuredGrid& gr = mv.grid();
+    REQUIRE(H[gr.linear_index(1, 1, 1)].norm() < 1e-10);   // interior: zero
+    Real edge_norm = 0;
+    for (Index i = 0; i < H.size(); ++i) edge_norm += H[i].norm();
+    REQUIRE(edge_norm > 1e3);                              // edges: finite BC field
+
+    // Legacy naive stencil (OpenBC): zero everywhere, as before the fix.
+    VectorField3D H2(gv_grid_alias(mv));
+    H2.set_uniform({0, 0, 0});
+    BulkDMIField dmi_open(3e-3);
+    dmi_open.set_open_bc(true);
+    dmi_open.accumulate(mv, py_mat(), H2);
+    for (Index i = 0; i < H2.size(); ++i)
+        REQUIRE(H2[i].norm() < 1e-10);
 }
 
 TEST_CASE("BulkDMI: gradient in x produces Hz via curl", "[dmi]") {
@@ -121,8 +141,37 @@ TEST_CASE("InterfacialDMI: uniform mz gives zero Hz contribution", "[dmi]") {
     InterfacialDMIField dmi(3e-3);
     dmi.accumulate(mv, py_mat(), H);
 
-    for (Index i = 0; i < H.size(); ++i)
-        REQUIRE(H[i].norm() < 1e-10);
+    // Interior cell: zero. Edge cells: finite Rohart-Thiaville BC field
+    // (uniform m_z film must cant at free edges; the pre-fix behaviour of
+    // zero field everywhere was the spurious-equilibrium bug).
+    const StructuredGrid& gr = mv.grid();
+    REQUIRE(H[gr.linear_index(1, 1, 0)].norm() < 1e-10);
+    Real edge_norm = 0;
+    for (Index i = 0; i < H.size(); ++i) edge_norm += H[i].norm();
+    REQUIRE(edge_norm > 1e3);
+
+    // Closed form at an x-min edge cell (y-interior), uniform m = z_hat:
+    //   H_x = +D/(mu0 Ms dx)   (exchange-ghost correction, s=-1, gamma_x=(-1,0,0))
+    //   H_z = +D^2/(2 mu0 Ms A) (DMI gradient term, both x- and y- for corner;
+    //         at a pure x-edge only the x contribution)
+    {
+        const Material mt = py_mat();
+        const Real Dv = 3e-3;
+        const Real Hx_ref = Dv / (constants::mu_0 * mt.Ms * gr.dx());
+        const Vec3 He = H[gr.linear_index(0, 1, 0)];   // x-min edge, y-interior
+        REQUIRE_THAT(He.x, Catch::Matchers::WithinRel(Hx_ref, 1e-9));
+        const Real Hz_ref = Dv * Dv / (Real{2} * constants::mu_0 * mt.Ms * mt.A_exchange);
+        REQUIRE_THAT(He.z, Catch::Matchers::WithinRel(Hz_ref, 1e-9));
+    }
+
+    // Legacy naive stencil (OpenBC): zero everywhere.
+    VectorField3D H2(gv_grid_alias(mv));
+    H2.set_uniform({0, 0, 0});
+    InterfacialDMIField dmi_open(3e-3);
+    dmi_open.set_open_bc(true);
+    dmi_open.accumulate(mv, py_mat(), H2);
+    for (Index i = 0; i < H2.size(); ++i)
+        REQUIRE(H2[i].norm() < 1e-10);
 }
 
 TEST_CASE("InterfacialDMI: gradient of mz along x produces Hx", "[dmi]") {

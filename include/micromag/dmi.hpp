@@ -26,8 +26,17 @@ public:
     Real D() const     { return D_; }
     void set_D(Real D) { D_ = D; }
 
+    // mumax3-style boundary handling. Default (false) applies the free-boundary
+    // DMI condition dm/dn = (D/2A)(n_hat x m) at missing neighbours (the ghost
+    // enters both the DMI gradient and, as a correction added here, the exchange
+    // Laplacian). true = legacy naive stencil (mumax3 OpenBC=1); a uniform film
+    // then becomes a spurious equilibrium (no Rohart-Thiaville edge canting).
+    bool open_bc() const      { return open_bc_; }
+    void set_open_bc(bool ob) { open_bc_ = ob; }
+
 private:
     Real D_;
+    bool open_bc_ = false;
 };
 
 // InterfacialDMIField — interfacial DMI (mumax3 Dind), HM/FM interfaces.
@@ -54,8 +63,15 @@ public:
     Real D() const     { return D_; }
     void set_D(Real D) { D_ = D; }
 
+    // Free-boundary DMI condition dm/dn = (D/2A)(z_hat x n_hat) x m (Rohart-
+    // Thiaville). Default false = condition applied (mumax3 default);
+    // true = legacy naive stencil (mumax3 OpenBC=1).
+    bool open_bc() const      { return open_bc_; }
+    void set_open_bc(bool ob) { open_bc_ = ob; }
+
 private:
     Real D_;
+    bool open_bc_ = false;
 };
 
 }  // namespace micromag

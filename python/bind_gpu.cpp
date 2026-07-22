@@ -234,6 +234,8 @@ void bind_gpu(py::module_& m) {
              "GPU Bulk DMI (Bloch skyrmion, D>0). "
              "H = (2D/mu0/Ms) curl(m). Drop-in for BulkDMIField.")
         .def("accumulate",     &BulkDMIFieldGPU::accumulate)
+        .def_property("open_bc", &BulkDMIFieldGPU::open_bc, &BulkDMIFieldGPU::set_open_bc,
+             "False (default): free-boundary DMI condition. True: legacy naive stencil.")
         .def("energy",         &BulkDMIFieldGPU::energy)
         .def("energy_density", &BulkDMIFieldGPU::energy_density,
              py::arg("m"), py::arg("mat"))
@@ -257,6 +259,8 @@ void bind_gpu(py::module_& m) {
              "GPU Interfacial DMI (Neel skyrmion, HM/FM interface, D>0). "
              "H = (2D/mu0/Ms)(∂mz/∂x, ∂mz/∂y, -∇xy·m). Drop-in for InterfacialDMIField.")
         .def("accumulate",     &InterfacialDMIFieldGPU::accumulate)
+        .def_property("open_bc", &InterfacialDMIFieldGPU::open_bc, &InterfacialDMIFieldGPU::set_open_bc,
+             "False (default): free-boundary DMI condition. True: legacy naive stencil.")
         .def("energy",         &InterfacialDMIFieldGPU::energy)
         .def("energy_density", &InterfacialDMIFieldGPU::energy_density,
              py::arg("m"), py::arg("mat"))

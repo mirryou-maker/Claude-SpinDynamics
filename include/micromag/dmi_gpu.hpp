@@ -43,6 +43,11 @@ public:
     // stream; without it the field stays on its own stream and races on d_H_out.
     void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
 
+    // Free-boundary DMI condition (Rohart-Thiaville, mumax3 default). false
+    // (default) = condition applied; true = legacy naive stencil (OpenBC).
+    bool open_bc() const      { return open_bc_; }
+    void set_open_bc(bool ob) { open_bc_ = ob; }
+
     Real D() const       { return D_; }
     void set_D(Real D)   { D_ = D;   }
 
@@ -58,6 +63,7 @@ private:
     Real   dx_, dy_, dz_;
     size_t N_;
     Real   D_;
+    bool open_bc_ = false;
 
     void*   d_m_scratch_ = nullptr;
     void*   d_H_scratch_ = nullptr;
@@ -95,6 +101,11 @@ public:
     // stream; without it the field stays on its own stream and races on d_H_out.
     void set_stream(void* s) { stream_ = s; stream_owned_ = false; }
 
+    // Free-boundary DMI condition (Rohart-Thiaville, mumax3 default). false
+    // (default) = condition applied; true = legacy naive stencil (OpenBC).
+    bool open_bc() const      { return open_bc_; }
+    void set_open_bc(bool ob) { open_bc_ = ob; }
+
     Real D() const       { return D_; }
     void set_D(Real D)   { D_ = D;   }
 
@@ -107,6 +118,7 @@ private:
     Real   dx_, dy_, dz_;
     size_t N_;
     Real   D_;
+    bool open_bc_ = false;
 
     void*   d_m_scratch_ = nullptr;
     void*   d_H_scratch_ = nullptr;

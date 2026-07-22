@@ -56,7 +56,8 @@ __global__ static void bulk_dmi_kernel(
     double inv_2dx, double inv_dx,
     double inv_2dy, double inv_dy,
     double inv_2dz, double inv_dz,
-    double prefac)
+    double prefac,
+    int use_bc, double qDA, double bcx, double bcy, double bcz)
 {
     const int N   = nx * ny * nz;
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -77,16 +78,54 @@ __global__ static void bulk_dmi_kernel(
     // gx[c] = ?굆c/?굕,  gy[c] = ?굆c/?굖,  gz[c] = ?굆c/?굗
     // Needed: gx[1](?굆y/?굕), gx[2](?굆z/?굕), gy[0](?굆x/?굖), gy[2](?굆z/?굖),
     //         gz[0](?굆x/?굗), gz[1](?굆y/?굗)
-    const double dmydx = grad1(m,1,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    const double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    const double dmxdy = grad1(m,0,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    const double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    const double dmxdz = grad1(m,0,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
-    const double dmydz = grad1(m,1,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
+    double dmydx = grad1(m,1,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+    double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+    double dmxdy = grad1(m,0,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    double dmxdz = grad1(m,0,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
+    double dmydz = grad1(m,1,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
 
-    H_out[0*N + idx] += prefac * (dmzdy - dmydz);
-    H_out[1*N + idx] += prefac * (dmxdz - dmzdx);
-    H_out[2*N + idx] += prefac * (dmydx - dmxdy);
+    double dHx = 0.0, dHy = 0.0, dHz = 0.0;
+    if (use_bc) {
+        // Free-boundary DMI condition dm/dn = (D/2A)(n_hat x m): boundary
+        // gradient g_BC = g_onesided/2 + (D/4A) gamma, plus the exchange-ghost
+        // correction s (D / mu0 Ms d) gamma (see BulkDMIField::accumulate).
+        const double mx = m[0*N+idx], my = m[1*N+idx], mz = m[2*N+idx];
+        if (xmin || xmax) {                             // gamma_x = x_hat x m
+            const double gX = mz, gY = -my;             // -(x_hat x m) = (0, mz, -my)
+            if (nx == 1) { dmydx = 2.0*qDA*gX; dmzdx = 2.0*qDA*gY; }
+            else {
+                const double sgn = xmin ? -1.0 : 1.0;
+                dmydx = 0.5*dmydx + qDA*gX;
+                dmzdx = 0.5*dmzdx + qDA*gY;
+                dHy += sgn * bcx * gX;  dHz += sgn * bcx * gY;
+            }
+        }
+        if (ymin || ymax) {                             // gamma_y = y_hat x m
+            const double gX = -mz, gZ = mx;             // -(y_hat x m) = (-mz, 0, mx)
+            if (ny == 1) { dmxdy = 2.0*qDA*gX; dmzdy = 2.0*qDA*gZ; }
+            else {
+                const double sgn = ymin ? -1.0 : 1.0;
+                dmxdy = 0.5*dmxdy + qDA*gX;
+                dmzdy = 0.5*dmzdy + qDA*gZ;
+                dHx += sgn * bcy * gX;  dHz += sgn * bcy * gZ;
+            }
+        }
+        if (zmin || zmax) {                             // gamma_z = z_hat x m
+            const double gX = my, gY = -mx;             // -(z_hat x m) = (my, -mx, 0)
+            if (nz == 1) { dmxdz = 2.0*qDA*gX; dmydz = 2.0*qDA*gY; }
+            else {
+                const double sgn = zmin ? -1.0 : 1.0;
+                dmxdz = 0.5*dmxdz + qDA*gX;
+                dmydz = 0.5*dmydz + qDA*gY;
+                dHx += sgn * bcz * gX;  dHy += sgn * bcz * gY;
+            }
+        }
+    }
+
+    H_out[0*N + idx] += prefac * (dmzdy - dmydz) + dHx;
+    H_out[1*N + idx] += prefac * (dmxdz - dmzdx) + dHy;
+    H_out[2*N + idx] += prefac * (dmydx - dmxdy) + dHz;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +137,8 @@ __global__ static void interfacial_dmi_kernel(
     int nx, int ny, int nz,
     double inv_2dx, double inv_dx,
     double inv_2dy, double inv_dy,
-    double prefac)
+    double prefac,
+    int use_bc, double qDA, double bcx, double bcy)
 {
     const int N   = nx * ny * nz;
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -113,14 +153,43 @@ __global__ static void interfacial_dmi_kernel(
     const bool xmin=(ix==0), xmax=(ix==nx-1);
     const bool ymin=(iy==0), ymax=(iy==ny-1);
 
-    const double dmxdx = grad1(m,0,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    const double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    const double dmydy = grad1(m,1,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    const double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    double dmxdx = grad1(m,0,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+    double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+    double dmydy = grad1(m,1,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
 
-    H_out[0*N + idx] += prefac * dmzdx;
-    H_out[1*N + idx] += prefac * dmzdy;
-    H_out[2*N + idx] += prefac * (-(dmxdx + dmydy));
+    double dHx = 0.0, dHy = 0.0, dHz = 0.0;
+    if (use_bc) {
+        // Free-boundary DMI condition dm/dn = -(D/2A)(z_hat x n_hat) x m
+        // (sign follows this code's energy convention; verified against mumax3
+        //  relax() edge canting; see InterfacialDMIField::accumulate).
+        const double mx = m[0*N+idx], mz = m[2*N+idx];
+        const double my = m[1*N+idx];
+        if (xmin || xmax) {                             // gamma_x = (-mz, 0, mx)
+            const double gX = -mz, gZ = mx;
+            if (nx == 1) { dmxdx = 2.0*qDA*gX; dmzdx = 2.0*qDA*gZ; }
+            else {
+                const double sgn = xmin ? -1.0 : 1.0;
+                dmxdx = 0.5*dmxdx + qDA*gX;
+                dmzdx = 0.5*dmzdx + qDA*gZ;
+                dHx += sgn * bcx * gX;  dHz += sgn * bcx * gZ;
+            }
+        }
+        if (ymin || ymax) {                             // gamma_y = (0, -mz, my)
+            const double gY = -mz, gZ = my;
+            if (ny == 1) { dmydy = 2.0*qDA*gY; dmzdy = 2.0*qDA*gZ; }
+            else {
+                const double sgn = ymin ? -1.0 : 1.0;
+                dmydy = 0.5*dmydy + qDA*gY;
+                dmzdy = 0.5*dmzdy + qDA*gZ;
+                dHy += sgn * bcy * gY;  dHz += sgn * bcy * gZ;
+            }
+        }
+    }
+
+    H_out[0*N + idx] += prefac * dmzdx + dHx;
+    H_out[1*N + idx] += prefac * dmzdy + dHy;
+    H_out[2*N + idx] += prefac * (-(dmxdx + dmydy)) + dHz;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +204,8 @@ __global__ static void bulk_dmi_kernel_percell(
     double inv_2dx, double inv_dx,
     double inv_2dy, double inv_dy,
     double inv_2dz, double inv_dz,
-    double mu0_inv2)
+    double mu0_inv2,
+    int use_bc, double inv4A, double dxv, double dyv, double dzv)
 {
     const int N   = nx * ny * nz;
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -145,6 +215,8 @@ __global__ static void bulk_dmi_kernel_percell(
     const double Ms_i = d_Ms[idx];
     if (Ms_i <= 0.0 || D_i == 0.0) return;
     const double prefac = D_i * mu0_inv2 / Ms_i;
+    const double qDA = use_bc ? D_i * inv4A : 0.0;                   // D_i/4A
+    const double bcf = use_bc ? D_i * (mu0_inv2 * 0.5) / Ms_i : 0.0; // D_i/(mu0 Ms_i)
 
     const int ix = idx % nx;
     const int iy = (idx / nx) % ny;
@@ -158,16 +230,51 @@ __global__ static void bulk_dmi_kernel_percell(
     const bool ymin=(iy==0), ymax=(iy==ny-1);
     const bool zmin=(iz==0), zmax=(iz==nz-1);
 
-    const double dmydx = grad1(m,1,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    const double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    const double dmxdy = grad1(m,0,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    const double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    const double dmxdz = grad1(m,0,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
-    const double dmydz = grad1(m,1,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
+    double dmydx = grad1(m,1,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+    double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+    double dmxdy = grad1(m,0,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    double dmxdz = grad1(m,0,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
+    double dmydz = grad1(m,1,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
 
-    H_out[0*N + idx] += prefac * (dmzdy - dmydz);
-    H_out[1*N + idx] += prefac * (dmxdz - dmzdx);
-    H_out[2*N + idx] += prefac * (dmydx - dmxdy);
+    double dHx = 0.0, dHy = 0.0, dHz = 0.0;
+    if (use_bc) {   // dm/dn = (D/2A)(n_hat x m); see uniform-D kernel comments
+        const double mx = m[0*N+idx], my = m[1*N+idx], mz = m[2*N+idx];
+        if (xmin || xmax) {
+            const double gX = mz, gY = -my;
+            if (nx == 1) { dmydx = 2.0*qDA*gX; dmzdx = 2.0*qDA*gY; }
+            else {
+                const double sgn = xmin ? -1.0 : 1.0;
+                dmydx = 0.5*dmydx + qDA*gX;
+                dmzdx = 0.5*dmzdx + qDA*gY;
+                dHy += sgn * (bcf/dxv) * gX;  dHz += sgn * (bcf/dxv) * gY;
+            }
+        }
+        if (ymin || ymax) {
+            const double gX = -mz, gZ = mx;
+            if (ny == 1) { dmxdy = 2.0*qDA*gX; dmzdy = 2.0*qDA*gZ; }
+            else {
+                const double sgn = ymin ? -1.0 : 1.0;
+                dmxdy = 0.5*dmxdy + qDA*gX;
+                dmzdy = 0.5*dmzdy + qDA*gZ;
+                dHx += sgn * (bcf/dyv) * gX;  dHz += sgn * (bcf/dyv) * gZ;
+            }
+        }
+        if (zmin || zmax) {
+            const double gX = my, gY = -mx;
+            if (nz == 1) { dmxdz = 2.0*qDA*gX; dmydz = 2.0*qDA*gY; }
+            else {
+                const double sgn = zmin ? -1.0 : 1.0;
+                dmxdz = 0.5*dmxdz + qDA*gX;
+                dmydz = 0.5*dmydz + qDA*gY;
+                dHx += sgn * (bcf/dzv) * gX;  dHy += sgn * (bcf/dzv) * gY;
+            }
+        }
+    }
+
+    H_out[0*N + idx] += prefac * (dmzdy - dmydz) + dHx;
+    H_out[1*N + idx] += prefac * (dmxdz - dmzdx) + dHy;
+    H_out[2*N + idx] += prefac * (dmydx - dmxdy) + dHz;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,7 +288,8 @@ __global__ static void interfacial_dmi_kernel_percell(
     int nx, int ny, int nz,
     double inv_2dx, double inv_dx,
     double inv_2dy, double inv_dy,
-    double mu0_inv2)
+    double mu0_inv2,
+    int use_bc, double inv4A, double dxv, double dyv)
 {
     const int N   = nx * ny * nz;
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -191,6 +299,8 @@ __global__ static void interfacial_dmi_kernel_percell(
     const double Ms_i = d_Ms[idx];
     if (Ms_i <= 0.0 || D_i == 0.0) return;
     const double prefac = D_i * mu0_inv2 / Ms_i;
+    const double qDA = use_bc ? D_i * inv4A : 0.0;
+    const double bcf = use_bc ? D_i * (mu0_inv2 * 0.5) / Ms_i : 0.0;
 
     const int ix = idx % nx;
     const int iy = (idx / nx) % ny;
@@ -201,14 +311,39 @@ __global__ static void interfacial_dmi_kernel_percell(
     const bool xmin=(ix==0), xmax=(ix==nx-1);
     const bool ymin=(iy==0), ymax=(iy==ny-1);
 
-    const double dmxdx = grad1(m,0,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    const double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    const double dmydy = grad1(m,1,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    const double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    double dmxdx = grad1(m,0,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+    double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+    double dmydy = grad1(m,1,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
 
-    H_out[0*N + idx] += prefac * dmzdx;
-    H_out[1*N + idx] += prefac * dmzdy;
-    H_out[2*N + idx] += prefac * (-(dmxdx + dmydy));
+    double dHx = 0.0, dHy = 0.0, dHz = 0.0;
+    if (use_bc) {   // dm/dn = -(D/2A)(z_hat x n_hat) x m; see uniform-D kernel
+        const double mx = m[0*N+idx], my = m[1*N+idx], mz = m[2*N+idx];
+        if (xmin || xmax) {
+            const double gX = -mz, gZ = mx;
+            if (nx == 1) { dmxdx = 2.0*qDA*gX; dmzdx = 2.0*qDA*gZ; }
+            else {
+                const double sgn = xmin ? -1.0 : 1.0;
+                dmxdx = 0.5*dmxdx + qDA*gX;
+                dmzdx = 0.5*dmzdx + qDA*gZ;
+                dHx += sgn * (bcf/dxv) * gX;  dHz += sgn * (bcf/dxv) * gZ;
+            }
+        }
+        if (ymin || ymax) {
+            const double gY = -mz, gZ = my;
+            if (ny == 1) { dmydy = 2.0*qDA*gY; dmzdy = 2.0*qDA*gZ; }
+            else {
+                const double sgn = ymin ? -1.0 : 1.0;
+                dmydy = 0.5*dmydy + qDA*gY;
+                dmzdy = 0.5*dmzdy + qDA*gZ;
+                dHy += sgn * (bcf/dyv) * gY;  dHz += sgn * (bcf/dyv) * gZ;
+            }
+        }
+    }
+
+    H_out[0*N + idx] += prefac * dmzdx + dHx;
+    H_out[1*N + idx] += prefac * dmzdy + dHy;
+    H_out[2*N + idx] += prefac * (-(dmxdx + dmydy)) + dHz;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,19 +415,24 @@ void BulkDMIFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
     auto* gm = reinterpret_cast<const GReal*>(d_m);
     auto* gH = reinterpret_cast<GReal*>(d_H_out);
 
+    const int use_bc = (!open_bc_ && mat.A_exchange > 0.0) ? 1 : 0;
+    const double inv4A = use_bc ? 1.0 / (4.0 * mat.A_exchange) : 0.0;
     if (d_D_field_ != nullptr) {
         const double mu0_inv2 = 2.0 / constants::mu_0;
         bulk_dmi_kernel_percell<<<grd, blk, 0, s>>>(
             gH, gm, d_D_field_, d_Ms_field_,
             (int)nx_, (int)ny_, (int)nz_,
-            i2dx, idx, i2dy, idy, i2dz, idz, mu0_inv2);
+            i2dx, idx, i2dy, idy, i2dz, idz, mu0_inv2,
+            use_bc, inv4A, dx_, dy_, dz_);
     } else {
         if (D_ == 0.0) return;
         const double prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
+        const double bcf = D_ / (constants::mu_0 * mat.Ms);
         bulk_dmi_kernel<<<grd, blk, 0, s>>>(
             gH, gm,
             (int)nx_, (int)ny_, (int)nz_,
-            i2dx, idx, i2dy, idy, i2dz, idz, prefac);
+            i2dx, idx, i2dy, idy, i2dz, idz, prefac,
+            use_bc, D_ * inv4A, bcf / dx_, bcf / dy_, bcf / dz_);
     }
     MICROMAG_KERNEL_CHECK();
 }
@@ -334,11 +474,15 @@ void BulkDMIFieldGPU::accumulate(const VectorField3D& m,
 
     const double prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
     const int blk = 256, grd = static_cast<int>((N_+blk-1)/blk);
+    const int use_bc = (!open_bc_ && mat.A_exchange > 0.0) ? 1 : 0;
+    const double qDA = use_bc ? D_ / (4.0 * mat.A_exchange) : 0.0;
+    const double bcf = D_ / (constants::mu_0 * mat.Ms);
     bulk_dmi_kernel<<<grd, blk, 0, s>>>(
         reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
         (int)nx_, (int)ny_, (int)nz_,
         1.0/(2.0*dx_), 1.0/dx_, 1.0/(2.0*dy_), 1.0/dy_,
-        1.0/(2.0*dz_), 1.0/dz_, prefac);
+        1.0/(2.0*dz_), 1.0/dz_, prefac,
+        use_bc, qDA, bcf/dx_, bcf/dy_, bcf/dz_);
     MICROMAG_KERNEL_CHECK();
 
     std::vector<GReal> h_H(3*N_);
@@ -387,19 +531,24 @@ void InterfacialDMIFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
     auto* gm = reinterpret_cast<const GReal*>(d_m);
     auto* gH = reinterpret_cast<GReal*>(d_H_out);
 
+    const int use_bc = (!open_bc_ && mat.A_exchange > 0.0) ? 1 : 0;
+    const double inv4A = use_bc ? 1.0 / (4.0 * mat.A_exchange) : 0.0;
     if (d_D_field_) {
         const double mu0_inv2 = 2.0 / constants::mu_0;
         interfacial_dmi_kernel_percell<<<grd, blk, 0, s>>>(
             gH, gm, d_D_field_, d_Ms_field_,
             (int)nx_, (int)ny_, (int)nz_,
-            i2dx, idx, i2dy, idy, mu0_inv2);
+            i2dx, idx, i2dy, idy, mu0_inv2,
+            use_bc, inv4A, dx_, dy_);
     } else {
         if (D_ == 0.0) return;
         const double prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
+        const double bcf = D_ / (constants::mu_0 * mat.Ms);
         interfacial_dmi_kernel<<<grd, blk, 0, s>>>(
             gH, gm,
             (int)nx_, (int)ny_, (int)nz_,
-            i2dx, idx, i2dy, idy, prefac);
+            i2dx, idx, i2dy, idy, prefac,
+            use_bc, D_ * inv4A, bcf / dx_, bcf / dy_);
     }
     MICROMAG_KERNEL_CHECK();
 }
@@ -441,10 +590,14 @@ void InterfacialDMIFieldGPU::accumulate(const VectorField3D& m,
 
     const double prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
     const int blk = 256, grd = static_cast<int>((N_+blk-1)/blk);
+    const int use_bc = (!open_bc_ && mat.A_exchange > 0.0) ? 1 : 0;
+    const double qDA = use_bc ? D_ / (4.0 * mat.A_exchange) : 0.0;
+    const double bcf = D_ / (constants::mu_0 * mat.Ms);
     interfacial_dmi_kernel<<<grd, blk, 0, s>>>(
         reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
         (int)nx_, (int)ny_, (int)nz_,
-        1.0/(2.0*dx_), 1.0/dx_, 1.0/(2.0*dy_), 1.0/dy_, prefac);
+        1.0/(2.0*dx_), 1.0/dx_, 1.0/(2.0*dy_), 1.0/dy_, prefac,
+        use_bc, qDA, bcf/dx_, bcf/dy_);
     MICROMAG_KERNEL_CHECK();
 
     std::vector<GReal> h_H(3*N_);

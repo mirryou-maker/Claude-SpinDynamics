@@ -204,6 +204,8 @@ void bind_dynamics(py::module_& m) {
              "Bulk DMI field (mumax3 Dbulk). D in [J/m²]. "
              "H = (2D/μ₀Ms) ∇×m. Favours Bloch skyrmions.")
         .def("accumulate", &BulkDMIField::accumulate)
+        .def_property("open_bc", &BulkDMIField::open_bc, &BulkDMIField::set_open_bc,
+             "False (default): free-boundary DMI condition (mumax3 default). True: legacy naive stencil.")
         .def("energy",     &BulkDMIField::energy)
         .def_property("D", &BulkDMIField::D, &BulkDMIField::set_D)
         .def_property_readonly("name", &BulkDMIField::name);
@@ -215,6 +217,8 @@ void bind_dynamics(py::module_& m) {
              "H_x=2D/μ₀Ms ∂mz/∂x, H_z=-2D/μ₀Ms(∂mx/∂x+∂my/∂y). "
              "Favours Néel skyrmions.")
         .def("accumulate", &InterfacialDMIField::accumulate)
+        .def_property("open_bc", &InterfacialDMIField::open_bc, &InterfacialDMIField::set_open_bc,
+             "False (default): free-boundary DMI condition (mumax3 default). True: legacy naive stencil.")
         .def("energy",     &InterfacialDMIField::energy)
         .def_property("D", &InterfacialDMIField::D, &InterfacialDMIField::set_D)
         .def_property_readonly("name", &InterfacialDMIField::name);
