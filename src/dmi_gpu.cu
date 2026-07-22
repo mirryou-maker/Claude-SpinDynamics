@@ -45,6 +45,44 @@ __device__ __forceinline__ static double grad1(
     return (static_cast<double>(mc[idx_p1]) - static_cast<double>(mc[idx_m1])) * inv_2d;
 }
 
+// Unified axis gradient with the free-boundary DMI condition applied at
+// MISSING neighbours: outside the grid OR vacuum (GeomMask, |m| ~ 0) cells,
+// matching mumax3's zero-Msat-neighbour treatment (see BulkDMIField comments).
+// Slots A/B are the two m-components whose gradients this axis needs; gamA/gamB
+// are the matching gamma components; bc_over_d = D/(mu0 Ms d) exchange-ghost
+// factor added into the matching dH slots. Both-faces-free: g = 2 qDA gamma.
+__device__ __forceinline__ static void axis_grad_bc(
+    const GReal* __restrict__ m, int N, int idx, int stride,
+    bool in_lo, bool in_hi, double inv_d,
+    int cA, int cB, double gamA, double gamB,
+    double qDA, double bc_over_d,
+    double& gA, double& gB, double& dHA, double& dHB)
+{
+    bool lo = in_lo, hi = in_hi;
+    if (lo) { const int j = idx - stride;
+              const double vx=m[j], vy=m[N+j], vz=m[2*N+j];
+              lo = (vx*vx + vy*vy + vz*vz) > 0.25; }
+    if (hi) { const int j = idx + stride;
+              const double vx=m[j], vy=m[N+j], vz=m[2*N+j];
+              hi = (vx*vx + vy*vy + vz*vz) > 0.25; }
+    const double aC = m[cA*N + idx], bC = m[cB*N + idx];
+    if (lo && hi) {
+        gA = (static_cast<double>(m[cA*N + idx + stride]) - static_cast<double>(m[cA*N + idx - stride])) * (0.5 * inv_d);
+        gB = (static_cast<double>(m[cB*N + idx + stride]) - static_cast<double>(m[cB*N + idx - stride])) * (0.5 * inv_d);
+    } else if (hi) {
+        gA = (static_cast<double>(m[cA*N + idx + stride]) - aC) * (0.5 * inv_d) + qDA * gamA;
+        gB = (static_cast<double>(m[cB*N + idx + stride]) - bC) * (0.5 * inv_d) + qDA * gamB;
+        dHA -= bc_over_d * gamA;  dHB -= bc_over_d * gamB;
+    } else if (lo) {
+        gA = (aC - static_cast<double>(m[cA*N + idx - stride])) * (0.5 * inv_d) + qDA * gamA;
+        gB = (bC - static_cast<double>(m[cB*N + idx - stride])) * (0.5 * inv_d) + qDA * gamB;
+        dHA += bc_over_d * gamA;  dHB += bc_over_d * gamB;
+    } else {
+        gA = 2.0 * qDA * gamA;
+        gB = 2.0 * qDA * gamB;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Bulk DMI kernel: H = prefac * curl(m)
 // curl_m = (?굆z/?굖 - ?굆y/?굗, ?굆x/?굗 - ?굆z/?굕, ?굆y/?굕 - ?굆x/?굖)
@@ -78,49 +116,24 @@ __global__ static void bulk_dmi_kernel(
     // gx[c] = ?굆c/?굕,  gy[c] = ?굆c/?굖,  gz[c] = ?굆c/?굗
     // Needed: gx[1](?굆y/?굕), gx[2](?굆z/?굕), gy[0](?굆x/?굖), gy[2](?굆z/?굖),
     //         gz[0](?굆x/?굗), gz[1](?굆y/?굗)
-    double dmydx = grad1(m,1,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    double dmxdy = grad1(m,0,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    double dmxdz = grad1(m,0,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
-    double dmydz = grad1(m,1,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
-
+    double dmydx, dmzdx, dmxdy, dmzdy, dmxdz, dmydz;
     double dHx = 0.0, dHy = 0.0, dHz = 0.0;
-    if (use_bc) {
-        // Free-boundary DMI condition dm/dn = (D/2A)(n_hat x m): boundary
-        // gradient g_BC = g_onesided/2 + (D/4A) gamma, plus the exchange-ghost
-        // correction s (D / mu0 Ms d) gamma (see BulkDMIField::accumulate).
+    if (!use_bc) {
+        dmydx = grad1(m,1,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+        dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+        dmxdy = grad1(m,0,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+        dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+        dmxdz = grad1(m,0,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
+        dmydz = grad1(m,1,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
+    } else {
+        // Free-boundary DMI condition dm/dn = (D/2A)(n_hat x m) at missing
+        // (out-of-grid or vacuum) neighbours; see BulkDMIField::accumulate.
         const double mx = m[0*N+idx], my = m[1*N+idx], mz = m[2*N+idx];
-        if (xmin || xmax) {                             // gamma_x = x_hat x m
-            const double gX = mz, gY = -my;             // -(x_hat x m) = (0, mz, -my)
-            if (nx == 1) { dmydx = 2.0*qDA*gX; dmzdx = 2.0*qDA*gY; }
-            else {
-                const double sgn = xmin ? -1.0 : 1.0;
-                dmydx = 0.5*dmydx + qDA*gX;
-                dmzdx = 0.5*dmzdx + qDA*gY;
-                dHy += sgn * bcx * gX;  dHz += sgn * bcx * gY;
-            }
-        }
-        if (ymin || ymax) {                             // gamma_y = y_hat x m
-            const double gX = -mz, gZ = mx;             // -(y_hat x m) = (-mz, 0, mx)
-            if (ny == 1) { dmxdy = 2.0*qDA*gX; dmzdy = 2.0*qDA*gZ; }
-            else {
-                const double sgn = ymin ? -1.0 : 1.0;
-                dmxdy = 0.5*dmxdy + qDA*gX;
-                dmzdy = 0.5*dmzdy + qDA*gZ;
-                dHx += sgn * bcy * gX;  dHz += sgn * bcy * gZ;
-            }
-        }
-        if (zmin || zmax) {                             // gamma_z = z_hat x m
-            const double gX = my, gY = -mx;             // -(z_hat x m) = (my, -mx, 0)
-            if (nz == 1) { dmxdz = 2.0*qDA*gX; dmydz = 2.0*qDA*gY; }
-            else {
-                const double sgn = zmin ? -1.0 : 1.0;
-                dmxdz = 0.5*dmxdz + qDA*gX;
-                dmydz = 0.5*dmydz + qDA*gY;
-                dHx += sgn * bcz * gX;  dHy += sgn * bcz * gY;
-            }
-        }
+        if (mx*mx + my*my + mz*mz < 0.25) return;       // vacuum cell itself
+        // gamma_x = -(x_hat x m) = (0, mz, -my), etc.
+        axis_grad_bc(m, N, idx, 1,     !xmin, !xmax, inv_dx, 1, 2,  mz, -my, qDA, bcx, dmydx, dmzdx, dHy, dHz);
+        axis_grad_bc(m, N, idx, nx,    !ymin, !ymax, inv_dy, 0, 2, -mz,  mx, qDA, bcy, dmxdy, dmzdy, dHx, dHz);
+        axis_grad_bc(m, N, idx, nx*ny, !zmin, !zmax, inv_dz, 0, 1,  my, -mx, qDA, bcz, dmxdz, dmydz, dHx, dHy);
     }
 
     H_out[0*N + idx] += prefac * (dmzdy - dmydz) + dHx;
@@ -153,38 +166,22 @@ __global__ static void interfacial_dmi_kernel(
     const bool xmin=(ix==0), xmax=(ix==nx-1);
     const bool ymin=(iy==0), ymax=(iy==ny-1);
 
-    double dmxdx = grad1(m,0,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    double dmydy = grad1(m,1,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-
+    double dmxdx, dmzdx, dmydy, dmzdy;
     double dHx = 0.0, dHy = 0.0, dHz = 0.0;
-    if (use_bc) {
-        // Free-boundary DMI condition dm/dn = -(D/2A)(z_hat x n_hat) x m
-        // (sign follows this code's energy convention; verified against mumax3
-        //  relax() edge canting; see InterfacialDMIField::accumulate).
-        const double mx = m[0*N+idx], mz = m[2*N+idx];
-        const double my = m[1*N+idx];
-        if (xmin || xmax) {                             // gamma_x = (-mz, 0, mx)
-            const double gX = -mz, gZ = mx;
-            if (nx == 1) { dmxdx = 2.0*qDA*gX; dmzdx = 2.0*qDA*gZ; }
-            else {
-                const double sgn = xmin ? -1.0 : 1.0;
-                dmxdx = 0.5*dmxdx + qDA*gX;
-                dmzdx = 0.5*dmzdx + qDA*gZ;
-                dHx += sgn * bcx * gX;  dHz += sgn * bcx * gZ;
-            }
-        }
-        if (ymin || ymax) {                             // gamma_y = (0, -mz, my)
-            const double gY = -mz, gZ = my;
-            if (ny == 1) { dmydy = 2.0*qDA*gY; dmzdy = 2.0*qDA*gZ; }
-            else {
-                const double sgn = ymin ? -1.0 : 1.0;
-                dmydy = 0.5*dmydy + qDA*gY;
-                dmzdy = 0.5*dmzdy + qDA*gZ;
-                dHy += sgn * bcy * gY;  dHz += sgn * bcy * gZ;
-            }
-        }
+    if (!use_bc) {
+        dmxdx = grad1(m,0,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+        dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+        dmydy = grad1(m,1,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+        dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    } else {
+        // Free-boundary DMI condition dm/dn = -(D/2A)(z_hat x n_hat) x m at
+        // missing (out-of-grid or vacuum) neighbours; verified against mumax3
+        // relax() edge canting; see InterfacialDMIField::accumulate.
+        const double mx = m[0*N+idx], my = m[1*N+idx], mz = m[2*N+idx];
+        if (mx*mx + my*my + mz*mz < 0.25) return;       // vacuum cell itself
+        // gamma_x = (-mz, 0, mx), gamma_y = (0, -mz, my)
+        axis_grad_bc(m, N, idx, 1,  !xmin, !xmax, inv_dx, 0, 2, -mz, mx, qDA, bcx, dmxdx, dmzdx, dHx, dHz);
+        axis_grad_bc(m, N, idx, nx, !ymin, !ymax, inv_dy, 1, 2, -mz, my, qDA, bcy, dmydy, dmzdy, dHy, dHz);
     }
 
     H_out[0*N + idx] += prefac * dmzdx + dHx;
@@ -230,46 +227,21 @@ __global__ static void bulk_dmi_kernel_percell(
     const bool ymin=(iy==0), ymax=(iy==ny-1);
     const bool zmin=(iz==0), zmax=(iz==nz-1);
 
-    double dmydx = grad1(m,1,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    double dmxdy = grad1(m,0,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    double dmxdz = grad1(m,0,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
-    double dmydz = grad1(m,1,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
-
+    double dmydx, dmzdx, dmxdy, dmzdy, dmxdz, dmydz;
     double dHx = 0.0, dHy = 0.0, dHz = 0.0;
-    if (use_bc) {   // dm/dn = (D/2A)(n_hat x m); see uniform-D kernel comments
+    if (!use_bc) {
+        dmydx = grad1(m,1,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+        dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+        dmxdy = grad1(m,0,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+        dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+        dmxdz = grad1(m,0,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
+        dmydz = grad1(m,1,N, idx, idx_zm,idx_zp, zmin,zmax, inv_2dz,inv_dz);
+    } else {   // dm/dn = (D/2A)(n_hat x m); see uniform-D kernel comments
         const double mx = m[0*N+idx], my = m[1*N+idx], mz = m[2*N+idx];
-        if (xmin || xmax) {
-            const double gX = mz, gY = -my;
-            if (nx == 1) { dmydx = 2.0*qDA*gX; dmzdx = 2.0*qDA*gY; }
-            else {
-                const double sgn = xmin ? -1.0 : 1.0;
-                dmydx = 0.5*dmydx + qDA*gX;
-                dmzdx = 0.5*dmzdx + qDA*gY;
-                dHy += sgn * (bcf/dxv) * gX;  dHz += sgn * (bcf/dxv) * gY;
-            }
-        }
-        if (ymin || ymax) {
-            const double gX = -mz, gZ = mx;
-            if (ny == 1) { dmxdy = 2.0*qDA*gX; dmzdy = 2.0*qDA*gZ; }
-            else {
-                const double sgn = ymin ? -1.0 : 1.0;
-                dmxdy = 0.5*dmxdy + qDA*gX;
-                dmzdy = 0.5*dmzdy + qDA*gZ;
-                dHx += sgn * (bcf/dyv) * gX;  dHz += sgn * (bcf/dyv) * gZ;
-            }
-        }
-        if (zmin || zmax) {
-            const double gX = my, gY = -mx;
-            if (nz == 1) { dmxdz = 2.0*qDA*gX; dmydz = 2.0*qDA*gY; }
-            else {
-                const double sgn = zmin ? -1.0 : 1.0;
-                dmxdz = 0.5*dmxdz + qDA*gX;
-                dmydz = 0.5*dmydz + qDA*gY;
-                dHx += sgn * (bcf/dzv) * gX;  dHy += sgn * (bcf/dzv) * gY;
-            }
-        }
+        if (mx*mx + my*my + mz*mz < 0.25) return;       // vacuum cell itself
+        axis_grad_bc(m, N, idx, 1,     !xmin, !xmax, inv_dx, 1, 2,  mz, -my, qDA, bcf/dxv, dmydx, dmzdx, dHy, dHz);
+        axis_grad_bc(m, N, idx, nx,    !ymin, !ymax, inv_dy, 0, 2, -mz,  mx, qDA, bcf/dyv, dmxdy, dmzdy, dHx, dHz);
+        axis_grad_bc(m, N, idx, nx*ny, !zmin, !zmax, inv_dz, 0, 1,  my, -mx, qDA, bcf/dzv, dmxdz, dmydz, dHx, dHy);
     }
 
     H_out[0*N + idx] += prefac * (dmzdy - dmydz) + dHx;
@@ -311,34 +283,18 @@ __global__ static void interfacial_dmi_kernel_percell(
     const bool xmin=(ix==0), xmax=(ix==nx-1);
     const bool ymin=(iy==0), ymax=(iy==ny-1);
 
-    double dmxdx = grad1(m,0,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    double dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
-    double dmydy = grad1(m,1,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-    double dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
-
+    double dmxdx, dmzdx, dmydy, dmzdy;
     double dHx = 0.0, dHy = 0.0, dHz = 0.0;
-    if (use_bc) {   // dm/dn = -(D/2A)(z_hat x n_hat) x m; see uniform-D kernel
+    if (!use_bc) {
+        dmxdx = grad1(m,0,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+        dmzdx = grad1(m,2,N, idx, idx_xm,idx_xp, xmin,xmax, inv_2dx,inv_dx);
+        dmydy = grad1(m,1,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+        dmzdy = grad1(m,2,N, idx, idx_ym,idx_yp, ymin,ymax, inv_2dy,inv_dy);
+    } else {   // dm/dn = -(D/2A)(z_hat x n_hat) x m; see uniform-D kernel
         const double mx = m[0*N+idx], my = m[1*N+idx], mz = m[2*N+idx];
-        if (xmin || xmax) {
-            const double gX = -mz, gZ = mx;
-            if (nx == 1) { dmxdx = 2.0*qDA*gX; dmzdx = 2.0*qDA*gZ; }
-            else {
-                const double sgn = xmin ? -1.0 : 1.0;
-                dmxdx = 0.5*dmxdx + qDA*gX;
-                dmzdx = 0.5*dmzdx + qDA*gZ;
-                dHx += sgn * (bcf/dxv) * gX;  dHz += sgn * (bcf/dxv) * gZ;
-            }
-        }
-        if (ymin || ymax) {
-            const double gY = -mz, gZ = my;
-            if (ny == 1) { dmydy = 2.0*qDA*gY; dmzdy = 2.0*qDA*gZ; }
-            else {
-                const double sgn = ymin ? -1.0 : 1.0;
-                dmydy = 0.5*dmydy + qDA*gY;
-                dmzdy = 0.5*dmzdy + qDA*gZ;
-                dHy += sgn * (bcf/dyv) * gY;  dHz += sgn * (bcf/dyv) * gZ;
-            }
-        }
+        if (mx*mx + my*my + mz*mz < 0.25) return;       // vacuum cell itself
+        axis_grad_bc(m, N, idx, 1,  !xmin, !xmax, inv_dx, 0, 2, -mz, mx, qDA, bcf/dxv, dmxdx, dmzdx, dHx, dHz);
+        axis_grad_bc(m, N, idx, nx, !ymin, !ymax, inv_dy, 1, 2, -mz, my, qDA, bcf/dyv, dmydy, dmzdy, dHy, dHz);
     }
 
     H_out[0*N + idx] += prefac * dmzdx + dHx;

@@ -43,46 +43,35 @@ void BulkDMIField::accumulate(const VectorField3D& m,
         const Index iy   = trow % ny;
         const Index iz   = trow / ny;
         const Vec3 mc = m[idx];
-        Vec3 gx = grad_x(m, g, ix, iy, iz);
-        Vec3 gy = grad_y(m, g, ix, iy, iz);
-        Vec3 gz = grad_z(m, g, ix, iy, iz);
         Vec3 dH{0, 0, 0};
-
-        if (bc) {
-            // Size-1 dimension: BOTH faces are free boundaries. The ghost-based
-            // central difference then gives gradient = 2 (D/4A) gamma while the
-            // two exchange-ghost corrections cancel (mumax3-equivalent; this is
-            // what produces the nonzero d m/dz of a single-layer bulk-DMI film).
-            if (ix == 0 || ix == nx - 1) {                      // gamma_x = -(x_hat x m)  [CS bulk energy = -D m.curl m]
-                const Vec3 gam{0, mc.z, -mc.y};
-                if (nx == 1) {
-                    gx = gam * (Real{2} * quarterDoverA);
-                } else {
-                    const Real s = (ix == 0) ? Real{-1} : Real{1};
-                    gx = gx * Real{0.5} + gam * quarterDoverA;
-                    dH += gam * (s * bc_exch / dx);
-                }
-            }
-            if (iy == 0 || iy == ny - 1) {                      // gamma_y = -(y_hat x m)
-                const Vec3 gam{-mc.z, 0, mc.x};
-                if (ny == 1) {
-                    gy = gam * (Real{2} * quarterDoverA);
-                } else {
-                    const Real s = (iy == 0) ? Real{-1} : Real{1};
-                    gy = gy * Real{0.5} + gam * quarterDoverA;
-                    dH += gam * (s * bc_exch / dy);
-                }
-            }
-            if (iz == 0 || iz == nz - 1) {                      // gamma_z = -(z_hat x m)
-                const Vec3 gam{mc.y, -mc.x, 0};
-                if (nz == 1) {
-                    gz = gam * (Real{2} * quarterDoverA);
-                } else {
-                    const Real s = (iz == 0) ? Real{-1} : Real{1};
-                    gz = gz * Real{0.5} + gam * quarterDoverA;
-                    dH += gam * (s * bc_exch / dz);
-                }
-            }
+        Vec3 gx, gy, gz;
+        if (!bc) {
+            gx = grad_x(m, g, ix, iy, iz);
+            gy = grad_y(m, g, ix, iy, iz);
+            gz = grad_z(m, g, ix, iy, iz);
+        } else {
+            // A "missing" neighbour is either outside the grid or a vacuum
+            // (GeomMask, |m| ~ 0) cell — both get the free-boundary condition,
+            // matching mumax3's zero-Msat-neighbour treatment. When BOTH faces
+            // of an axis are free (size-1 dimension or isolated cell) the
+            // ghost-based central difference gives gradient = 2 (D/4A) gamma
+            // and the exchange-ghost corrections cancel (this is what produces
+            // the nonzero dm/dz of a single-layer bulk-DMI film in mumax3).
+            if (mc.dot(mc) < Real{0.25}) continue;   // vacuum cell itself
+            auto vac = [&](Index j) { const Vec3& v = m[j]; return v.dot(v) < Real{0.25}; };
+            auto axis = [&](Index i, Index n, Real d, Index stride, const Vec3& gam) {
+                const bool lo = (i > 0)     && !vac(idx - stride);
+                const bool hi = (i < n - 1) && !vac(idx + stride);
+                if (lo && hi) return (m[idx + stride] - m[idx - stride]) / (Real{2} * d);
+                if (hi) { dH += gam * (-bc_exch / d);
+                          return (m[idx + stride] - mc) * (Real{0.5} / d) + gam * quarterDoverA; }
+                if (lo) { dH += gam * ( bc_exch / d);
+                          return (mc - m[idx - stride]) * (Real{0.5} / d) + gam * quarterDoverA; }
+                return gam * (Real{2} * quarterDoverA);
+            };
+            gx = axis(ix, nx, dx, Index{1},  Vec3{0, mc.z, -mc.y});   // gamma_x = -(x_hat x m)  [CS bulk energy = -D m.curl m]
+            gy = axis(iy, ny, dy, nx,        Vec3{-mc.z, 0, mc.x});   // gamma_y = -(y_hat x m)
+            gz = axis(iz, nz, dz, nx * ny,   Vec3{mc.y, -mc.x, 0});   // gamma_z = -(z_hat x m)
         }
 
         // curl m = (∂mz/∂y - ∂my/∂z, ∂mx/∂z - ∂mz/∂x, ∂my/∂x - ∂mx/∂y)
@@ -163,31 +152,29 @@ void InterfacialDMIField::accumulate(const VectorField3D& m,
         const Index iy   = trow % ny;
         const Index iz   = trow / ny;
         const Vec3 mc = m[idx];
-        Vec3 gx = grad_x(m, g, ix, iy, iz);
-        Vec3 gy = grad_y(m, g, ix, iy, iz);
         Vec3 dH{0, 0, 0};
-
-        if (bc) {
-            if (ix == 0 || ix == nx - 1) {               // gamma_x = -(z_hat x x_hat) x m
-                const Vec3 gam{-mc.z, 0, mc.x};
-                if (nx == 1) {
-                    gx = gam * (Real{2} * quarterDoverA);
-                } else {
-                    const Real s = (ix == 0) ? Real{-1} : Real{1};
-                    gx = gx * Real{0.5} + gam * quarterDoverA;
-                    dH += gam * (s * bc_exch / dx);
-                }
-            }
-            if (iy == 0 || iy == ny - 1) {               // gamma_y = -(z_hat x y_hat) x m
-                const Vec3 gam{0, -mc.z, mc.y};
-                if (ny == 1) {
-                    gy = gam * (Real{2} * quarterDoverA);
-                } else {
-                    const Real s = (iy == 0) ? Real{-1} : Real{1};
-                    gy = gy * Real{0.5} + gam * quarterDoverA;
-                    dH += gam * (s * bc_exch / dy);
-                }
-            }
+        Vec3 gx, gy;
+        if (!bc) {
+            gx = grad_x(m, g, ix, iy, iz);
+            gy = grad_y(m, g, ix, iy, iz);
+        } else {
+            // Missing neighbour = outside grid OR vacuum (GeomMask, |m| ~ 0)
+            // cell; both get the free-boundary condition (mumax3 zero-Msat
+            // treatment). Both-faces-free: gradient = 2 (D/4A) gamma.
+            if (mc.dot(mc) < Real{0.25}) continue;   // vacuum cell itself
+            auto vac = [&](Index j) { const Vec3& v = m[j]; return v.dot(v) < Real{0.25}; };
+            auto axis = [&](Index i, Index n, Real d, Index stride, const Vec3& gam) {
+                const bool lo = (i > 0)     && !vac(idx - stride);
+                const bool hi = (i < n - 1) && !vac(idx + stride);
+                if (lo && hi) return (m[idx + stride] - m[idx - stride]) / (Real{2} * d);
+                if (hi) { dH += gam * (-bc_exch / d);
+                          return (m[idx + stride] - mc) * (Real{0.5} / d) + gam * quarterDoverA; }
+                if (lo) { dH += gam * ( bc_exch / d);
+                          return (mc - m[idx - stride]) * (Real{0.5} / d) + gam * quarterDoverA; }
+                return gam * (Real{2} * quarterDoverA);
+            };
+            gx = axis(ix, nx, dx, Index{1}, Vec3{-mc.z, 0, mc.x});   // gamma_x = -(z_hat x x_hat) x m
+            gy = axis(iy, ny, dy, nx,       Vec3{0, -mc.z, mc.y});   // gamma_y = -(z_hat x y_hat) x m
         }
 
         Vec3 H_dmi{ gx.z, gy.z, -(gx.x + gy.y) };
