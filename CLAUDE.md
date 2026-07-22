@@ -302,3 +302,21 @@ results = mm.parameter_sweep(fn, {"D": D_vals, "K": K_vals}, n_jobs=4)
 | `[zeeman]`, `[anisotropy]` | Field kernels |
 | `[grid]`, `[field]` | StructuredGrid, VectorField3D |
 | `[gpu]` | All GPU tests (unit_tests_gpu only) |
+
+
+## 진도 관리 (GitHub Projects)
+
+- 트래커 CLI: `python "d:\Claude-Code-R\Project_Tracker\tracker.py"`
+- **이 저장소의 프로젝트 코드: `P5`** ← 이 값만 프로젝트마다 다르다
+
+### 세션 시작 시
+`tracker.py show P5` 를 실행하고, State / Phase / Next / Blocker 를 3줄 이내로 요약해 보고한다.
+
+### 세션 종료 시 또는 의미 있는 작업 완료 시
+`tracker.py update P5 --state <상태> --phase "<단계>" --next "<다음 액션>" --log "<한 줄 요약>"` 를 실행한다. 바뀐 항목만 인자로 넘긴다.
+
+### 규칙
+- **다른 코드(P1, P3 등)는 절대 건드리지 않는다.**
+- 로그는 한 줄, 사실 위주로. 상세 내용은 커밋 메시지에 남긴다.
+- 막혔을 때는 `--blocker "<이유>"` 와 함께 `--state 블로커` 를 설정한다. 해소되면 `--blocker ""` 로 비운다.
+- `PROJECTS.md` 는 자동 생성 파일이므로 직접 수정하지 않는다.

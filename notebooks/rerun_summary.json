@@ -1,0 +1,97 @@
+[
+  {
+    "nb": "46_sp1_comparison.py",
+    "ok": true,
+    "wall_s": 27.9,
+    "tail": [
+      "  \u2192 vortex wins at 120nm (L_c < 120nm)",
+      "--- mumax+ (RelaxGPU at each L, minimize) ---",
+      "  Wall: 11237 ms",
+      "  L_c \u2248 99.7 nm",
+      "======================================================================",
+      "SUMMARY -- SP#1 Phase Diagram (Permalloy squares, 5nm cells)",
+      "======================================================================",
+      "  Reference L_c (t=10nm, 5nm cells): ~116 nm",
+      "  CS cuFFT_f64   : L_c = 99.7 nm  wall=9881 ms",
+      "  mumax3          : wall=5343 ms  (Lc from table TBD)",
+      "  mumax+          : L_c = 99.7 nm  wall=11237 ms",
+      "Plot: 46_sp1_comparison.png"
+    ]
+  },
+  {
+    "nb": "47_sp3_comparison.py",
+    "ok": true,
+    "wall_s": 144.5,
+    "tail": [
+      "  Wall: 13102 ms",
+      "  H_sw = -6.0 mT",
+      "  Final <mx> = -0.9913",
+      "======================================================================",
+      "SUMMARY -- SP#3 Hysteresis (1\u00b5m \u00d7 1\u00b5m \u00d7 20nm Permalloy, 10nm cells)",
+      "  \u00b5MAG reference H_sw \u2248 \u221220 mT (coarse-grid estimate)",
+      "Build      wall_ms  H_sw    ",
+      "---------  -------  --------",
+      "cuFFT_f64  104577   -13.8 mT",
+      "mumax3     15121    -13.3 mT",
+      "mumax+     13102    -6.0 mT ",
+      "Plot: 47_sp3_comparison.png"
+    ]
+  },
+  {
+    "nb": "48_fmr_comparison.py",
+    "ok": true,
+    "wall_s": 23.5,
+    "tail": [
+      "  Wall: 14035 ms",
+      "  f_peak = 1.4000 GHz  err=0.04%",
+      "  Note: mx sampled every 50ps \u2192 f_max\u224820.0GHz (coarser than CS)",
+      "======================================================================",
+      "SUMMARY -- FMR Macrospin (B_bias=50mT, alpha=0.005)",
+      "  Kittel f_FMR = 1.4006 GHz",
+      "Build                wall_ms  f_peak (GHz)  err vs Kittel",
+      "-------------------  -------  ------------  -------------",
+      "CPU_RK4              6        1.4000        0.04%        ",
+      "mumax3               7671     1.3997        0.06%        ",
+      "mumax+ (50ps batch)  14035    1.4000        0.04%        ",
+      "Plot: 48_fmr_comparison.png"
+    ]
+  },
+  {
+    "nb": "49_walker_breakdown_comparison.py",
+    "ok": true,
+    "wall_s": 256.0,
+    "tail": [
+      "    J=4.0e12  u=134.6 m/s  v_sub=1346.1  v_abv=133.9",
+      "    J=5.0e12  u=168.3 m/s  v_sub=1682.6  v_abv=167.4",
+      "    J=7.0e12  u=235.6 m/s  v_sub=2355.7  v_abv=234.4",
+      "    J=10.0e12  u=336.5 m/s  v_sub=3365.3  v_abv=334.9",
+      "  J (e12 A/m\u00b2)  0.5         1.0         2.0         3.0         4.0         5.0         7.0         10.0      ",
+      "  T  h  e  o  r  y  (  s  u  b  )168 m/s     337 m/s     673 m/s     1010 m/s     1346 m/s     1683 m/s     2356 m/s     3365 m/s   ",
+      "  cuFFT_f64   -140        -270        -510        -480        -340        -340        -460        -830      ",
+      "  cuFFT_f32   -140        -270        -510        -480        -340        -340        -460        -830      ",
+      "  VkFFT_f32   -140        -270        -510        -480        -340        -340        -460        -830      ",
+      "  mumax3 wall: 18631 ms",
+      "  mumax+      -100        -200        -390        -540        -510        -400        -390        -550      ",
+      "Plot: 49_walker_comparison.png"
+    ]
+  },
+  {
+    "nb": "50_sp3_llg_hysteresis.py",
+    "ok": true,
+    "wall_s": 817.0,
+    "tail": [
+      "  Final <mx> = -0.9913",
+      "======================================================================",
+      "SUMMARY \u2014 SP#3 Hysteresis Protocol Comparison",
+      "  \u00b5MAG reference H_sw \u2248 -20 mT (LLG integration protocol)",
+      "  NB47 (minimize): CS -13.8 mT, mumax3 -13.3 mT, mumax+ -6.0 mT",
+      "  NB50 (LLG relax):",
+      "Build         wall_ms  H_sw (LLG)  Method                 ",
+      "------------  -------  ----------  -----------------------",
+      "CS cuFFT_f64  671102   -14.3 mT    LLG run_until_converged",
+      "mumax3        82760    -13.3 mT    LLG relax()            ",
+      "mumax+        38458    -23.3 mT    LLG timesolver 2ns/step",
+      "Plot: 50_sp3_llg.png"
+    ]
+  }
+]
