@@ -50,7 +50,7 @@ def panel(ax, data, title):
     ax.axvline(1.0, color="gray", ls="--", lw=1)
     ax.set_xlabel(r"$D/D_c$"); ax.set_ylabel("relaxed skyrmion charge $Q$")
     ax.set_title(title); ax.legend(fontsize=8); ax.grid(alpha=0.3)
-    ax.set_ylim(-1.7, 1.7)
+    ax.set_ylim(-4.3, 1.7)
 
 
 panel(axes[0], before, "(a) BEFORE fix: $Q$ scatters run-to-run\n(stream race on $d\\!H_\\mathrm{out}$, even f64)")

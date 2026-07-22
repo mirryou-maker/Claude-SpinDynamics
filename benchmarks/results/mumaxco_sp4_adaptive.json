@@ -1,0 +1,17 @@
+{
+  "description": "SP#4 1-ns adaptive run: stock mumax3 3.12 vs MuMax-CO (CUDA-Graph fork). Wall time of the run(1e-9) phase, isolated by subtracting an otherwise-identical script with run(1e-12) (captures CUDA init + setup + relax). Median of 3 runs each, RTX 5060 Ti, Windows 11, driver-matched session 2026-07-22.",
+  "script": "SetGridSize(200,50,1); SetCellSize(2.5e-9,2.5e-9,3e-9); Msat=8e5; Aex=1.3e-11; alpha=0.02; m=uniform(1,0.1,0); relax(); B_ext=vector(-24.6e-3,4.3e-3,0); run(1e-9)",
+  "stock_mumax3_312": {
+    "full_s": 13.35,
+    "setup_s": 8.16,
+    "run_1ns_s": 5.19
+  },
+  "mumax_co": {
+    "full_s": 9.7,
+    "setup_s": 8.1,
+    "run_1ns_s": 1.6
+  },
+  "speedup_run_phase": 3.2,
+  "note": "Earlier draft quoted 5.08 s vs 2.24 s (2.3x) from a 2026-06 MuMax-CO development measurement; the stock number reproduces (5.19 s) and MuMax-CO has since improved (1.60 s). Same .mx3, same adaptive RK45 path; final state agrees to float32 round-off (see physics_check).",
+  "physics_check": "final m after 1 ns compared cell-by-cell (OVF): max|stock-CO| = 1.32e-4 (float32 round-off level; not bit-identical in current builds)"
+}
