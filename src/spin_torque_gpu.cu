@@ -258,7 +258,9 @@ ZhangLiSTTGPU::~ZhangLiSTTGPU() {
 
 double ZhangLiSTTGPU::u(double Ms) const {
     const double Jmag = J_.norm();
-    return P_ * constants::mu_B * Jmag / (constants::e_charge * Ms);
+    double u_val = P_ * constants::mu_B * Jmag / (constants::e_charge * Ms);
+    if (thiaville_u_) u_val /= (1.0 + xi_ * xi_);   // mumax3 convention
+    return u_val;
 }
 
 void ZhangLiSTTGPU::accumulate_gpu_ptr(

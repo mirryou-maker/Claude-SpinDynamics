@@ -79,7 +79,9 @@ Real ZhangLiSTT::u(Real Ms) const {
     // u = P μ_B |J| / (e Ms)  [m/s]
     // |J| is the scalar magnitude of the current density vector
     const Real Jmag = J_.norm();
-    return P_ * constants::mu_B * Jmag / (constants::e_charge * Ms);
+    Real u_val = P_ * constants::mu_B * Jmag / (constants::e_charge * Ms);
+    if (thiaville_u_) u_val /= (Real{1} + xi_ * xi_);   // mumax3 convention
+    return u_val;
 }
 
 void ZhangLiSTT::accumulate(const VectorField3D& m,

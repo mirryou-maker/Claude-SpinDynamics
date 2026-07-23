@@ -12,6 +12,8 @@
 
 #ifdef MICROMAG_CUDA
 
+#include <memory>
+
 #include "anisotropy.hpp"
 #include "cubic_anisotropy.hpp"
 #include "effective_field.hpp"
@@ -119,6 +121,10 @@ private:
     double* d_K_field_    = nullptr;  // double[N]   — K_uniaxial per cell
     double* d_axis_field_ = nullptr;  // double[3*N] — easy_axis per cell (component-major)
     double* d_Ms_field_   = nullptr;  // double[N]   — Ms per cell
+
+    // Host mirror of the material field so energy()/energy_density() (which
+    // delegate to the CPU class) honour per-cell data too.
+    std::shared_ptr<MaterialField3D> matf_host_;
 };
 
 // ---------------------------------------------------------------------------

@@ -134,7 +134,9 @@ void ExchangeField::accumulate(const VectorField3D& m,
 
 Real ExchangeField::energy(const VectorField3D& m,
                             const Material& mat) const {
-    if (!matf_ && mat.A_exchange == 0) return 0;
+    // Guard mirrors accumulate(): a region map with an inter-region table can
+    // drive coupling even when uniform A and matf are absent.
+    if (!matf_ && mat.A_exchange == 0 && !rmap_) return 0;
 
     const StructuredGrid& g = m.grid();
     const Real V    = g.cell_volume();

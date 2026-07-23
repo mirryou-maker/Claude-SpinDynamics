@@ -160,12 +160,19 @@ public:
     void  set_P(Real P)   { P_  = P;  }
     void  set_xi(Real xi) { xi_ = xi; }
 
+    // mumax3/Thiaville convention: scale u by 1/(1+xi^2). Default false
+    // (u = J*P*mu_B/(e*Ms)); enable for mumax3-identical Zhang-Li dynamics.
+    // Sub-Walker velocities differ by exactly (1+xi^2) between conventions.
+    bool thiaville_u() const        { return thiaville_u_; }
+    void set_thiaville_u(bool on)   { thiaville_u_ = on; }
+
     // Spin-drift velocity [m/s] for a given Ms
     Real u(Real Ms) const;
 
 private:
     Vec3 J_;
     Real P_, xi_;
+    bool thiaville_u_ = false;
 };
 
 // ---------------------------------------------------------------------------

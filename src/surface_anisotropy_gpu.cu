@@ -280,6 +280,11 @@ void SurfaceAnisotropyFieldGPU::clear_Ks_field() {
 Real SurfaceAnisotropyFieldGPU::energy(const VectorField3D& m,
                                         const Material& mat) const
 {
+    if (has_Ks_field())
+        throw std::logic_error(
+            "SurfaceAnisotropyFieldGPU::energy: per-cell parameters are set but the CPU "
+            "delegate has no per-cell support; the result would silently "
+            "use the uniform value. Clear the per-cell field first.");
     SurfaceAnisotropyField cpu(Ks_, n_);
     if (geom_mask_) cpu.set_mask(geom_mask_);
     return cpu.energy(m, mat);

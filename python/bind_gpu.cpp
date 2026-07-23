@@ -624,7 +624,10 @@ void bind_gpu(py::module_& m) {
              "xi: non-adiabaticity parameter.")
         .def_property("J",  &ZhangLiSTTGPU::J,  &ZhangLiSTTGPU::set_J)
         .def_property("P",  &ZhangLiSTTGPU::P,  &ZhangLiSTTGPU::set_P)
-        .def_property("xi", &ZhangLiSTTGPU::xi, &ZhangLiSTTGPU::set_xi);
+        .def_property("xi", &ZhangLiSTTGPU::xi, &ZhangLiSTTGPU::set_xi)
+        .def_property("thiaville_u", &ZhangLiSTTGPU::thiaville_u,
+                      &ZhangLiSTTGPU::set_thiaville_u,
+                      "mumax3/Thiaville convention: u scaled by 1/(1+xi^2)");
 
     // Phase S+W: MagnetoelasticFieldGPU (also IEffectiveFieldGPU for FieldSumGPU)
     py::class_<MagnetoelasticFieldGPU, IEffectiveField, IEffectiveFieldGPU,

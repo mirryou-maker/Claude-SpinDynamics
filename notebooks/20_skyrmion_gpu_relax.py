@@ -82,42 +82,26 @@ dmi_gpu    = mm.InterfacialDMIFieldGPU(g, D_skyrm)
 zeeman_gpu = mm.ZeemanFieldGPU(g, mm.Vec3(0, 0, 0))   # no external field
 
 # ---------------------------------------------------------------------------
-# RelaxGPU: run with DMI active
-# Note: current RelaxGPU.run() takes (mat, demag, exch, zeeman, aniso).
-# DMI is an extra IEffectiveField — we run sequential field accumulation.
-# Workaround: use RK4IntegratorGPU with high alpha for DMI-included relax.
+# GPU energy minimisation WITH DMI (FieldSumGPU + MinimizeGPU).
+# Since the Rohart-Thiaville free boundary condition landed, damped-LLG
+# relaxation near D/D_c can wander between metastable basins; the conjugate
+# energy minimiser is the recommended path for topological states and holds
+# the seeded Q (validated: Q = -0.97 for this material set).
 # ---------------------------------------------------------------------------
+fields_gpu = mm.FieldSumGPU()
+fields_gpu.add(exch_gpu); fields_gpu.add(aniso_gpu); fields_gpu.add(dmi_gpu)
 
-# RelaxGPU currently supports: demag + exch + zeeman + aniso (4 fixed fields).
-# For DMI we run RK4IntegratorGPU with alpha=1.0 (high-damping relax approximation).
-# This is equivalent to damping-dominated LLG and converges to energy minimum.
-mat_relax      = mm.Material()
-mat_relax.Ms         = mat.Ms
-mat_relax.A_exchange = mat.A_exchange
-mat_relax.K_uniaxial = mat.K_uniaxial
-mat_relax.easy_axis  = mat.easy_axis
-mat_relax.alpha      = 1.0   # pure damping for relax
-
-dt_relax   = 5e-13
-N_relax    = 5000
-check_every = 200
-
-print(f"\n--- GPU Relaxation (RK4GPU, alpha={mat_relax.alpha}, dt={dt_relax*1e12:.0f} ps) ---")
-print(f"  {N_relax} steps with InterfacialDMIFieldGPU")
-
-integ = mm.RK4IntegratorGPU(g, dt_relax)
-integ.upload(m0)
-
+print("\n--- GPU minimisation (MinimizeGPU, demag + exch + aniso + DMI) ---")
+minz = mm.MinimizeGPU(g)
+mopts = mm.MinimizeGPUOptions()
+minz.upload(m0)
 t0 = time.perf_counter()
-for step in range(N_relax):
-    integ.step(mat_relax, demag_gpu, exch_gpu, zeeman_gpu, aniso_gpu)
-    # Note: DMI field contribution added separately via accumulate() on CPU
-    # For pure GPU DMI, FieldSumGPU (priority 2) will unify this.
+n_steps_min = minz.run(mat, demag_gpu, fields_gpu, mopts)
 t1 = time.perf_counter()
 
 m_relax_no_dmi = mm.VectorField3D(g)
-integ.download(m_relax_no_dmi)
-print(f"  GPU relax without DMI: {t1-t0:.2f} s  ({(t1-t0)/N_relax*1e3:.3f} ms/step)")
+minz.download(m_relax_no_dmi)   # (variable name kept for the plots below)
+print(f"  MinimizeGPU: {n_steps_min} steps in {t1-t0:.2f} s")
 
 # ---------------------------------------------------------------------------
 # Relax WITH DMI using CPU (for validation on small grid)
@@ -141,15 +125,12 @@ heff.add(zeeman_cpu)
 
 m_cpu = mm.neel_skyrmion(g_s, R_sky, charge=1, pol=-1)
 
-relax_opts = mm.RelaxOptions()
-relax_opts.threshold   = 5e3
-relax_opts.max_steps   = 10000
-relax_opts.alpha_relax = 1.0
+min_opts = mm.MinimizeOptions()
 
 t2 = time.perf_counter()
-n_cpu = mm.relax(m_cpu, mat, heff, relax_opts)
+n_cpu = mm.minimize(m_cpu, mat, heff, min_opts)
 t3 = time.perf_counter()
-print(f"  CPU relax: {n_cpu} steps in {t3-t2:.2f} s")
+print(f"  CPU minimize: {n_cpu} steps in {t3-t2:.2f} s")
 
 # ---------------------------------------------------------------------------
 # Topological charge of relaxed states
@@ -160,8 +141,8 @@ Q_cpu = mm.topological_charge_Q(m_cpu)
 
 print(f"\n--- Topological Charge ---")
 print(f"  Initial Neel skyrmion:  Q = {Q_initial:.3f}")
-print(f"  GPU relaxed (no DMI):   Q = {Q_gpu_nodmi:.3f}")
-print(f"  CPU relaxed (with DMI): Q = {Q_cpu:.3f}")
+print(f"  GPU minimised (with DMI): Q = {Q_gpu_nodmi:.3f}")
+print(f"  CPU minimised (with DMI): Q = {Q_cpu:.3f}")
 
 # ---------------------------------------------------------------------------
 # Phase diagram: skyrmion stability vs D (DMI) at fixed K
@@ -212,7 +193,7 @@ def bench_relax(nx_, ny_, label):
     rg.upload(m_)
     ro = mm.RelaxGPUOptions(); ro.threshold=5e4; ro.max_steps=1000; ro.check_every=200
     t0_ = time.perf_counter()
-    n_  = rg.run(mat_relax, dm, ex, ze, an, ro)
+    n_  = rg.run(mat, dm, ex, ze, an, ro)
     t1_ = time.perf_counter()
     dt_gpu = (t1_-t0_)/max(n_,1)*1e3
 
@@ -254,7 +235,7 @@ plt.colorbar(im0, ax=axes[0,0], label="mz")
 a_gpu = mm.to_numpy(m_relax_no_dmi)
 im1 = axes[0,1].imshow(a_gpu[0, :, :, 2], origin='lower', cmap='RdBu', vmin=-1, vmax=1,
                         extent=[0, Lx*1e9, 0, Ly*1e9])
-axes[0,1].set_title(f"GPU relaxed (no DMI, alpha=1)\nQ = {Q_gpu_nodmi:.2f}")
+axes[0,1].set_title(f"GPU minimised (with DMI)\nQ = {Q_gpu_nodmi:.2f}")
 axes[0,1].set_xlabel("x (nm)"); axes[0,1].set_ylabel("y (nm)")
 plt.colorbar(im1, ax=axes[0,1], label="mz")
 
@@ -305,7 +286,8 @@ plt.savefig(out, dpi=150)
 print(f"\nPlot saved: {out}")
 
 print("\n=== Summary ===")
-print(f"  GPU relax ({Nx}x{Ny}, no DMI): {N_relax} steps in {t1-t0:.2f} s = {(t1-t0)/N_relax*1e3:.3f} ms/step")
+print(f"  GPU minimise ({Nx}x{Ny}, with DMI): {n_steps_min} steps in {t1-t0:.2f} s")
 print(f"  CPU relax ({Nx}x{Ny}, with DMI): {n_cpu} steps in {t3-t2:.2f} s")
 print(f"  Topological charges: initial={Q_initial:.2f}  GPU={Q_gpu_nodmi:.2f}  CPU(DMI)={Q_cpu:.2f}")
-print(f"  Skyrmion survived DMI stabilisation: {'YES' if abs(Q_cpu+1) < 0.3 else 'NO/collapsed'}")
+print(f"  Skyrmion survived (GPU minimise): {'YES' if abs(Q_gpu_nodmi+1) < 0.3 else 'NO/collapsed'}")
+print(f"  Skyrmion survived (CPU relax):    {'YES' if abs(Q_cpu+1) < 0.3 else 'NO/collapsed'}")

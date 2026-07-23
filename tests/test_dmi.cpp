@@ -216,6 +216,16 @@ TEST_CASE("ZhangLiSTT: spin-drift velocity dimensional check", "[dmi]") {
     REQUIRE(u < 1e4);    // < 10 km/s
 }
 
+TEST_CASE("ZhangLiSTT: thiaville_u scales u by 1/(1+xi^2)", "[dmi][spin_torque]") {
+    // mumax3 compatibility switch: u_mumax3 = u_CS / (1 + xi^2).
+    const Real xi = 0.5;
+    ZhangLiSTT zl({1e12, 0, 0}, 0.7, xi);
+    const Real u_cs = zl.u(8e5);
+    zl.set_thiaville_u(true);
+    const Real u_mx = zl.u(8e5);
+    REQUIRE_THAT(u_mx * (1.0 + xi * xi), WithinRel(u_cs, 1e-12));
+}
+
 TEST_CASE("ZhangLiSTT: zero J gives zero torque", "[dmi]") {
     StructuredGrid g(3, 1, 1, 5e-9, 5e-9, 5e-9);
     VectorField3D mv(g), dm(g);

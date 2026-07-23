@@ -239,6 +239,9 @@ void bind_dynamics(py::module_& m) {
         .def_property("J",  &ZhangLiSTT::J,  &ZhangLiSTT::set_J)
         .def_property("P",  &ZhangLiSTT::P,  &ZhangLiSTT::set_P)
         .def_property("xi", &ZhangLiSTT::xi, &ZhangLiSTT::set_xi)
+        .def_property("thiaville_u", &ZhangLiSTT::thiaville_u,
+                      &ZhangLiSTT::set_thiaville_u,
+                      "mumax3/Thiaville convention: u scaled by 1/(1+xi^2)")
         .def_property_readonly("name", &ZhangLiSTT::name);
 
     // ------------------------------------------------------------------

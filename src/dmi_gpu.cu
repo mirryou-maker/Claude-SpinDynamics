@@ -439,12 +439,22 @@ void BulkDMIFieldGPU::accumulate(const VectorField3D& m,
 }
 
 Real BulkDMIFieldGPU::energy(const VectorField3D& m, const Material& mat) const {
+    if (d_D_field_)
+        throw std::logic_error(
+            "BulkDMIFieldGPU::energy: per-cell parameters are set but the CPU "
+            "delegate has no per-cell support; the result would silently "
+            "use the uniform value. Clear the per-cell field first.");
     BulkDMIField cpu(D_);
     return cpu.energy(m, mat);
 }
 
 ScalarField3D BulkDMIFieldGPU::energy_density(const VectorField3D& m,
                                                 const Material& mat) const {
+    if (d_D_field_)
+        throw std::logic_error(
+            "BulkDMIFieldGPU::energy_density: per-cell parameters are set but the CPU "
+            "delegate has no per-cell support; the result would silently "
+            "use the uniform value. Clear the per-cell field first.");
     BulkDMIField cpu(D_);
     return cpu.energy_density(m, mat);
 }
@@ -546,12 +556,22 @@ void InterfacialDMIFieldGPU::accumulate(const VectorField3D& m,
 }
 
 Real InterfacialDMIFieldGPU::energy(const VectorField3D& m, const Material& mat) const {
+    if (d_D_field_)
+        throw std::logic_error(
+            "InterfacialDMIFieldGPU::energy: per-cell parameters are set but the CPU "
+            "delegate has no per-cell support; the result would silently "
+            "use the uniform value. Clear the per-cell field first.");
     InterfacialDMIField cpu(D_);
     return cpu.energy(m, mat);
 }
 
 ScalarField3D InterfacialDMIFieldGPU::energy_density(const VectorField3D& m,
                                                        const Material& mat) const {
+    if (d_D_field_)
+        throw std::logic_error(
+            "InterfacialDMIFieldGPU::energy_density: per-cell parameters are set but the CPU "
+            "delegate has no per-cell support; the result would silently "
+            "use the uniform value. Clear the per-cell field first.");
     InterfacialDMIField cpu(D_);
     return cpu.energy_density(m, mat);
 }

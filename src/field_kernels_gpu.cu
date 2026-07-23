@@ -302,12 +302,14 @@ void UniaxialAnisotropyFieldGPU::accumulate(const VectorField3D& m,
 Real UniaxialAnisotropyFieldGPU::energy(const VectorField3D& m,
                                           const Material& mat) const {
     UniaxialAnisotropyField cpu;
+    if (matf_host_) cpu.set_material_field(matf_host_.get());
     return cpu.energy(m, mat);
 }
 
 ScalarField3D UniaxialAnisotropyFieldGPU::energy_density(const VectorField3D& m,
                                                            const Material& mat) const {
     UniaxialAnisotropyField cpu;
+    if (matf_host_) cpu.set_material_field(matf_host_.get());
     return cpu.energy_density(m, mat);
 }
 
@@ -405,12 +407,14 @@ void UniaxialAnisotropyFieldGPU::set_material_field(const MaterialField3D& matf)
     CUDA_CHECK(cudaMemcpyAsync(d_axis_field_, h_axis.data(), 3*N_*sizeof(double), cudaMemcpyHostToDevice, s));
     CUDA_CHECK(cudaMemcpyAsync(d_Ms_field_,   h_Ms.data(),   N_  *sizeof(double), cudaMemcpyHostToDevice, s));
     CUDA_CHECK(cudaStreamSynchronize(s));
+    matf_host_ = std::make_shared<MaterialField3D>(matf);   // host mirror for energy paths
 }
 
 void UniaxialAnisotropyFieldGPU::clear_material_field() {
     if (d_K_field_)    { cudaFree(d_K_field_);    d_K_field_    = nullptr; }
     if (d_axis_field_) { cudaFree(d_axis_field_); d_axis_field_ = nullptr; }
     if (d_Ms_field_)   { cudaFree(d_Ms_field_);   d_Ms_field_   = nullptr; }
+    matf_host_.reset();
 }
 
 // ===========================================================================
@@ -547,12 +551,22 @@ void CubicAnisotropyFieldGPU::accumulate(const VectorField3D& m,
 }
 
 Real CubicAnisotropyFieldGPU::energy(const VectorField3D& m, const Material& mat) const {
+    if (has_Kc_field())
+        throw std::logic_error(
+            "CubicAnisotropyFieldGPU::energy: per-cell parameters are set but the CPU "
+            "delegate has no per-cell support; the result would silently "
+            "use the uniform value. Clear the per-cell field first.");
     CubicAnisotropyField cpu(Kc1_, Kc2_, c1_, c2_);
     return cpu.energy(m, mat);
 }
 
 ScalarField3D CubicAnisotropyFieldGPU::energy_density(const VectorField3D& m,
                                                         const Material& mat) const {
+    if (has_Kc_field())
+        throw std::logic_error(
+            "CubicAnisotropyFieldGPU::energy_density: per-cell parameters are set but the CPU "
+            "delegate has no per-cell support; the result would silently "
+            "use the uniform value. Clear the per-cell field first.");
     CubicAnisotropyField cpu(Kc1_, Kc2_, c1_, c2_);
     return cpu.energy_density(m, mat);
 }

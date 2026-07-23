@@ -194,6 +194,10 @@ public:
     void set_P(Real P)   { P_  = P;  }
     void set_xi(Real xi) { xi_ = xi; }
 
+    // mumax3/Thiaville convention: scale u by 1/(1+xi^2). Default false.
+    bool thiaville_u() const      { return thiaville_u_; }
+    void set_thiaville_u(bool on) { thiaville_u_ = on; }
+
     double u(double Ms) const;
 
 private:
@@ -201,6 +205,7 @@ private:
     Real  dx_, dy_, dz_;
     Vec3  J_;
     Real  P_, xi_;
+    bool  thiaville_u_ = false;
     void* stream_       = nullptr;
     bool  stream_owned_ = true;
 };

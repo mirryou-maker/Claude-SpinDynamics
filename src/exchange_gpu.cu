@@ -613,11 +613,13 @@ void ExchangeFieldGPU::set_material_field(const MaterialField3D& matf) {
                                cudaMemcpyHostToDevice,
                                static_cast<cudaStream_t>(stream_)));
     CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream_)));
+    matf_host_ = std::make_shared<MaterialField3D>(matf);   // for energy paths
 }
 
 void ExchangeFieldGPU::clear_material_field() {
     if (d_A_field_)  { cudaFree(d_A_field_);  d_A_field_  = nullptr; }
     if (d_Ms_field_) { cudaFree(d_Ms_field_); d_Ms_field_ = nullptr; }
+    matf_host_.reset();
 }
 
 // ===========================================================================
@@ -633,10 +635,12 @@ void ExchangeFieldGPU::set_mask(const GeomMask& mask) {
                                cudaMemcpyHostToDevice,
                                static_cast<cudaStream_t>(stream_)));
     CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream_)));
+    mask_host_ = std::make_shared<GeomMask>(mask);          // for energy paths
 }
 
 void ExchangeFieldGPU::clear_mask() {
     if (d_mask_) { cudaFree(d_mask_); d_mask_ = nullptr; }
+    mask_host_.reset();
 }
 
 // ===========================================================================
@@ -652,10 +656,12 @@ void ExchangeFieldGPU::set_region_map(const RegionMap& rm) {
                                cudaMemcpyHostToDevice,
                                static_cast<cudaStream_t>(stream_)));
     CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream_)));
+    rmap_host_ = std::make_shared<RegionMap>(rm);           // for energy paths
 }
 
 void ExchangeFieldGPU::clear_region_map() {
     if (d_region_) { cudaFree(d_region_); d_region_ = nullptr; }
+    rmap_host_.reset();
 }
 
 void ExchangeFieldGPU::upload_inter_table() {
@@ -701,15 +707,29 @@ void ExchangeFieldGPU::clear_inter_exchange() {
 // ===========================================================================
 // energy ??delegates to CPU ExchangeField (G3+ will add GPU reduction)
 // ===========================================================================
+// Build a CPU mirror carrying this instance's BC, per-cell material, mask,
+// region map and inter-region table so both energy entry points agree with
+// the accumulate paths (same defect class as commit aedd9f1).
+ExchangeField ExchangeFieldGPU::make_cpu_mirror() const {
+    ExchangeField cpu(bc_);
+    if (matf_host_) cpu.set_material_field(matf_host_.get());
+    if (mask_host_) cpu.set_mask(mask_host_.get());
+    if (rmap_host_) cpu.set_region_map(rmap_host_.get());
+    for (const auto& kv : inter_A_) {
+        const uint8_t ri = static_cast<uint8_t>(kv.first / 256);
+        const uint8_t rj = static_cast<uint8_t>(kv.first % 256);
+        cpu.set_inter_exchange(ri, rj, kv.second);
+    }
+    return cpu;
+}
+
 Real ExchangeFieldGPU::energy(const VectorField3D& m, const Material& mat) const {
-    ExchangeField cpu;
-    return cpu.energy(m, mat);
+    return make_cpu_mirror().energy(m, mat);
 }
 
 ScalarField3D ExchangeFieldGPU::energy_density(const VectorField3D& m,
                                                  const Material& mat) const {
-    ExchangeField cpu;
-    return cpu.energy_density(m, mat);
+    return make_cpu_mirror().energy_density(m, mat);
 }
 
 }  // namespace micromag

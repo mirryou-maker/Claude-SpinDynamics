@@ -9,6 +9,8 @@
 
 #ifdef MICROMAG_CUDA
 
+#include <memory>
+
 #include "effective_field.hpp"
 #include "effective_field_gpu_iface.hpp"
 #include "exchange.hpp"
@@ -90,6 +92,8 @@ public:
     bool has_geometry() const { return d_mask_ != nullptr || d_region_ != nullptr; }
 
     // Cell-size and BC accessors — used by fused local-field kernel in the integrator.
+    // (make_cpu_mirror builds a CPU ExchangeField carrying bc + per-cell state
+    //  for the energy delegation paths.)
     Real dx() const { return dx_; }
     Real dy() const { return dy_; }
     Real dz() const { return dz_; }
@@ -115,7 +119,14 @@ private:
     double*  d_inter_  = nullptr;   // double[256*256] — symmetric A_IEC; NaN = unset
     std::unordered_map<uint32_t, Real> inter_A_;   // host mirror (key = lo*256+hi)
 
+    // Host mirrors so energy()/energy_density() (CPU delegation) honour the
+    // per-cell material, mask and region data too.
+    std::shared_ptr<MaterialField3D> matf_host_;
+    std::shared_ptr<GeomMask>        mask_host_;
+    std::shared_ptr<RegionMap>       rmap_host_;
+
     void upload_inter_table();      // (re)build d_inter_ from inter_A_
+    ExchangeField make_cpu_mirror() const;
 
     // CUDA stream — all GPU work serialised here
     void* stream_       = nullptr;

@@ -12,7 +12,7 @@ Physics:
   tau_DL = a_SOT * [m x (m x sigma)],  sigma=+y
   Drives skyrmion along track with skyrmion Hall angle theta_H.
 
-Material: Pt/Co  Ms=580 kA/m, K=0.5 MJ/m3, D=2.0 mJ/m2, alpha=0.05
+Material: Pt/Co  Ms=580 kA/m, K=0.5 MJ/m3, D=3.0 mJ/m2, alpha=0.05
 Grid: 200x100x1, dx=3nm (600 x 300 nm)
 """
 
@@ -34,7 +34,7 @@ print(f"  CUDA: {mm.cuda_available()}")
 # Material
 # ---------------------------------------------------------------------------
 mu0   = 4e-7 * np.pi
-Ms    = 580e3;  A = 15e-12;  K = 0.5e6;  D = 2.0e-3
+Ms    = 580e3;  A = 15e-12;  K = 0.5e6;  D = 3.0e-3   # D/Dc=0.86: inside the skyrmion phase (post-BC phase map, NB21)
 alpha = 0.05;   d_fm = 1e-9; theta_SH = 0.15
 
 mat = mm.Material()
@@ -62,7 +62,9 @@ cx_off  = -Lx / 4   # offset from center -> skyrmion at x = Lx/2 + cx_off = Lx/4
 cy_off  = 0.0       # centered in y
 
 # neel_skyrmion: cx, cy are offsets from box_center = (Lx/2, Ly/2)
-m_init = mm.neel_skyrmion(g, R_sky, +1, +1, cx_off, cy_off)
+# pol=-1 (core down) matches the D>0 chirality that survives the
+# Rohart-Thiaville boundary condition (validated in NB20: Q = -0.97).
+m_init = mm.neel_skyrmion(g, R_sky, +1, -1, cx_off, cy_off)
 Q_init = mm.topological_charge_Q(m_init)
 print(f"\nInitial skyrmion: R={R_sky*1e9:.0f}nm, x0={(Lx/2+cx_off)*1e9:.0f}nm, Q={Q_init:.3f}")
 
@@ -82,6 +84,17 @@ torques_g.add(sot_g)
 
 fields_g = mm.FieldSumGPU()
 fields_g.add(exch_g); fields_g.add(aniso_g); fields_g.add(dmi_g)
+
+# ---------------------------------------------------------------------------
+# Pre-relax the analytic seed with the energy minimiser before driving
+# (recommended for topological states; leaves a clean equilibrium skyrmion).
+# ---------------------------------------------------------------------------
+minz = mm.MinimizeGPU(g)
+minz.upload(m_init)
+minz.run(mat, demag_g, fields_g, mm.MinimizeGPUOptions())
+minz.download(m_init)
+Q_init = mm.topological_charge_Q(m_init)
+print(f"Pre-relaxed (MinimizeGPU): Q = {Q_init:.3f}")
 
 # ---------------------------------------------------------------------------
 # Skyrmion position tracking via topological charge density centroid
@@ -106,11 +119,11 @@ print(f"Tracking start: ({x0_sky*1e9:.0f}, {y0_sky*1e9:.0f}) nm")
 # SOT dynamics: J = [0.5, 1.5, 3.0] x 10^12  (0.5 ns each)
 # ---------------------------------------------------------------------------
 dt      = 5e-14
-t_run   = 0.5e-9   # 0.5 ns (shorter to avoid boundary annihilation)
+t_run   = 1.0e-9   # 1 ns
 n_steps = int(t_run / dt)
 check_ev = 400   # every 20 ps
 
-J_values = np.array([0.5, 1.5, 3.0]) * 1e12
+J_values = np.array([0.05, 0.1, 0.2]) * 1e12
 colors   = ['C0', 'C1', 'C2']
 
 print(f"\nSOT dynamics: dt={dt:.0e}s, t={t_run*1e9:.1f}ns, {n_steps} steps/J")
@@ -141,7 +154,7 @@ for J_val in J_values:
         x_traj.append(xp); y_traj.append(yp); Q_traj.append(Qp)
         t_list.append((step + check_ev) * dt)
         if abs(Qp) < 0.2:
-            print(f"    Skyrmion annihilated at t={(step+check_ev)*dt*1e12:.0f}ps (Q={Qp:.2f})")
+            print(f"    Edge annihilation (skyrmion Hall drift) at t={(step+check_ev)*dt*1e12:.0f}ps (Q={Qp:.2f})")
             ok = False; break
 
     # Linear fit (skip first 20%)
@@ -155,7 +168,7 @@ for J_val in J_values:
 
     theta_H = float(np.degrees(np.arctan2(vy, vx))) if abs(vx) > 0.1 else 0.0
     dt_run = time.time() - t0
-    status = "OK" if ok else "ANNIHILATED"
+    status = "OK" if ok else "EDGE-ANNIHILATED (Hall drift)"
     print(f"  J={J_val/1e12:.1f}e12  v_x={vx:.0f}m/s  v_y={vy:.0f}m/s  "
           f"theta_H={theta_H:.1f}deg  Q_fin={Q_traj[-1]:.2f}  {dt_run:.0f}s [{status}]")
 
