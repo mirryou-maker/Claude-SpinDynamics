@@ -2,7 +2,15 @@
 # UNMODIFIED mumax3 script through Claude-SD's .mx3 runner and compare DW
 # velocities against native mumax3 (benchmarks/results/walker_mx3_native.json).
 # With the runner's mumax3 semantics (Zhang-Li thiaville_u, Dbulk sign map)
-# the two codes must agree point by point.
+# the two codes agree in sign and to ~10% across the sub-Walker regime.
+#
+# History: this reproducer originally exposed a runner bug - twodomain() built
+# a sharp domain step and DROPPED the wall-core vector, leaving a symmetric
+# saddle that relax() could not widen (1-cell under-relaxed wall), which drove
+# the Zhang-Li velocity to the WRONG sign. Fixed by seeding the tanh/sech Neel
+# profile from the wall vector. The residual ~10% is the wall-width difference
+# between the two codes' independent relaxers (sub-Walker v is width-insensitive
+# but the <mx>->position mapping is not).
 #
 # Run: py -3 benchmarks/mx3_runner_walker_check.py
 import sys, json, pathlib, tempfile

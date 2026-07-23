@@ -736,13 +736,27 @@ class Engine:
         mm.from_numpy(self.m, v)
 
     def _set_twodomain(self, args):
-        # twodomain(ax,ay,az, wx,wy,wz, bx,by,bz): left half -> a, right half -> b
-        a = mm.Vec3(*args[0:3]); b = mm.Vec3(*args[6:9])
+        # twodomain(ax,ay,az, wx,wy,wz, bx,by,bz): domain a | wall w | domain b.
+        # mumax3 seeds a wall of magnetization w between the two domains — the
+        # transverse core is essential: a pure a|b step (w ignored) is a
+        # symmetric saddle the relaxer cannot widen, leaving an under-relaxed
+        # 1-cell wall. We interpolate a tanh domain profile with a sech-weighted
+        # core so the relaxer has a symmetry-breaking seed.
+        import math
+        a = args[0:3]; w = args[3:6]; b = args[6:9]
         nx, ny, nz = self.gridsize
+        x0 = 0.5 * nx
+        width = max(2.0, 0.05 * nx)          # seed width in cells (relaxer refines)
         for k in range(nz):
             for j in range(ny):
                 for i in range(nx):
-                    self.m[i + nx * (j + ny * k)] = a if i < nx // 2 else b
+                    s = ((i + 0.5) - x0) / width
+                    f = 0.5 * (1.0 + math.tanh(s))       # 0 (domain a) -> 1 (b)
+                    core = 1.0 / math.cosh(s)            # peaks at the wall centre
+                    vx = (1 - f) * a[0] + f * b[0] + core * w[0]
+                    vy = (1 - f) * a[1] + f * b[1] + core * w[1]
+                    vz = (1 - f) * a[2] + f * b[2] + core * w[2]
+                    self.m[i + nx * (j + ny * k)] = mm.Vec3(vx, vy, vz)
         self.m.normalize()
 
     # -- solvers -----------------------------------------------------------
