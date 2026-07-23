@@ -167,18 +167,56 @@ if sw_valid:
 # ---------------------------------------------------------------------------
 print(f"\n--- Part B: P_sw vs J at T=300K (N=10 each, t_max={t_max*1e9:.0f}ns) ---")
 
-J_factors_B = np.array([0.80, 0.88, 0.94, 1.00, 1.08])
-J_sweep_B   = J_factors_B * J_c0
-N_B = 10
+# Dense sweep with a RESUMABLE [n_switched, n_trials] cache: error bars can be
+# shrunk later by raising N at any point (appended trials use fresh seeds).
+# Pre-populated from the 41-point showcase run (dt=1e-13, validated vs 2e-14
+# on the coarse overlap points; see paper/showcase/figure/make_stt_prob3.py).
+import json, pathlib
+_CACHE_B = pathlib.Path(__file__).parent / "30_partB_cache.json"
+if _CACHE_B.exists():
+    _resB = {k: tuple(v) for k, v in json.loads(_CACHE_B.read_text()).items()}
+else:
+    _resB = {}
+J_factors_B = np.unique(np.round(np.concatenate([
+    np.arange(0.70, 1.101, 0.05),
+    np.linspace(0.80, 1.00, 13)[1:-1],
+    np.linspace(0.85, 0.95, 23)[1:-1]]), 6))
+N_B_BASE, N_B_HI = 30, 60
+dt_B = 1e-13
+n_max_B = int(t_max / dt_B)
 
-P_sw_B = []
+def run_trials_B(jf, start, count):
+    stt_g.J = jf * J_c0
+    n_sw = 0
+    for trial in range(start, start + count):
+        integ = mm.HeunIntegratorGPU(g, dt_B, 1234 + trial + int(jf * 10000))
+        integ.upload(m_up)
+        for _ in range(n_max_B):
+            integ.step(mat, demag_g, fields_g, 300.0, torq_g)
+        if get_mz(integ) < -0.5:
+            n_sw += 1
+    return n_sw
+
 t0 = time.time()
-for J_f, J_val in zip(J_factors_B, J_sweep_B):
-    P_sw, n_sw, *_ = run_ensemble(J_val, 300.0, N_B)
-    Delta_eff = max(0, Delta_300K * (1 - J_f)**2)
-    P_sw_B.append(P_sw)
-    print(f"  J={J_f:.2f}*J_c0 = {J_val/1e12:.3f}e12  Delta_eff={Delta_eff:.1f}  P_sw={P_sw:.1f} ({n_sw}/{N_B})")
+for jf in J_factors_B:                                   # pass 1: N_BASE
+    key = f"{jf:.6f}"
+    n_sw, n_tr = _resB.get(key, (0, 0))
+    if n_tr < N_B_BASE:
+        n_sw += run_trials_B(jf, n_tr, N_B_BASE - n_tr)
+        _resB[key] = (n_sw, N_B_BASE)
+        _CACHE_B.write_text(json.dumps({k: list(v) for k, v in _resB.items()}))
+for jf in J_factors_B:                                   # pass 2: transition N_HI
+    key = f"{jf:.6f}"
+    n_sw, n_tr = _resB[key]
+    if 0.02 < n_sw / n_tr < 0.98 and n_tr < N_B_HI:
+        n_sw += run_trials_B(jf, n_tr, N_B_HI - n_tr)
+        _resB[key] = (n_sw, N_B_HI)
+        _CACHE_B.write_text(json.dumps({k: list(v) for k, v in _resB.items()}))
 
+P_sw_B = [_resB[f"{jf:.6f}"][0] / _resB[f"{jf:.6f}"][1] for jf in J_factors_B]
+N_B_arr = np.array([_resB[f"{jf:.6f}"][1] for jf in J_factors_B])
+for jf, p_, n_ in zip(J_factors_B, P_sw_B, N_B_arr):
+    print(f"  J={jf:.4f}*J_c0  P_sw={p_:.3f} (N={n_})")
 print(f"  Part B: {time.time()-t0:.1f} s")
 
 # ---------------------------------------------------------------------------
@@ -220,21 +258,23 @@ try:
     ax.axhline(-0.5, color='k', ls='--', lw=1.5, alpha=0.6, label='switch threshold')
     ax.axhline(+1, color='C2', ls=':', lw=1, alpha=0.5, label='initial +z')
     ax.axhline(-1, color='C3', ls=':', lw=1, alpha=0.5, label='final -z')
-    ax.set_xlabel('Time (ps)'); ax.set_ylabel('mz')
-    ax.set_title(f'mz(t) N={N_A} ensemble\nJ=0.85*J_c0, T=300K  P_sw={P_sw_A:.2f}')
+    ax.set_xlabel(r'$t$ (ps)'); ax.set_ylabel(r'$m_z$')
+    ax.set_title(rf'$m_z(t)$, $N={N_A}$ ensemble' + '\n' + rf'$J=0.85J_{{c0}}$, 300 K, $P_\mathrm{{sw}}={P_sw_A:.2f}$')
     ax.legend(fontsize=7); ax.grid(alpha=0.3)
     ax.set_ylim(-1.15, 1.15)
 
     # Part B: P_sw vs J
     ax = axes[1]
-    ax.plot(J_factors_B, P_sw_B, 'o-', color='C0', lw=2, ms=9)
-    # Error bar (binomial)
-    yerr = [np.sqrt(p*(1-p)/N_B) for p in P_sw_B]
-    ax.errorbar(J_factors_B, P_sw_B, yerr=yerr, fmt='none', color='C0', capsize=5)
-    ax.axhline(0.5, color='k', ls='--', lw=1, alpha=0.5, label='P=0.5')
-    ax.axvline(1.0, color='C3', ls='--', lw=1, alpha=0.7, label='J=J_c0 (T=0 threshold)')
-    ax.set_xlabel('J / J_c0'); ax.set_ylabel('Switching probability')
-    ax.set_title(f'P_sw vs J/J_c0 (T=300K, t={t_max*1e9:.0f}ns)\nJ_c0={J_c0/1e12:.3f}e12')
+    ax.plot(J_factors_B, P_sw_B, 'o-', color='C0', lw=1.4, ms=4)
+    # Error bar (binomial, per-point N)
+    yerr = [np.sqrt(p*(1-p)/n_) for p, n_ in zip(P_sw_B, N_B_arr)]
+    ax.errorbar(J_factors_B, P_sw_B, yerr=yerr, fmt='none', color='C0', capsize=2.5)
+    ax.axhline(0.5, color='k', ls='--', lw=1, alpha=0.5, label=r'$P=0.5$')
+    ax.axvline(1.0, color='C3', ls='--', lw=1, alpha=0.7,
+               label=r'$J=J_{c0}$ ($T=0$ threshold)')
+    ax.set_xlabel(r'$J/J_{c0}$'); ax.set_ylabel(r'$P_\mathrm{sw}$')
+    ax.set_title(rf'$P_\mathrm{{sw}}$ vs $J/J_{{c0}}$ (300 K, {t_max*1e9:.0f} ns)'
+                 + '\n' + rf'$N=30$, transition $N=60$')
     ax.set_ylim(-0.05, 1.15); ax.legend(fontsize=7.5); ax.grid(alpha=0.3)
 
     # Part C: P_sw vs T

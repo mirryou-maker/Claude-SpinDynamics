@@ -115,8 +115,8 @@ mask_f = freqs < 10e9
 ax.semilogy(freqs[mask_f]/1e9, spec[mask_f] + 1e-20, lw=0.8, color="C0")
 ax.axvline(f_kittel/1e9, color="r", ls="--", label=f"Kittel: {f_kittel/1e9:.3f} GHz")
 ax.axvline(f_peak/1e9,  color="g", ls=":",  label=f"Sim:    {f_peak/1e9:.3f} GHz")
-ax.set_xlabel("Frequency  (GHz)")
-ax.set_ylabel("Power  (a.u.)")
+ax.set_xlabel(r"$f$ (GHz)")
+ax.set_ylabel(r"power $|\widetilde{m}_z|^2$ (a.u.)")
 ax.set_title("FMR power spectrum — macrospin")
 ax.legend()
 ax.set_xlim(0, 10)
@@ -156,7 +156,7 @@ heff_b.add(demag_b)
 heff_b.add(exch_b)
 
 dt_b      = 5e-13      # 0.5 ps
-t_total_b = 1e-9       # 1 ns
+t_total_b = 20e-9      # 20 ns -> df = 0.05 GHz
 f_max_b   = 50e9       # 50 GHz sinc bandwidth
 
 integ_b = mm.RK4Integrator(dt_b)
@@ -194,6 +194,8 @@ N_b      = len(mz_b_arr)
 freqs_b  = np.fft.rfftfreq(N_b, d=dt_b)
 spec_b   = np.abs(np.fft.rfft(mz_b_arr - mz_b_arr.mean()))**2
 
+# infinite-film in-plane Kittel (upper bound; the island mode sits below it)
+f_kittel_film = gamma0/(2*np.pi) * mu_0 * np.sqrt((B_bias_b/mu_0) * (B_bias_b/mu_0 + mat_b.Ms))
 mask_nz = spec_b[1:] > 0
 if mask_nz.any():
     i_peak_b = np.argmax(spec_b[1:]) + 1
@@ -208,21 +210,24 @@ fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
 ax = axes[0]
 ax.plot(t_b_arr*1e9, mz_b_arr, lw=0.7, color="C2")
-ax.set_xlabel("t  (ns)")
-ax.set_ylabel("<mz>")
-ax.set_title(f"Thin-film FMR oscillations  (80×80×1 nm Py, B_bias = {B_bias_b*1e3:.0f} mT)")
+ax.set_xlabel(r"$t$ (ns)")
+ax.set_ylabel(r"$\langle m_z\rangle$")
+ax.set_title(rf"ring-down, 80$\times$80$\times$4 nm Py island ($B_\mathrm{{bias}}={B_bias_b*1e3:.0f}$ mT $\parallel x$)")
 
 ax = axes[1]
-mask_bf = freqs_b < 30e9
-ax.semilogy(freqs_b[mask_bf]/1e9, spec_b[mask_bf] + 1e-20, lw=0.8, color="C2")
+mask_bf = (freqs_b > 1e9) & (freqs_b < 12e9)
+ax.semilogy(freqs_b[mask_bf]/1e9, spec_b[mask_bf] + 1e-20, lw=0.9, color="C2",
+            marker="o", ms=2.2)
 if f_peak_b > 0:
     ax.axvline(f_peak_b/1e9, color="r", ls="--",
-               label=f"FMR: {f_peak_b/1e9:.2f} GHz")
-ax.set_xlabel("Frequency  (GHz)")
-ax.set_ylabel("Power  (a.u.)")
-ax.set_title("FMR power spectrum — thin film (demag softens resonance)")
+               label=rf"island quasi-uniform mode: {f_peak_b/1e9:.2f} GHz")
+    ax.axvline(f_kittel_film/1e9, color="k", ls=":",
+               label=rf"infinite-film Kittel: {f_kittel_film/1e9:.2f} GHz")
+ax.set_xlabel(r"$f$ (GHz)")
+ax.set_ylabel(r"power $|\widetilde{m}_z|^2$ (a.u.)")
+ax.set_title(r"FMR power spectrum (20 ns record, $\Delta f=0.05$ GHz)")
 ax.legend()
-ax.set_xlim(0, 30)
+ax.set_xlim(1, 12)
 
 plt.tight_layout()
 out_b = os.path.join(os.path.dirname(__file__), "fmr_thinfilm.png")

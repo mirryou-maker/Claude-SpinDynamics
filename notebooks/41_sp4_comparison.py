@@ -42,18 +42,24 @@ def run_cs(build_label):
     rk45 = mm.RK45IntegratorGPU(g, opts)
     rk45.upload(m0)
     t_sim = 0.0; n = 0
+    t_log, mx_log = [], []
+    tmp = mm.VectorField3D(g)
     t0 = time.perf_counter()
     while t_sim < T_END:
         t_sim += rk45.step(mat, demag, fields)
         n += 1
-    tmp = mm.VectorField3D(g); rk45.download(tmp)
+        if n % 10 == 0:                       # ~300 trajectory samples
+            rk45.download(tmp)
+            t_log.append(t_sim)
+            mx_log.append(float(mm.to_numpy(tmp)[..., 0].mean()))
+    rk45.download(tmp)
     wall_ms = (time.perf_counter() - t0) * 1e3
     arr = mm.to_numpy(tmp)
     mx_fin = float(arr[..., 0].mean())
     return {"build": build_label, "wall_ms": wall_ms, "n_steps": n,
             "mx_1ns": mx_fin, "err_pct": abs(mx_fin - MX_REF) / abs(MX_REF) * 100,
             "t_switch_ps": None,
-            "t_log": [], "mx_log": [],
+            "t_log": t_log, "mx_log": mx_log,
             "ms_per_ns": wall_ms / (T_END * 1e9)}
 
 
@@ -143,11 +149,23 @@ try:
     for r, c in zip(results, colors):
         ax.plot([t * 1e12 for t in r['t_log']], r['mx_log'],
                 label=f"CS {r['build']} ({r['n_steps']} steps, {r['wall_ms']:.0f} ms)",
-                lw=2, color=c)
-    ax.axhline(MX_REF, color='k', ls=':', lw=1.5, label=f"muMAG ref {MX_REF}")
-    ax.axvline(175, color='gray', ls='--', lw=1, alpha=0.7, label="t_sw=175 ps")
-    ax.set_xlabel("Time (ps)"); ax.set_ylabel("<mx>"); ax.set_ylim(-1.1, 1.1)
-    ax.set_title("SP#4 Field A: <mx>(t) -- CS build comparison")
+                lw=1.6, color=c)
+    # mumax3 trajectory from its own table
+    try:
+        tbl_p = MX3_SP4.parent / (MX3_SP4.stem + ".out") / "table.txt"
+        if tbl_p.exists():
+            tt = np.loadtxt(tbl_p)
+            ax.plot(tt[:, 0] * 1e12, tt[:, 1], "-.", lw=1.4, color="C3",
+                    label="mumax3")
+    except Exception as _e:
+        print(f"  (mumax3 trajectory overlay skipped: {_e})")
+    ax.axhline(MX_REF, color='k', ls=':', lw=1.2,
+               label=rf"$\mu$MAG ref ${MX_REF}$")
+    ax.axvline(175, color='gray', ls='--', lw=1, alpha=0.7,
+               label=r"$t_\mathrm{sw}\approx175$ ps")
+    ax.set_xlabel(r"$t$ (ps)"); ax.set_ylabel(r"$\langle m_x\rangle$")
+    ax.set_ylim(-1.1, 1.1)
+    ax.set_title(r"SP#4 Field A: $\langle m_x\rangle(t)$ — CS builds vs mumax3")
     ax.legend(fontsize=8); ax.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig(str(pathlib.Path(__file__).parent / "41_sp4_comparison.png"), dpi=120)

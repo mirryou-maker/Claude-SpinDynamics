@@ -118,6 +118,8 @@ kvals, freqs, S = mm.field_fft2d(my_xt, dt=dt_save, dx=dx)
 # Analytical dispersion: f(k) = γ₀/(2π) × (B_bias + D_sw × k²)
 k_theory = np.linspace(0, kvals.max(), 500)
 f_theory = gamma0 / (2 * np.pi) * (B_bias + D_sw * k_theory**2)
+# exact finite-difference lattice dispersion: what a cell-based code solves
+f_fd = gamma0 / (2 * np.pi) * (B_bias + D_sw * (4/dx**2) * np.sin(k_theory*dx/2)**2)
 
 print(f"\nFFT: k range [{kvals.min()/1e6:.1f}, {kvals.max()/1e6:.1f}] Mrad/m")
 print(f"     f range [0, {freqs[:n_frames//2].max()/1e9:.1f}] GHz")
@@ -139,18 +141,20 @@ S_log = np.log10(S_plot + S_plot[S_plot > 0].min() * 1e-3)
 
 im = ax.pcolormesh(k_Mrad, f_GHz, S_log,
                    cmap="inferno", shading="auto")
-plt.colorbar(im, ax=ax, label="log₁₀ |FFT|²")
+plt.colorbar(im, ax=ax, label=r"$\log_{10}|\widetilde{m}_y|^2$")
 
 # Analytical dispersion overlay (positive k only)
 k_th_Mrad = k_theory / 1e6
 f_th_GHz  = f_theory / 1e9
 mask_vis  = f_th_GHz <= f_GHz.max()
 ax.plot(k_th_Mrad[mask_vis], f_th_GHz[mask_vis],
-        "w--", lw=1.5, label=r"$f = \frac{\gamma_0}{2\pi}(B_0 + \frac{2A}{M_s}k^2)$")
+        "w:", lw=1.4, label=r"continuum: $\frac{\gamma_0}{2\pi}(B_0 + \frac{2A}{M_s}k^2)$")
+ax.plot(k_th_Mrad, f_fd / 1e9, "c--", lw=1.4,
+        label=r"FD lattice: $\frac{4}{\Delta x^2}\sin^2\!\frac{k\Delta x}{2}$")
 
-ax.set_xlabel("k  (Mrad/m)")
-ax.set_ylabel("f  (GHz)")
-ax.set_title(f"Spin-wave dispersion S(k, f)  —  Py, B₀ = {B_bias*1e3:.0f} mT")
+ax.set_xlabel(r"$k$ (Mrad m$^{-1}$)")
+ax.set_ylabel(r"$f$ (GHz)")
+ax.set_title(rf"Spin-wave dispersion $S(k,f)$ — Py, $B_0={B_bias*1e3:.0f}$ mT, $\Delta x=20$ nm")
 ax.set_xlim(0, k_Mrad.max())
 ax.set_ylim(0, min(30, f_GHz.max()))
 ax.legend(fontsize=8)
@@ -158,7 +162,7 @@ ax.legend(fontsize=8)
 # — Right: dispersion curve (peak frequency vs k) —
 ax = axes[1]
 # Find peak frequency at each k (positive half)
-k_pos_idx = kvals >= 0
+k_pos_idx = kvals > 0
 S_pos  = S[:nf_half, k_pos_idx]
 k_pos  = kvals[k_pos_idx] / 1e6
 f_peak = []
@@ -171,16 +175,17 @@ ax.scatter(k_pos[::2], f_peak[::2], s=8, color="royalblue",
 
 k_th2 = np.linspace(0, k_pos.max() * 1e6, 300)
 f_th2 = gamma0 / (2 * np.pi) * (B_bias + D_sw * k_th2**2) / 1e9
-ax.plot(k_th2 / 1e6, f_th2, "r-", lw=2,
-        label=r"$f(k)=\frac{\gamma_0}{2\pi}(B_0+\frac{2A}{M_s}k^2)$")
+ax.plot(k_th2 / 1e6, f_th2, "k:", lw=1.4, label="continuum $k^2$")
+f_fd2 = gamma0 / (2*np.pi) * (B_bias + D_sw * (4/dx**2) * np.sin(k_th2*dx/2)**2) / 1e9
+ax.plot(k_th2 / 1e6, f_fd2, "g--", lw=1.6, label="FD lattice (exact)")
 
 f_kit = gamma0 / (2 * np.pi) * B_bias / 1e9
 ax.axhline(f_kit, color="gray", ls=":", lw=1,
-           label=f"Kittel f₀ = {f_kit:.2f} GHz")
+           label=rf"$f_0={f_kit:.2f}$ GHz ($k=0$)")
 
-ax.set_xlabel("k  (Mrad/m)")
-ax.set_ylabel("f  (GHz)")
-ax.set_title("Dispersion: simulation vs analytical")
+ax.set_xlabel(r"$k$ (Mrad m$^{-1}$)")
+ax.set_ylabel(r"$f$ (GHz)")
+ax.set_title("dispersion: simulation follows the FD-lattice curve")
 ax.set_xlim(0, k_pos.max())
 ax.set_ylim(0, min(30, max(f_peak) * 1.1 + 1))
 ax.legend(fontsize=8)

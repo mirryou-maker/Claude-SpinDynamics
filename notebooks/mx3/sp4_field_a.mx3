@@ -9,5 +9,6 @@ m = uniform(1, 0.1, 0.01)
 B_ext = vector(-24.6e-3, 4.3e-3, 0)
 setsolver(5)
 MaxErr = 1e-4
+tableautosave(2e-12)
 run(1e-9)
 save(m)
