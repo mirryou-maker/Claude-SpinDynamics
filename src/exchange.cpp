@@ -155,11 +155,20 @@ Real ExchangeField::energy(const VectorField3D& m,
         const Index ic = g.linear_index(i, j, k);
         const Vec3  mc = m[ic];
         const Real  A_c = matf_ ? matf_->A_exchange(ic) : mat.A_exchange;
+        const uint8_t rid_c = rmap_ ? (*rmap_)[ic] : uint8_t{0};
 
         auto add_bond = [&](Index ni, Index nj, Index nk, Real ih2) {
             if (mask_ && (*mask_)(ni, nj, nk) < Real{0.5}) return;
             const Index in = g.linear_index(ni, nj, nk);
-            const Real  A_b = matf_ ? harmonic_mean(A_c, matf_->A_exchange(in)) : A_c;
+            // Same bond coupling as accumulate(): inter-region table first,
+            // then per-cell harmonic mean, then uniform A.
+            Real A_b;
+            if (rmap_ && (*rmap_)[in] != rid_c &&
+                !std::isnan(lookup_inter(rid_c, (*rmap_)[in]))) {
+                A_b = lookup_inter(rid_c, (*rmap_)[in]);
+            } else {
+                A_b = matf_ ? harmonic_mean(A_c, matf_->A_exchange(in)) : A_c;
+            }
             Vec3 d = m[in] - mc;
             sum += A_b * d.norm_squared() * ih2;
         };
@@ -179,9 +188,50 @@ Real ExchangeField::energy(const VectorField3D& m,
 ScalarField3D ExchangeField::energy_density(const VectorField3D& m,
                                              const Material& mat) const {
     ScalarField3D edens(m.grid());
-    if (!matf_ && mat.A_exchange == 0) return edens;
+    if (!matf_ && mat.A_exchange == 0 && !rmap_) return edens;
 
     const StructuredGrid& g = m.grid();
+
+    if (rmap_ && !inter_A_.empty()) {
+        // Inter-region couplings modify individual BONDS, which a cell-wise
+        // gradient formula cannot represent. Use the bond half-sum instead
+        // (each bond's energy split between its endpoints); consistent with
+        // energy() and accumulate().
+        const Real idx2 = 1.0 / (g.dx() * g.dx());
+        const Real idy2 = 1.0 / (g.dy() * g.dy());
+        const Real idz2 = 1.0 / (g.dz() * g.dz());
+        for (Index iz = 0; iz < g.nz(); ++iz)
+        for (Index iy = 0; iy < g.ny(); ++iy)
+        for (Index ix = 0; ix < g.nx(); ++ix) {
+            if (mask_ && (*mask_)(ix, iy, iz) < Real{0.5}) continue;
+            const Index ic = g.linear_index(ix, iy, iz);
+            const Vec3  mc = m[ic];
+            const Real  A_c = matf_ ? matf_->A_exchange(ic) : mat.A_exchange;
+            const uint8_t rid_c = (*rmap_)[ic];
+            Real e = 0;
+            auto half_bond = [&](Index ni, Index nj, Index nk, Real ih2) {
+                if (ni < 0 || ni >= g.nx() || nj < 0 || nj >= g.ny() ||
+                    nk < 0 || nk >= g.nz()) return;
+                if (mask_ && (*mask_)(ni, nj, nk) < Real{0.5}) return;
+                const Index in = g.linear_index(ni, nj, nk);
+                Real A_b;
+                if ((*rmap_)[in] != rid_c &&
+                    !std::isnan(lookup_inter(rid_c, (*rmap_)[in]))) {
+                    A_b = lookup_inter(rid_c, (*rmap_)[in]);
+                } else {
+                    A_b = matf_ ? harmonic_mean(A_c, matf_->A_exchange(in)) : A_c;
+                }
+                Vec3 d = m[in] - mc;
+                e += Real{0.5} * A_b * d.norm_squared() * ih2;
+            };
+            half_bond(ix-1, iy, iz, idx2); half_bond(ix+1, iy, iz, idx2);
+            half_bond(ix, iy-1, iz, idy2); half_bond(ix, iy+1, iz, idy2);
+            half_bond(ix, iy, iz-1, idz2); half_bond(ix, iy, iz+1, idz2);
+            edens[ic] = e;
+        }
+        return edens;
+    }
+
     for (Index iz = 0; iz < g.nz(); ++iz)
     for (Index iy = 0; iy < g.ny(); ++iy)
     for (Index ix = 0; ix < g.nx(); ++ix) {

@@ -56,6 +56,11 @@ void bind_gpu(py::module_& m) {
 
     // IDemagGPU: abstract interface shared by DemagFieldGPU and DemagFieldPeriodicGPU.
     py::class_<IDemagGPU, std::shared_ptr<IDemagGPU>>(m, "IDemagGPU");
+    py::class_<ZeroDemagGPU, IDemagGPU, std::shared_ptr<ZeroDemagGPU>>(
+        m, "ZeroDemagGPU",
+        "Null demag (no-op) for demag-disabled workflows that need an "
+        "IDemagGPU argument (integrators, RelaxGPU, MinimizeGPU).")
+        .def(py::init<>());
 
     // IEffectiveFieldGPU: abstract interface for all GPU fields usable with FieldSumGPU.
     // Must be registered before any class that inherits from it.
@@ -360,6 +365,11 @@ void bind_gpu(py::module_& m) {
              "Requires one D2H energy scalar per step.")
         .def("upload",   &MinimizeGPU::upload,   py::arg("m"))
         .def("download", &MinimizeGPU::download, py::arg("m_out"))
+        .def("set_Ms_field", &MinimizeGPU::set_Ms_field, py::arg("Ms"),
+             "Per-cell Ms weight for the line-search energy "
+             "(E = -mu0/2 sum Ms_i m.H dV); use with per-cell material fields.")
+        .def("clear_Ms_field", &MinimizeGPU::clear_Ms_field)
+        .def_property_readonly("has_Ms_field", &MinimizeGPU::has_Ms_field)
         .def("run",
              [](MinimizeGPU& self, const Material& mat,
                 IDemagGPU& demag, ExchangeFieldGPU& exch,

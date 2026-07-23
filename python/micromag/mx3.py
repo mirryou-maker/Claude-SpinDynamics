@@ -677,7 +677,14 @@ class Engine:
             if use_bulk:
                 fs.add(self._dmi_bulk)
             fs.add(self._zeeman)
-            demag = self._demag if self.enable_demag else None
+            if self.enable_demag:
+                demag = self._demag
+            else:
+                # EnableDemag=false: null demag keeps the GPU relax/run APIs
+                # usable (previously None made relax() a silent no-op).
+                if getattr(self, "_zero_demag", None) is None:
+                    self._zero_demag = mm.ZeroDemagGPU()
+                demag = self._zero_demag
             return demag, fs
         else:
             fs = mm.EffectiveFieldSum()

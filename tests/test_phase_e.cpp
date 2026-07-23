@@ -577,6 +577,42 @@ TEST_CASE("SkyrmionTools: bubble_pos returns (0,0) for uniform state", "[skyrmio
     REQUIRE_THAT(bpy, WithinAbs(0.0, 1e-20));
 }
 
+
+TEST_CASE("Inter-region exchange: energy paths honour A_IEC (aedd9f1 follow-up)",
+          "[inter_exchange]") {
+    // 4-cell chain, regions 0|0|1|1, a 90-degree twist at the boundary bond.
+    StructuredGrid g(4, 1, 1, 2e-9, 2e-9, 2e-9);
+    RegionMap rm(g);
+    rm[0] = 0; rm[1] = 0; rm[2] = 1; rm[3] = 1;
+
+    Material mat;
+    mat.Ms = 8e5; mat.A_exchange = 1.3e-11;
+
+    VectorField3D m(g);
+    m[0] = {1, 0, 0}; m[1] = {1, 0, 0};
+    m[2] = {0, 1, 0}; m[3] = {0, 1, 0};   // twist sits on bond 1-2 only
+
+    ExchangeField uniform_ex;
+    const Real E_uniform = uniform_ex.energy(m, mat);
+    REQUIRE(E_uniform > 0.0);             // only the boundary bond contributes
+
+    // A_IEC = 0 cuts the boundary bond: energy must vanish (accumulate
+    // already did; previously energy() ignored the inter-region table).
+    ExchangeField cut_ex;
+    cut_ex.set_region_map(&rm);
+    cut_ex.set_inter_exchange(0, 1, 0.0);
+    REQUIRE_THAT(cut_ex.energy(m, mat), WithinAbs(0.0, 1e-30));
+    const ScalarField3D ed = cut_ex.energy_density(m, mat);
+    for (Index i = 0; i < g.size(); ++i)
+        REQUIRE_THAT(ed[i], WithinAbs(0.0, 1e-30));
+
+    // A_IEC = A/2 halves the boundary-bond energy.
+    ExchangeField half_ex;
+    half_ex.set_region_map(&rm);
+    half_ex.set_inter_exchange(0, 1, mat.A_exchange / 2);
+    REQUIRE_THAT(half_ex.energy(m, mat), WithinRel(E_uniform / 2, 1e-12));
+}
+
 // ===========================================================================
 // Inter-region exchange coupling — set_inter_exchange / [inter_exchange]
 // ===========================================================================

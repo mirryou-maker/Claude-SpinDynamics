@@ -134,6 +134,12 @@ public:
     void upload(const VectorField3D& m);
     void download(VectorField3D& m) const;
 
+    // Optional per-cell Ms: weights the line-search energy per cell
+    // (E = -mu0/2 sum Ms_i m.H dV). Without it the uniform mat.Ms is used.
+    void set_Ms_field(const ScalarField3D& Ms);
+    void clear_Ms_field();
+    bool has_Ms_field() const { return d_Ms_w_ != nullptr; }
+
     // Fixed-field overload.
     int run(const Material& mat,
             IDemagGPU& demag,
@@ -157,6 +163,8 @@ private:
     GReal*  d_H_       = nullptr;   // [3N] effective field scratch
     double* d_max_     = nullptr;   // [1] reduction scalar output (CUB); stays double
     double* d_energy_  = nullptr;   // [N] per-cell scratch (m·H or |m×H|²); double
+    double* d_Ms_w_    = nullptr;   // [N] optional per-cell Ms weight for the
+                                    // line-search energy (null = uniform mat.Ms)
     void*   d_cub_tmp_ = nullptr;   // CUB DeviceReduce temp storage (lazily sized)
     size_t  cub_bytes_ = 0;
     void*   stream_= nullptr;

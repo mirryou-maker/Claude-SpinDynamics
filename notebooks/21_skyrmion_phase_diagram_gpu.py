@@ -197,9 +197,18 @@ try:
     cs = ax.contour(D_g, K_g, np.abs(Q_map), levels=[0.3, 0.7],
                     colors=['orange', 'black'], linewidths=[1.5, 2.0], linestyles=['--', '-'])
     ax.clabel(cs, fmt={0.3: '|Q|=0.3', 0.7: '|Q|=0.7'}, fontsize=8)
-    ax.set_xlabel('DMI strength D (mJ/m$^2$)')
-    ax.set_ylabel('Anisotropy K (MJ/m$^3$)')
-    ax.set_title('Topological Charge Q')
+    # analytic single-skyrmion stability boundary D_c = 4 sqrt(A K_eff)/pi
+    # (K_eff = K - mu0 Ms^2/2: PMA reduced by the thin-film shape anisotropy)
+    mu0_ = 4e-7 * np.pi
+    K_line = np.linspace(K_values[0], K_values[-1], 200)
+    K_eff  = K_line - 0.5 * mu0_ * Ms**2
+    Dc_line = 4.0 * np.sqrt(A * np.clip(K_eff, 0, None)) / np.pi
+    ax.plot(Dc_line * 1e3, K_line * 1e-6, 'k--', lw=1.6,
+            label=r'$D_c = 4\sqrt{A K_\mathrm{eff}}/\pi$')
+    ax.legend(fontsize=8, loc='upper left')
+    ax.set_xlabel(r'DMI strength $D$ (mJ m$^{-2}$)')
+    ax.set_ylabel(r'Anisotropy $K_u$ (MJ m$^{-3}$)')
+    ax.set_title('Topological charge $Q$')
 
     # Phase map (categorical)
     ax = axes[1]
@@ -213,9 +222,16 @@ try:
                      cmap=cmap_ph, vmin=0, vmax=2)
     cbar2 = plt.colorbar(im2, ax=ax, ticks=[0, 1, 2])
     cbar2.ax.set_yticklabels(['Uniform', 'Stripe', 'Skyrmion'])
-    ax.set_xlabel('DMI strength D (mJ/m$^2$)')
-    ax.set_ylabel('Anisotropy K (MJ/m$^3$)')
-    ax.set_title('Phase Classification')
+    ax.plot(Dc_line * 1e3, K_line * 1e-6, 'k--', lw=1.6)
+    ax.set_xlabel(r'DMI strength $D$ (mJ m$^{-2}$)')
+    ax.set_ylabel(r'Anisotropy $K_u$ (MJ m$^{-3}$)')
+    ax.set_title('Phase classification (relax protocol)')
+    ax.text(0.02, 0.02,
+            'Note: relax-based map. Dynamic stability is stricter:\n'
+            'free LLG evolution can annihilate marginal skyrmions\n'
+            'left of the $D_c$ line (see NB26).',
+            transform=ax.transAxes, fontsize=7, va='bottom',
+            bbox=dict(fc='white', alpha=0.8, ec='gray'))
 
     plt.suptitle(
         f'Pt/Co Skyrmion Phase Diagram (GPU, {Lx}x{Ly} grid, dx={dx*1e9:.0f} nm)\n'

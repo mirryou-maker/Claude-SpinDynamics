@@ -133,16 +133,19 @@ __global__ static void torque_sq_kernel(
 // Actually, let's store m쨌H (dimensionless dot product), and scale later.
 // ===========================================================================
 __global__ static void mdot_H_kernel(
-    double* __restrict__       e_out,  // [N] m쨌H per cell ??stays double for reduction
+    double* __restrict__       e_out,  // [N] (w_i) m.H per cell - double for reduction
     const GReal* __restrict__  m,
     const GReal* __restrict__  H,
+    const double* __restrict__ Ms_w,   // optional per-cell Ms weight (null = 1)
     int N)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
-    e_out[idx] = static_cast<double>(m[0*N+idx])*static_cast<double>(H[0*N+idx])
-               + static_cast<double>(m[1*N+idx])*static_cast<double>(H[1*N+idx])
-               + static_cast<double>(m[2*N+idx])*static_cast<double>(H[2*N+idx]);
+    double v = static_cast<double>(m[0*N+idx])*static_cast<double>(H[0*N+idx])
+             + static_cast<double>(m[1*N+idx])*static_cast<double>(H[1*N+idx])
+             + static_cast<double>(m[2*N+idx])*static_cast<double>(H[2*N+idx]);
+    if (Ms_w) v *= Ms_w[idx];
+    e_out[idx] = v;
 }
 
 // ===========================================================================
@@ -314,6 +317,23 @@ MinimizeGPU::MinimizeGPU(const StructuredGrid& grid)
 MinimizeGPU::~MinimizeGPU() {
     relax_free(d_m_, d_H_, d_max_, stream_, d_m_trial_, d_energy_);
     if (d_cub_tmp_) cudaFree(d_cub_tmp_);
+    if (d_Ms_w_)    cudaFree(d_Ms_w_);
+}
+
+void MinimizeGPU::set_Ms_field(const ScalarField3D& Ms) {
+    if (!d_Ms_w_)
+        CUDA_CHECK(cudaMalloc(&d_Ms_w_, N_ * sizeof(double)));
+    std::vector<double> h(N_);
+    for (size_t i = 0; i < N_; ++i)
+        h[i] = static_cast<double>(Ms[static_cast<Index>(i)]);
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemcpyAsync(d_Ms_w_, h.data(), N_ * sizeof(double),
+                               cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+}
+
+void MinimizeGPU::clear_Ms_field() {
+    if (d_Ms_w_) { cudaFree(d_Ms_w_); d_Ms_w_ = nullptr; }
 }
 
 // Per-cell |m×H|² → CUB Max → sqrt. d_H_ must already hold H_eff for d_m_src.
@@ -335,7 +355,7 @@ double MinimizeGPU::reduce_mdotH_sum(const GReal* d_m_src) {
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     const int N = static_cast<int>(N_);
     const int blk = 256, grd = (N + blk - 1) / blk;
-    mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_, d_m_src, d_H_, N);
+    mdot_H_kernel<<<grd, blk, 0, s>>>(d_energy_, d_m_src, d_H_, d_Ms_w_, N);
     MICROMAG_KERNEL_CHECK();
     cub_sum(d_cub_tmp_, cub_bytes_, d_energy_, d_max_, N, s);
     double h_sum;
@@ -390,9 +410,11 @@ double MinimizeGPU::compute_energy(const Material& mat,
     // Per-cell m쨌H
     const double h_sum = reduce_mdotH_sum(d_m_);
 
-    // E = -mu0/2 * Ms * sum(m.H) * dV   (standard LLG energy sign)
+    // E = -mu0/2 * sum(Ms_i m.H) * dV. With no per-cell Ms field the
+    // reduction is unweighted and the uniform mat.Ms multiplies here.
     const double dV = grid_->cell_volume();
-    return -constants::mu_0 * 0.5 * mat.Ms * h_sum * dV;
+    const double Ms_fac = d_Ms_w_ ? 1.0 : mat.Ms;
+    return -constants::mu_0 * 0.5 * Ms_fac * h_sum * dV;
 }
 
 int MinimizeGPU::run(const Material& mat,
@@ -533,9 +555,11 @@ double MinimizeGPU::compute_energy(const Material& mat, IDemagGPU& demag,
     compute_H_eff_for(d_m_, mat, demag, extra_fields);
     const double h_sum = reduce_mdotH_sum(d_m_);
 
-    // E = -mu0/2 * Ms * sum(m.H) * dV   (standard LLG energy sign)
+    // E = -mu0/2 * sum(Ms_i m.H) * dV. With no per-cell Ms field the
+    // reduction is unweighted and the uniform mat.Ms multiplies here.
     const double dV = grid_->cell_volume();
-    return -constants::mu_0 * 0.5 * mat.Ms * h_sum * dV;
+    const double Ms_fac = d_Ms_w_ ? 1.0 : mat.Ms;
+    return -constants::mu_0 * 0.5 * Ms_fac * h_sum * dV;
 }
 
 int MinimizeGPU::run(const Material& mat, IDemagGPU& demag,

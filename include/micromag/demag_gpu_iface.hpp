@@ -30,6 +30,15 @@ public:
     virtual void set_stream(void* /*s*/) {}
 };
 
+// Null demag: satisfies IDemagGPU with a no-op, for workflows that disable
+// demagnetization (e.g. the .mx3 runner's EnableDemag = false) while using
+// APIs that require a demag argument (integrators, RelaxGPU, MinimizeGPU).
+class ZeroDemagGPU : public IDemagGPU {
+public:
+    void accumulate_gpu_ptr(const GReal*, const Material&,
+                             GReal*) const override {}
+};
+
 }  // namespace micromag
 
 #endif // MICROMAG_CUDA
