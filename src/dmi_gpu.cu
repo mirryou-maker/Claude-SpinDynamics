@@ -418,7 +418,9 @@ void BulkDMIFieldGPU::clear_D_field() {
 void BulkDMIFieldGPU::accumulate(const VectorField3D& m,
                                    const Material& mat,
                                    VectorField3D& H_out) const {
-    if (D_ == 0.0) return;
+    // Guard covers per-cell D mode; kernel dispatch (uniform vs per-cell)
+    // lives in accumulate_gpu_ptr so host and integrator paths agree.
+    if (!d_D_field_ && D_ == 0.0) return;
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     auto* dm = static_cast<GReal*>(d_m_scratch_);
     auto* dH = static_cast<GReal*>(d_H_scratch_);
@@ -428,18 +430,7 @@ void BulkDMIFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaMemcpy(dm, h_m.data(), 3*N_*sizeof(GReal), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(GReal)));
 
-    const double prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
-    const int blk = 256, grd = static_cast<int>((N_+blk-1)/blk);
-    const int use_bc = (!open_bc_ && mat.A_exchange > 0.0) ? 1 : 0;
-    const double qDA = use_bc ? D_ / (4.0 * mat.A_exchange) : 0.0;
-    const double bcf = D_ / (constants::mu_0 * mat.Ms);
-    bulk_dmi_kernel<<<grd, blk, 0, s>>>(
-        reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
-        (int)nx_, (int)ny_, (int)nz_,
-        1.0/(2.0*dx_), 1.0/dx_, 1.0/(2.0*dy_), 1.0/dy_,
-        1.0/(2.0*dz_), 1.0/dz_, prefac,
-        use_bc, qDA, bcf/dx_, bcf/dy_, bcf/dz_);
-    MICROMAG_KERNEL_CHECK();
+    accumulate_gpu_ptr(dm, mat, dH);
 
     std::vector<GReal> h_H(3*N_);
     CUDA_CHECK(cudaStreamSynchronize(s));
@@ -534,7 +525,9 @@ void InterfacialDMIFieldGPU::clear_D_field() {
 void InterfacialDMIFieldGPU::accumulate(const VectorField3D& m,
                                           const Material& mat,
                                           VectorField3D& H_out) const {
-    if (D_ == 0.0) return;
+    // Guard covers per-cell D mode; kernel dispatch (uniform vs per-cell)
+    // lives in accumulate_gpu_ptr so host and integrator paths agree.
+    if (!d_D_field_ && D_ == 0.0) return;
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     auto* dm = static_cast<GReal*>(d_m_scratch_);
     auto* dH = static_cast<GReal*>(d_H_scratch_);
@@ -544,17 +537,7 @@ void InterfacialDMIFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaMemcpy(dm, h_m.data(), 3*N_*sizeof(GReal), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(GReal)));
 
-    const double prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
-    const int blk = 256, grd = static_cast<int>((N_+blk-1)/blk);
-    const int use_bc = (!open_bc_ && mat.A_exchange > 0.0) ? 1 : 0;
-    const double qDA = use_bc ? D_ / (4.0 * mat.A_exchange) : 0.0;
-    const double bcf = D_ / (constants::mu_0 * mat.Ms);
-    interfacial_dmi_kernel<<<grd, blk, 0, s>>>(
-        reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
-        (int)nx_, (int)ny_, (int)nz_,
-        1.0/(2.0*dx_), 1.0/dx_, 1.0/(2.0*dy_), 1.0/dy_, prefac,
-        use_bc, qDA, bcf/dx_, bcf/dy_);
-    MICROMAG_KERNEL_CHECK();
+    accumulate_gpu_ptr(dm, mat, dH);
 
     std::vector<GReal> h_H(3*N_);
     CUDA_CHECK(cudaStreamSynchronize(s));

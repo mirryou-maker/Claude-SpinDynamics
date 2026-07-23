@@ -264,15 +264,10 @@ UniaxialAnisotropyFieldGPU::~UniaxialAnisotropyFieldGPU() {
 void UniaxialAnisotropyFieldGPU::accumulate(const VectorField3D& m,
                                               const Material& mat,
                                               VectorField3D& H_out) const {
-    if (mat.K_uniaxial == 0.0 && mat.Ku2 == 0.0) return;
-
-    Vec3 u = mat.easy_axis;
-    const double unorm = std::sqrt(u.x*u.x + u.y*u.y + u.z*u.z);
-    if (unorm < 1e-30) return;
-    u.x /= unorm; u.y /= unorm; u.z /= unorm;
-    const double inv_mu0Ms = 1.0 / (constants::mu_0 * mat.Ms);
-    const double factor    = 2.0 * mat.K_uniaxial * inv_mu0Ms;
-    const double k2_factor = 4.0 * mat.Ku2 * inv_mu0Ms;
+    // Skip only when NEITHER per-cell mode NOR the uniform parameters are
+    // active. The kernel dispatch itself (uniform vs per-cell) lives in
+    // accumulate_gpu_ptr so host and integrator paths cannot diverge.
+    if (!d_K_field_ && mat.K_uniaxial == 0.0 && mat.Ku2 == 0.0) return;
 
     // Pack m into [Mx|My|Mz] host buffer
     std::vector<GReal> h_m(3 * N_);
@@ -290,12 +285,7 @@ void UniaxialAnisotropyFieldGPU::accumulate(const VectorField3D& m,
                           cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(GReal)));
 
-    const int blk = 256;
-    const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    anisotropy_kernel<<<grd, blk, 0, s>>>(
-        reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
-        factor, k2_factor, u.x, u.y, u.z, static_cast<int>(N_));
-    MICROMAG_KERNEL_CHECK();
+    accumulate_gpu_ptr(dm, mat, dH);
 
     std::vector<GReal> h_H(3 * N_);
     CUDA_CHECK(cudaStreamSynchronize(s));
@@ -529,7 +519,8 @@ CubicAnisotropyFieldGPU::~CubicAnisotropyFieldGPU() {
 void CubicAnisotropyFieldGPU::accumulate(const VectorField3D& m,
                                           const Material& mat,
                                           VectorField3D& H_out) const {
-    if (Kc1_ == 0.0 && Kc2_ == 0.0) return;
+    // Guard covers per-cell mode too; dispatch lives in accumulate_gpu_ptr.
+    if (!has_Kc_field() && Kc1_ == 0.0 && Kc2_ == 0.0) return;
     const double mu0Ms = constants::mu_0 * mat.Ms;
     if (mu0Ms < 1e-30) return;
 
@@ -544,16 +535,7 @@ void CubicAnisotropyFieldGPU::accumulate(const VectorField3D& m,
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     CUDA_CHECK(cudaMemcpy(dm, h_m.data(), 3*N_*sizeof(GReal), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(GReal)));
-    const int blk = 256;
-    const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    cubic_anisotropy_kernel<<<grd, blk, 0, s>>>(
-        reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
-        -2.0*Kc1_/mu0Ms, -2.0*Kc2_/mu0Ms,
-        c1_.x, c1_.y, c1_.z,
-        c2_.x, c2_.y, c2_.z,
-        c3_.x, c3_.y, c3_.z,
-        static_cast<int>(N_));
-    MICROMAG_KERNEL_CHECK();
+    accumulate_gpu_ptr(dm, mat, dH);
     std::vector<GReal> h_H(3 * N_);
     CUDA_CHECK(cudaStreamSynchronize(s));
     CUDA_CHECK(cudaMemcpy(h_H.data(), dH, 3*N_*sizeof(GReal), cudaMemcpyDeviceToHost));

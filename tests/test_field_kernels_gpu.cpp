@@ -325,4 +325,36 @@ TEST_CASE("UniaxialAnisotropyFieldGPU energy matches CPU", "[anisotropy][gpu]") 
     REQUIRE_THAT(E_gpu, WithinRel(E_cpu, 1e-10));
 }
 
+
+// ---------------------------------------------------------------------------
+// Host accumulate() must honour per-cell material fields (API-consistency
+// regression: previously only the integrator gpu_ptr path dispatched to the
+// per-cell kernels, so host accumulate silently used the uniform parameters).
+// ---------------------------------------------------------------------------
+#include "micromag/material_field.hpp"
+
+TEST_CASE("UniaxialAnisotropyFieldGPU: host accumulate honours per-cell K",
+          "[anisotropy][gpu][percell]") {
+    StructuredGrid g(4, 3, 1, 3e-9, 3e-9, 3e-9);
+    Material base;                 // uniform K = 0: field must come from matf
+    base.Ms = 8.6e5; base.A_exchange = 1.3e-11; base.K_uniaxial = 0.0;
+
+    Material hard;                 // hard axis: K < 0 along z
+    hard.Ms = 8.6e5; hard.K_uniaxial = -5e5; hard.easy_axis = {0, 0, 1};
+    MaterialField3D matf(g, hard);
+
+    UniaxialAnisotropyFieldGPU ani(g);
+    ani.set_material_field(matf);
+
+    VectorField3D m(g), H(g);
+    m.set_uniform({0, 0, 1});
+    ani.accumulate(m, base, H);
+
+    const double expect = 2.0 * (-5e5) / (constants::mu_0 * 8.6e5);
+    for (Index i = 0; i < g.size(); ++i) {
+        REQUIRE_THAT(H[i].z, WithinRel(expect, gtol(1e-10, 1e-5)));
+        REQUIRE_THAT(H[i].x, WithinAbs(0.0, 1e-3));
+    }
+}
+
 #endif // MICROMAG_CUDA

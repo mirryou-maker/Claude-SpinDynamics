@@ -182,17 +182,13 @@ void SurfaceAnisotropyFieldGPU::accumulate(const VectorField3D& m,
                                              const Material& mat,
                                              VectorField3D& H_out) const
 {
-    const Real Ms = mat.Ms;
-    if (Ms == Real{0} || t_cell_ == Real{0}) return;
-
-    const double prefac = 2.0 * static_cast<double>(Ks_)
-                        / (constants::mu_0 * static_cast<double>(Ms)
-                         * static_cast<double>(t_cell_));
+    // Guard covers per-cell Ks mode; kernel dispatch lives in
+    // accumulate_gpu_ptr so host and integrator paths agree.
+    if ((mat.Ms == Real{0} && !has_Ks_field()) || t_cell_ == Real{0}) return;
 
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     auto* dm  = static_cast<GReal*>(d_m_scratch_);
     auto* dH  = static_cast<GReal*>(d_H_scratch_);
-    auto* dIS = static_cast<int*>(d_is_surface_);
 
     std::vector<GReal> h_m(3 * N_);
     for (Index i = 0; i < static_cast<Index>(N_); ++i) {
@@ -204,14 +200,7 @@ void SurfaceAnisotropyFieldGPU::accumulate(const VectorField3D& m,
     CUDA_CHECK(cudaMemcpy(dm, h_m.data(), 3*N_*sizeof(GReal), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemset(dH, 0, 3*N_*sizeof(GReal)));
 
-    const int blk = 256;
-    const int grd = static_cast<int>((N_ + blk - 1) / blk);
-    surface_anisotropy_kernel<<<grd, blk, 0, s>>>(
-        reinterpret_cast<GReal*>(dH), reinterpret_cast<const GReal*>(dm),
-        dIS, prefac,
-        static_cast<double>(n_.x), static_cast<double>(n_.y),
-        static_cast<double>(n_.z), static_cast<int>(N_));
-    MICROMAG_KERNEL_CHECK();
+    accumulate_gpu_ptr(dm, mat, dH);
 
     std::vector<GReal> h_H(3 * N_);
     CUDA_CHECK(cudaStreamSynchronize(s));

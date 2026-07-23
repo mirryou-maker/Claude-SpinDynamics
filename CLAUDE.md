@@ -32,7 +32,7 @@ cmake --preset windows-msvc-cuda
 # Build
 cmake --build build/windows-msvc-cuda --config Release
 
-# Run GPU tests (113 tests)
+# Run GPU tests (118 tests)
 .\build\windows-msvc-cuda\bin\Release\unit_tests_gpu.exe
 
 # Run µMAG benchmarks
@@ -254,6 +254,10 @@ cubic.set_Kc_field(Kc1_sf, Kc2_sf, Ms_sf)
 surf = mm.SurfaceAnisotropyFieldGPU(grid, Ks, t_film)
 surf.set_Ks_field(Ks_sf, Ms_sf)
 
+# Per-cell dispatch is consistent across BOTH call paths: the host-side
+# accumulate(m, mat, H) and the integrator accumulate_gpu_ptr path route
+# through the same kernel dispatch, so a set_*_field() always takes effect.
+
 # FieldSumGPU: pass extra fields to all GPU integrators
 fields = mm.FieldSumGPU()
 fields.add(exch); fields.add(ani); fields.add(dmi)
@@ -290,7 +294,7 @@ results = mm.parameter_sweep(fn, {"D": D_vals, "K": K_vals}, n_jobs=4)
 ## Test structure
 
 **CPU** (`tests/unit_tests`, 232 tests): Catch2 v3, tags below.  
-**GPU** (`tests/unit_tests_gpu`, 113 tests): same runner, all tagged `[gpu]`.
+**GPU** (`tests/unit_tests_gpu`, 118 tests): same runner, all tagged `[gpu]`.
 
 | Tag | Scope |
 |-----|-------|

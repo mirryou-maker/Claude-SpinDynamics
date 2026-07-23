@@ -242,4 +242,45 @@ TEST_CASE("InterfacialDMIFieldGPU: additivity", "[dmi][gpu]") {
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Host accumulate() must honour the per-cell D field (API-consistency
+// regression): construct with uniform D = 0 and provide D only per cell -
+// the host path must produce the same field as a uniform-D instance.
+// ---------------------------------------------------------------------------
+TEST_CASE("InterfacialDMIFieldGPU: host accumulate honours per-cell D",
+          "[dmi][gpu][percell]") {
+    using namespace micromag;
+    StructuredGrid g(8, 6, 1, 2e-9, 2e-9, 1e-9);
+    Material mat;
+    mat.Ms = 8e5; mat.A_exchange = 1.5e-11;
+
+    VectorField3D m(g);
+    for (Index i = 0; i < g.size(); ++i) {
+        const double t = 0.3 * static_cast<double>(i % 7);
+        m[i] = Vec3{std::sin(t), 0.2, std::cos(t)};
+        const double n = std::sqrt(m[i].dot(m[i]));
+        m[i] = m[i] / n;
+    }
+
+    const Real D = 2e-3;
+    InterfacialDMIFieldGPU uni(g, D);
+    VectorField3D H_uni(g);
+    uni.accumulate(m, mat, H_uni);
+
+    InterfacialDMIFieldGPU per(g, 0.0);          // uniform D = 0!
+    ScalarField3D D_sf(g), Ms_sf(g);
+    for (Index i = 0; i < g.size(); ++i) { D_sf[i] = D; Ms_sf[i] = mat.Ms; }
+    per.set_D_field(D_sf, Ms_sf);
+    VectorField3D H_per(g);
+    per.accumulate(m, mat, H_per);               // must NOT early-return
+
+    double mx = 0.0;
+    for (Index i = 0; i < g.size(); ++i)
+        for (int c = 0; c < 3; ++c)
+            mx = std::max(mx, std::abs((&H_per[i].x)[c] - (&H_uni[i].x)[c]));
+    REQUIRE(std::abs(H_uni[0].x) + std::abs(H_uni[0].z) > 0.0);
+    REQUIRE_THAT(mx / mat.Ms, Catch::Matchers::WithinAbs(0.0, micromag::gtol(1e-9, 1e-4)));
+}
+
 #endif // MICROMAG_CUDA
