@@ -46,22 +46,22 @@ print(f"Critical size from pre-computed data:  L_c ~ {Lc:.1f} nm")
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
 # Left: energies vs L
-axes[0].plot(L, Eu, 'o-', color='steelblue',  label='E  (S-state init)', lw=1.5)
-axes[0].plot(L, Ev, 's-', color='darkorange', label='E  (vortex init)',  lw=1.5)
-axes[0].axvline(Lc, color='gray', ls='--', lw=1, label=f'L_c = {Lc:.0f} nm')
-axes[0].set_xlabel('L (nm)')
-axes[0].set_ylabel('E  (aJ = 10⁻¹⁸ J)')
-axes[0].set_title('Total energy vs element size (t = 10 nm)')
+axes[0].plot(L, Eu, 'o-', color='steelblue',  label=r'$E$ (S-state init)', lw=1.5)
+axes[0].plot(L, Ev, 's-', color='darkorange', label=r'$E$ (vortex init)',  lw=1.5)
+axes[0].axvline(Lc, color='gray', ls='--', lw=1, label=rf'$L_c = {Lc:.0f}$ nm')
+axes[0].set_xlabel(r'$L$ (nm)')
+axes[0].set_ylabel(r'$E$ (aJ)')
+axes[0].set_title(r'Total energy vs element size ($t = 10$ nm)')
 axes[0].legend(fontsize=9)
 axes[0].grid(True, alpha=0.25)
 
 # Right: ΔE/E_uniform
 axes[1].bar(L, dE, width=8, color=['steelblue' if d >= 0 else 'darkorange' for d in dE])
 axes[1].axhline(0, color='k', lw=1)
-axes[1].axvline(Lc, color='gray', ls='--', lw=1, label=f'L_c = {Lc:.0f} nm')
-axes[1].set_xlabel('L (nm)')
-axes[1].set_ylabel('ΔE / E_uniform  (%)')
-axes[1].set_title('(E_vortex − E_uniform) / E_uniform')
+axes[1].axvline(Lc, color='gray', ls='--', lw=1, label=rf'$L_c = {Lc:.0f}$ nm')
+axes[1].set_xlabel(r'$L$ (nm)')
+axes[1].set_ylabel(r'$\Delta E / E_\mathrm{uniform}$ (%)')
+axes[1].set_title(r'$(E_\mathrm{vortex} - E_\mathrm{uniform})\,/\,E_\mathrm{uniform}$')
 axes[1].legend()
 axes[1].grid(True, alpha=0.25, axis='y')
 
@@ -91,10 +91,10 @@ Lc_fit = a * t_fit**beta
 fig, ax = plt.subplots(figsize=(6, 5))
 ax.loglog(t_nm, Lc_nm, 'o', markersize=8, color='steelblue', label='Simulation')
 ax.loglog(t_fit, Lc_fit, '--', color='steelblue', alpha=0.6,
-          label=f'Fit: L_c = {a:.0f}·t^{beta:.2f}')
-ax.set_xlabel('Thickness  t  (nm)')
-ax.set_ylabel('Critical size  L_c  (nm)')
-ax.set_title('Vortex nucleation: L_c vs thickness\n(Permalloy squares, Exchange + Demag)')
+          label=rf'Fit: $L_c = {a:.0f}\,t^{{{beta:.2f}}}$')
+ax.set_xlabel(r'Thickness $t$ (nm)')
+ax.set_ylabel(r'Critical size $L_c$ (nm)')
+ax.set_title('Vortex nucleation: $L_c$ vs thickness\n(Permalloy squares, Exchange + Demag)')
 ax.legend()
 ax.grid(True, which='both', alpha=0.2)
 # Annotate data points
@@ -181,8 +181,8 @@ for ax, arr, title in zip(axes, arrays, titles):
     ax.quiver(X[::s], Y[::s], mx[::s, ::s], my[::s, ::s],
               scale=15, width=0.006, color='k', alpha=0.6)
     ax.set_title(f'{title}\nE = {(E_u if "S" in title else E_v)*1e18:.3f} aJ')
-    ax.set_xlabel('x (nm)'); ax.set_ylabel('y (nm)')
-    plt.colorbar(im, ax=ax, label='mx')
+    ax.set_xlabel(r'$x$ (nm)'); ax.set_ylabel(r'$y$ (nm)')
+    plt.colorbar(im, ax=ax, label=r'$m_x$')
 
 plt.suptitle(f'L = {L_nm} nm × {L_nm} nm × 10 nm Permalloy', y=1.02)
 plt.tight_layout()

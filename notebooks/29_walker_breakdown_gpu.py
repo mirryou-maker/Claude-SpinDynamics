@@ -217,15 +217,15 @@ try:
 
     # v vs J
     ax = axes[0]
-    ax.plot(J_arr/1e12, v_arr, 'o-', color='C0', lw=2, ms=8, label='GPU sim (Neel DW)')
+    ax.plot(J_arr/1e12, v_arr, 'o-', color='C0', lw=2, ms=8, label='GPU sim (Néel DW)')
     ax.plot(J_arr/1e12, v_sub_ratio * u_arr, '--', color='C2', lw=2,
-            label=f'Sub-Walker: {v_sub_ratio:.0f}*u')
+            label=rf'sub-Walker: $v={v_sub_ratio:.0f}\,u$')
     ax.plot(J_arr/1e12, v_abv_ratio * u_arr, ':', color='C3', lw=2,
-            label=f'Above-Walker: {v_abv_ratio:.3f}*u')
+            label=rf'above-Walker: $v={v_abv_ratio:.3f}\,u$')
     ax.axvline(J_W_sim/1e12, color='k', ls='--', lw=1.5, alpha=0.7,
-               label=f'J_W ~ {J_W_sim/1e12:.2f}e12')
-    ax.set_xlabel('J (1e12 A/m2)'); ax.set_ylabel('DW velocity (m/s)')
-    ax.set_title(f'Walker Breakdown (flat 10x strip)\nxi/alpha={int(abs(v_sub_ratio))}  J_W~{J_W_sim/1e12:.2f}e12')
+               label=rf'$J_W \approx {J_W_sim/1e12:.2f}\times10^{{12}}$')
+    ax.set_xlabel(r'$J$ ($10^{12}$ A m$^{-2}$)'); ax.set_ylabel(r'$v_\mathrm{DW}$ (m s$^{-1}$)')
+    ax.set_title(rf'Walker breakdown (flat strip)' + '\n' + rf'$\xi/\alpha={int(abs(v_sub_ratio))}$,  $J_W\approx{J_W_sim/1e12:.2f}\times10^{{12}}$ A m$^{{-2}}$')
     ax.legend(fontsize=7.5); ax.grid(alpha=0.3)
 
     # DW position vs time
@@ -234,18 +234,18 @@ try:
     for i, (lbl, pos_b) in enumerate(zip(lbl_cases, traj_pos)):
         ax.plot(t_common, np.array(pos_b)*1e9, '-', color=cols[i], lw=2, label=lbl)
     ax.axhline(x0*1e9, color='k', ls='--', lw=1, alpha=0.4)
-    ax.set_xlabel('Time (ps)'); ax.set_ylabel('DW position (nm)')
-    ax.set_title('DW position vs time\n(sub-Walker moves FASTER!)')
+    ax.set_xlabel(r'$t$ (ps)'); ax.set_ylabel(r'$x_\mathrm{DW}$ (nm)')
+    ax.set_title('DW position vs time\n(sub-Walker moves faster)')
     ax.legend(fontsize=8); ax.grid(alpha=0.3)
 
     # DW core my and mz vs time
     ax = axes[2]
     for i, (lbl, my_b, mz_b) in enumerate(zip(lbl_cases, traj_my, traj_mz)):
-        ax.plot(t_common, my_b, '-', color=cols[i], lw=2, label=f'{lbl} my')
-        ax.plot(t_common, mz_b, '--', color=cols[i], lw=1.5, alpha=0.7, label=f'{lbl} mz')
+        ax.plot(t_common, my_b, '-', color=cols[i], lw=2, label=rf'{lbl} $m_y$')
+        ax.plot(t_common, mz_b, '--', color=cols[i], lw=1.5, alpha=0.7, label=rf'{lbl} $m_z$')
     ax.axhline(0, color='k', ls=':', lw=1, alpha=0.4)
-    ax.set_xlabel('Time (ps)'); ax.set_ylabel('DW core magnetization')
-    ax.set_title('DW core: my (solid), mz (dashed)\nAbove-Walker: mz oscillates!')
+    ax.set_xlabel(r'$t$ (ps)'); ax.set_ylabel(r'DW core $m_y$, $m_z$')
+    ax.set_title('DW core: $m_y$ (solid), $m_z$ (dashed)\nabove-Walker: $m_z$ oscillates')
     ax.legend(fontsize=6.5); ax.grid(alpha=0.3)
 
     plt.suptitle(
