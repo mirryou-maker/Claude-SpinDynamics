@@ -254,6 +254,12 @@ void bind_gpu(py::module_& m) {
         .def("clear_D_field", &BulkDMIFieldGPU::clear_D_field,
              "Revert to uniform D mode (frees per-cell GPU buffers).")
         .def_property_readonly("has_D_field", &BulkDMIFieldGPU::has_D_field)
+        .def("set_material_field",
+             [](BulkDMIFieldGPU& f, const MaterialField3D& matf) { f.set_material_field(matf); },
+             py::arg("matf"),
+             "Per-cell Ms from a MaterialField3D (uniform D kept) — parity with "
+             "ExchangeFieldGPU/UniaxialAnisotropyFieldGPU so a granular material "
+             "field drives DMI's 1/(mu0 Ms) prefactor per cell.")
         .def_property_readonly("name", &BulkDMIFieldGPU::name);
 
     py::class_<InterfacialDMIFieldGPU, IEffectiveField, IEffectiveFieldGPU,
@@ -278,6 +284,11 @@ void bind_gpu(py::module_& m) {
         .def("clear_D_field", &InterfacialDMIFieldGPU::clear_D_field,
              "Revert to uniform D mode.")
         .def_property_readonly("has_D_field", &InterfacialDMIFieldGPU::has_D_field)
+        .def("set_material_field",
+             [](InterfacialDMIFieldGPU& f, const MaterialField3D& matf) { f.set_material_field(matf); },
+             py::arg("matf"),
+             "Per-cell Ms from a MaterialField3D (uniform D kept) — parity with "
+             "ExchangeFieldGPU/UniaxialAnisotropyFieldGPU.")
         .def_property_readonly("name", &InterfacialDMIFieldGPU::name);
 
     // ------------------------------------------------------------------

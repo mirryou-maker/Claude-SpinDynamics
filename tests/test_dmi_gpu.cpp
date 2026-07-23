@@ -10,6 +10,7 @@
 
 #include "micromag/dmi.hpp"
 #include "micromag/dmi_gpu.hpp"
+#include "micromag/material_field.hpp"
 #include "micromag/field.hpp"
 #include "micromag/grid.hpp"
 #include "micromag/material.hpp"
@@ -281,6 +282,52 @@ TEST_CASE("InterfacialDMIFieldGPU: host accumulate honours per-cell D",
             mx = std::max(mx, std::abs((&H_per[i].x)[c] - (&H_uni[i].x)[c]));
     REQUIRE(std::abs(H_uni[0].x) + std::abs(H_uni[0].z) > 0.0);
     REQUIRE_THAT(mx / mat.Ms, Catch::Matchers::WithinAbs(0.0, micromag::gtol(1e-9, 1e-4)));
+}
+
+
+// ---------------------------------------------------------------------------
+// set_material_field: DMI must pick up per-cell Ms from a MaterialField3D
+// (parity with exchange/anisotropy). Half the grid at 2x Ms -> H halved there.
+// ---------------------------------------------------------------------------
+TEST_CASE("InterfacialDMIFieldGPU: set_material_field applies per-cell Ms",
+          "[dmi][gpu][percell]") {
+    using namespace micromag;
+    StructuredGrid g(8, 8, 1, 2e-9, 2e-9, 1e-9);
+    Material mat; mat.Ms = 8e5; mat.A_exchange = 1.5e-11;   // uniform Ms baseline
+    const Real D = 2e-3;
+
+    VectorField3D m(g);
+    for (Index i = 0; i < g.size(); ++i) {
+        const double t = 0.3 * static_cast<double>(i % 7);
+        Vec3 v{std::sin(t), 0.2, std::cos(t)};
+        m[i] = v / std::sqrt(v.dot(v));
+    }
+
+    // uniform-Ms reference
+    InterfacialDMIFieldGPU ref(g, D);
+    VectorField3D H_ref(g); ref.accumulate(m, mat, H_ref);
+
+    // per-cell Ms: left half Ms, right half 2*Ms
+    MaterialField3D matf(g, mat);
+    for (Index j = 0; j < 8; ++j)
+        for (Index i = 4; i < 8; ++i)
+            matf.Ms_field()[i + 8 * j] = 2 * mat.Ms;
+    InterfacialDMIFieldGPU pc(g, D);
+    pc.set_material_field(matf);
+    REQUIRE(pc.has_D_field());                 // per-cell mode active
+    VectorField3D H_pc(g); pc.accumulate(m, mat, H_pc);
+
+    for (Index j = 0; j < 8; ++j)
+        for (Index i = 0; i < 8; ++i) {
+            const Index idx = i + 8 * j;
+            const double f = (i < 4) ? 1.0 : 0.5;   // H ∝ 1/Ms
+            for (int c = 0; c < 3; ++c) {
+                const double ref_c = (&H_ref[idx].x)[c];
+                if (std::abs(ref_c) < 1.0) continue;
+                REQUIRE_THAT((&H_pc[idx].x)[c],
+                             Catch::Matchers::WithinRel(f * ref_c, gtol(1e-9, 1e-4)));
+            }
+        }
 }
 
 #endif // MICROMAG_CUDA

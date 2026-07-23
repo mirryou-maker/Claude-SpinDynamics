@@ -16,6 +16,7 @@
 
 #include "micromag/dmi.hpp"
 #include "micromag/dmi_gpu.hpp"
+#include "micromag/material_field.hpp"
 #include "micromag/gpu_real.hpp"
 #include "micromag/types.hpp"
 
@@ -410,6 +411,23 @@ void BulkDMIFieldGPU::set_D_field(const ScalarField3D& D_field,
     CUDA_CHECK(cudaStreamSynchronize(s));
 }
 
+void BulkDMIFieldGPU::set_material_field(const MaterialField3D& matf) {
+    // Per-cell Ms with uniform D_: reuse the per-cell path by broadcasting D_.
+    if (!d_D_field_) {
+        CUDA_CHECK(cudaMalloc(&d_D_field_,  N_ * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_Ms_field_, N_ * sizeof(double)));
+    }
+    std::vector<double> h_D(N_), h_Ms(N_);
+    for (size_t i = 0; i < N_; ++i) {
+        h_D[i]  = static_cast<double>(D_);
+        h_Ms[i] = static_cast<double>(matf.Ms(static_cast<Index>(i)));
+    }
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemcpyAsync(d_D_field_,  h_D.data(),  N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_Ms_field_, h_Ms.data(), N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+}
+
 void BulkDMIFieldGPU::clear_D_field() {
     if (d_D_field_)  { cudaFree(d_D_field_);  d_D_field_  = nullptr; }
     if (d_Ms_field_) { cudaFree(d_Ms_field_); d_Ms_field_ = nullptr; }
@@ -520,6 +538,23 @@ void InterfacialDMIFieldGPU::set_D_field(const ScalarField3D& D_field,
     for (size_t i = 0; i < N_; ++i) {
         h_D[i]  = D_field[static_cast<Index>(i)];
         h_Ms[i] = Ms_field[static_cast<Index>(i)];
+    }
+    const cudaStream_t s = static_cast<cudaStream_t>(stream_);
+    CUDA_CHECK(cudaMemcpyAsync(d_D_field_,  h_D.data(),  N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaMemcpyAsync(d_Ms_field_, h_Ms.data(), N_*sizeof(double), cudaMemcpyHostToDevice, s));
+    CUDA_CHECK(cudaStreamSynchronize(s));
+}
+
+void InterfacialDMIFieldGPU::set_material_field(const MaterialField3D& matf) {
+    // Per-cell Ms with uniform D_: reuse the per-cell path by broadcasting D_.
+    if (!d_D_field_) {
+        CUDA_CHECK(cudaMalloc(&d_D_field_,  N_ * sizeof(double)));
+        CUDA_CHECK(cudaMalloc(&d_Ms_field_, N_ * sizeof(double)));
+    }
+    std::vector<double> h_D(N_), h_Ms(N_);
+    for (size_t i = 0; i < N_; ++i) {
+        h_D[i]  = static_cast<double>(D_);
+        h_Ms[i] = static_cast<double>(matf.Ms(static_cast<Index>(i)));
     }
     const cudaStream_t s = static_cast<cudaStream_t>(stream_);
     CUDA_CHECK(cudaMemcpyAsync(d_D_field_,  h_D.data(),  N_*sizeof(double), cudaMemcpyHostToDevice, s));

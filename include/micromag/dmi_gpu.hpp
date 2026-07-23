@@ -12,6 +12,7 @@
 #include "field.hpp"
 #include "grid.hpp"
 #include "material.hpp"
+#include "material_field.hpp"
 #include "types.hpp"
 
 namespace micromag {
@@ -57,6 +58,11 @@ public:
     void set_D_field(const ScalarField3D& D_field, const ScalarField3D& Ms_field);
     void clear_D_field();
     bool has_D_field() const { return d_D_field_ != nullptr; }
+
+    // Per-cell Ms from a MaterialField3D while keeping the uniform D_ (parity
+    // with ExchangeFieldGPU/UniaxialAnisotropyFieldGPU set_material_field, so
+    // a granular MaterialField3D drives DMI's 1/(mu0 Ms) prefactor per cell).
+    void set_material_field(const MaterialField3D& matf);
 
 private:
     Index  nx_, ny_, nz_;
@@ -112,6 +118,11 @@ public:
     void set_D_field(const ScalarField3D& D_field, const ScalarField3D& Ms_field);
     void clear_D_field();
     bool has_D_field() const { return d_D_field_ != nullptr; }
+
+    // Per-cell Ms from a MaterialField3D while keeping the uniform D_ (parity
+    // with ExchangeFieldGPU/UniaxialAnisotropyFieldGPU set_material_field, so
+    // a granular MaterialField3D drives DMI's 1/(mu0 Ms) prefactor per cell).
+    void set_material_field(const MaterialField3D& matf);
 
 private:
     Index  nx_, ny_, nz_;
