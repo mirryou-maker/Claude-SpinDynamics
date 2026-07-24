@@ -18,20 +18,19 @@ void BulkDMIField::accumulate(const VectorField3D& m,
     if (D_ == 0.0) return;
 
     const StructuredGrid& g = m.grid();
-    // Free-boundary DMI condition (Rohart-Thiaville / mumax3 default):
-    //   dm/dn = -(D/2A) (n_hat x m)  at a missing neighbour
-    // (sign follows THIS code's field H=+2D/(mu0Ms) curl m, i.e. energy
-    //  e=-D m.curl m; note the BULK D sign convention is therefore opposite
-    //  to mumax3's Dbulk: D_CS = -D_mumax3).
-    // With the BC ghost m* = m_c + s d (D/2A) gamma the boundary gradient is
-    //   g_BC = g_onesided/2 + (D/4A) gamma,
-    // and replacing the exchange field's Neumann ghost by m* adds
-    //   dH_exch = s (D / mu0 Ms d) gamma      (s = +1 max face, -1 min face);
-    // the exchange class knows nothing about D, so that correction lives here.
-    // The prefactor and this exchange-ghost term carry 1/Ms, which is per-cell
-    // when a MaterialField3D is attached (see set_material_field).
+    // Bulk-DMI field, mumax3 Dbulk convention:
+    //   e = D m.(curl m),   H = -1/(mu0 Ms) dE/dm = -2D/(mu0 Ms) curl m.
+    // We store D_ in the mumax3 sense (D_CS = D_mumax3) and use D_eff = -D_ for
+    // the field so H is variationally consistent with energy() (which is
+    // +D_ integral m.curl m). [Before 2026-07: the field used +2D and energy
+    // +D, i.e. field and energy disagreed and D_CS = -D_mumax3; both fixed.]
+    const Real D_eff = -D_;
+    // Free-boundary DMI condition (Rohart-Thiaville): dm/dn = (D_eff/2A)(n x m)
+    // at a missing neighbour; ghost m* = m_c + s d (D_eff/2A) gamma gives
+    //   g_BC = g_onesided/2 + (D_eff/4A) gamma,  dH_exch = s (D_eff/mu0 Ms d) gamma.
+    // The 1/Ms terms are per-cell when a MaterialField3D is attached.
     const bool bc = !open_bc_ && mat.A_exchange > Real{0};
-    const Real quarterDoverA = bc ? D_ / (Real{4} * mat.A_exchange) : Real{0};
+    const Real quarterDoverA = bc ? D_eff / (Real{4} * mat.A_exchange) : Real{0};
 
     const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
     const Real dx = g.dx(), dy = g.dy(), dz = g.dz();
@@ -44,8 +43,8 @@ void BulkDMIField::accumulate(const VectorField3D& m,
         const Index iz   = trow / ny;
         const Vec3 mc = m[idx];
         const Real Ms_c = matf_ ? matf_->Ms(idx) : mat.Ms;
-        const Real prefac  = 2.0 * D_ / (constants::mu_0 * Ms_c);
-        const Real bc_exch = bc ? D_ / (constants::mu_0 * Ms_c) : Real{0};
+        const Real prefac  = 2.0 * D_eff / (constants::mu_0 * Ms_c);
+        const Real bc_exch = bc ? D_eff / (constants::mu_0 * Ms_c) : Real{0};
         Vec3 dH{0, 0, 0};
         Vec3 gx, gy, gz;
         if (!bc) {
@@ -72,7 +71,7 @@ void BulkDMIField::accumulate(const VectorField3D& m,
                           return (mc - m[idx - stride]) * (Real{0.5} / d) + gam * quarterDoverA; }
                 return gam * (Real{2} * quarterDoverA);
             };
-            gx = axis(ix, nx, dx, Index{1},  Vec3{0, mc.z, -mc.y});   // gamma_x = -(x_hat x m)  [CS bulk energy = -D m.curl m]
+            gx = axis(ix, nx, dx, Index{1},  Vec3{0, mc.z, -mc.y});   // gamma_x = -(x_hat x m)  [bulk energy = +D m.curl m, mumax3 convention]
             gy = axis(iy, ny, dy, nx,        Vec3{-mc.z, 0, mc.x});   // gamma_y = -(y_hat x m)
             gz = axis(iz, nz, dz, nx * ny,   Vec3{mc.y, -mc.x, 0});   // gamma_z = -(z_hat x m)
         }

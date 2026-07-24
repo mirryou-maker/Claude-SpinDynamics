@@ -209,7 +209,7 @@ __global__ static void bulk_dmi_kernel_percell(
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
 
-    const double D_i  = d_D[idx];
+    const double D_i  = -d_D[idx];   // mumax3 Dbulk convention: H = -2D/(mu0 Ms) curl m
     const double Ms_i = d_Ms[idx];
     if (Ms_i <= 0.0 || D_i == 0.0) return;
     const double prefac = D_i * mu0_inv2 / Ms_i;
@@ -383,13 +383,14 @@ void BulkDMIFieldGPU::accumulate_gpu_ptr(const GReal* d_m,
             use_bc, inv4A, dx_, dy_, dz_);
     } else {
         if (D_ == 0.0) return;
-        const double prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
-        const double bcf = D_ / (constants::mu_0 * mat.Ms);
+        const double Db = -D_;   // mumax3 Dbulk convention: H = -2D/(mu0 Ms) curl m
+        const double prefac = 2.0 * Db / (constants::mu_0 * mat.Ms);
+        const double bcf = Db / (constants::mu_0 * mat.Ms);
         bulk_dmi_kernel<<<grd, blk, 0, s>>>(
             gH, gm,
             (int)nx_, (int)ny_, (int)nz_,
             i2dx, idx, i2dy, idy, i2dz, idz, prefac,
-            use_bc, D_ * inv4A, bcf / dx_, bcf / dy_, bcf / dz_);
+            use_bc, Db * inv4A, bcf / dx_, bcf / dy_, bcf / dz_);
     }
     MICROMAG_KERNEL_CHECK();
 }

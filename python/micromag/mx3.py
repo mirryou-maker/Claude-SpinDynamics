@@ -650,10 +650,9 @@ class Engine:
         _set(self._zeeman, "H_ext", "set_H_ext", H)
         # DMI strength (D is a read/write property)
         _set(self._dmi, "D", "set_D", self.dind)
-        # mumax3 semantics: CS's bulk-DMI energy is -D m.curl(m), i.e.
-        # D_CS = -Dbulk_mumax3 (documented in BulkDMIField). Map the sign so
-        # .mx3 scripts reproduce mumax3 chirality unchanged.
-        _set(self._dmi_bulk, "D", "set_D", -self.dbulk)
+        # Bulk DMI now uses the mumax3 Dbulk convention directly (D_CS = D_mumax3),
+        # so the .mx3 Dbulk maps with no sign change.
+        _set(self._dmi_bulk, "D", "set_D", self.dbulk)
 
     def _active_fields(self):
         """Return (demag_or_None, field_sum_or_effsum) with current params synced."""
