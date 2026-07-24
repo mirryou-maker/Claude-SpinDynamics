@@ -12,6 +12,15 @@ namespace micromag { class MaterialField3D; }
 
 namespace micromag {
 
+// CPU LLG integrators. All three below (RK4Integrator, RK45Integrator,
+// HeunIntegrator) integrate the REAL Landau-Lifshitz-Gilbert equation with
+// precession + Gilbert damping from Material::alpha — use them for dynamics,
+// switching, FMR, thermal (Heun), and physically faithful relaxation. They are
+// distinct from the GPU energy minimisers RelaxGPU / MinimizeGPU, which are
+// precession-free and do NOT honour mat.alpha (RelaxGPU) or pin the seed
+// (MinimizeGPU); see include/micromag/relax_gpu.hpp and docs/USER_GUIDE.md §4.4
+// for when each is appropriate.
+//
 // Per-cell LLG torque (Landau-Lifshitz form):
 //   dm/dt = -γ'μ₀(m×H) - γ'αμ₀ m×(m×H),   γ' = γ₀/(1+α²),   H in [A/m]
 inline Vec3 llg_torque(Vec3 m, Vec3 H, Real alpha) noexcept {

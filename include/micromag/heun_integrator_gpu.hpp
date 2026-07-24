@@ -20,6 +20,13 @@
 //
 // cuRAND is used for bulk Gaussian generation on GPU.
 //
+// OPERATOR CHOICE: this is the *mandatory* solver at finite temperature — it
+// integrates the stochastic LLG (real precession + Gilbert damping from
+// Material::alpha, plus the thermal field). At T_K=0 it reduces to a
+// deterministic 2-stage Heun ODE step. The energy minimisers RelaxGPU /
+// MinimizeGPU have no notion of temperature and must not be used for thermal
+// runs. For T=0 dynamics prefer RK4/RK45. See docs/USER_GUIDE.md §4.4.
+//
 // Requires MICROMAG_CUDA=1.
 
 #ifdef MICROMAG_CUDA

@@ -359,20 +359,69 @@ exch.set_inter_exchange(0, 1, A_IEC=5e-12)   # explicit coupling across a region
 `voronoi_grains()`, `poisson_disk_grains()`, and the shape factories (`ellipse`, `rect`,
 `sphere`, `layer`, …) build geometries and grain structures quickly.
 
-### 4.4 Quasistatic: relaxation, hysteresis, energy minimization
+### 4.4 Relaxation & dynamics operators — which to use (and mumax3 parity)
+
+Claude-SD offers three *dynamical integrators* and two *energy relaxers*. **They are not
+interchangeable**, and choosing the wrong one silently changes the physics you get — most visibly
+at a skyrmion phase boundary, where the operator choice, not the effective field, decides whether a
+metastable texture survives. Pick from this table:
+
+| Operator | Precession? | Gilbert damping used | Converges toward | Use it for |
+|----------|-------------|----------------------|------------------|------------|
+| `RK4IntegratorGPU`  | **yes** | `mat.alpha` | the *actual* LLG trajectory (fixed `dt`) | time-resolved dynamics, switching, FMR |
+| `RK45IntegratorGPU` | **yes** | `mat.alpha` | the *actual* LLG trajectory (adaptive) | dynamics **and** faithful relaxation to a metastable state; low-α; fewest steps |
+| `HeunIntegratorGPU` | **yes** | `mat.alpha` | a *stochastic* LLG trajectory | finite-temperature SLLG (thermal) |
+| `RelaxGPU`     | **no** — damping-only descent | **`opts.alpha_relax`, *not* `mat.alpha`** | the nearest energy minimum, quickly | fast energy relaxation when you do **not** need a dynamically faithful path |
+| `MinimizeGPU`  | **no** — steepest descent, adaptive step | — (geometric descent) | the **nearest local minimum** (preserves the seed) | cleanest single-texture energy minimization |
+
+> **Gotchas that bite in practice**
+> - **`RelaxGPU` ignores `mat.alpha`.** It is a pure Landau–Lifshitz *damping-only* descent driven by
+>   `RelaxGPUOptions.alpha_relax` (default aggressive), with **no precession**. Setting `mat.alpha=0.05`
+>   has *no effect* on it. Used as a stand-in for low-damping dynamics it will over-damp and can
+>   **artificially annihilate a metastable skyrmion**.
+> - **`MinimizeGPU` preserves the seed.** Being a steepest-descent minimizer it stops at the *nearest*
+>   local minimum, so a seeded skyrmion is kept in *every* cell — even deep in the uniform region where
+>   the ground state has no skyrmion. It therefore **over-states** the skyrmion-stable region. (This is
+>   the correct behavior for a local minimizer; it is simply not a ground-state map.)
+> - **For real low-α dynamics or a metastability map, use `RK4/RK45/Heun`** — only these integrate the
+>   full LLG (precession + damping) and honor `mat.alpha`.
+> - **GPU exclusivity (HPC).** On `Exclusive_Process` GPUs (e.g. iREMB P100/V100), a Python process that
+>   already holds a Claude-SD CUDA context cannot also launch the real `mumax3` on the *same* GPU
+>   (`cuda.Init`/`CtxCreate` fails, "device busy"). Run Claude-SD and mumax3 on **separate GPUs / jobs**.
 
 ```python
+# Fast energy relaxation (dynamics not needed) — RelaxGPU
 relax = mm.RelaxGPU(g)
 opts  = mm.RelaxGPUOptions(); opts.threshold = 1e-4*mat.Ms; opts.max_steps = 40000
 relax.upload(m0); relax.run(mat, demag, fields, opts); relax.download(m0)
+
+# Physically faithful relaxation at a chosen damping — integrate the real LLG for a fixed time
+mat.alpha = 0.05
+integ = mm.RK45IntegratorGPU(g)
+integ.upload(m0)
+t = 0.0
+while t < 30e-9:                 # 30 ns of real LLG dynamics
+    t += integ.step(mat, demag, fields)   # step() returns the dt it took
+integ.download(m0)
 
 # field sweep (e.g. SP#3 hysteresis or SP#2 remanence) — see benchmarks/sp2/
 res = mm.gpu_hysteresis_loop(rk4, mat, demag, fields, zeeman, H_list, m_cpu)
 ```
 
-> **Convergence tip:** for *non-uniform* equilibria use `RelaxGPU` (torque-based) — a neighbour-angle
-> criterion never converges for flux-closure/vortex states. For stiff DMI skyrmion textures, prefer
-> `MinimizeGPU` (BB/FIRE) or raise `max_steps`; the fixed-step damped-LLG relaxer converges slowly there.
+> **Convergence tip:** for *non-uniform* equilibria use a torque-based stop (`RelaxGPU`/`MinimizeGPU`) —
+> a neighbour-angle criterion never converges for flux-closure/vortex states. But when the *equilibrium
+> selected* matters (skyrmion vs uniform vs stripe near $D_c$), the operator itself is a physics choice:
+> a seeded `MinimizeGPU` reports **metastability** (does the seed survive?), while a real-LLG `RK45` run
+> and mumax3's `Minimize()`/damped `Run()` report the **relaxed/ground-state** boundary.
+
+**Case study — the operator *is* the physics.** The Claude-SD showcase maps the same DMI–PMA skyrmion
+phase diagram four ways against mumax3. Pairing *mismatched* operators (Claude-SD `MinimizeGPU` vs
+mumax3 `Minimize()`; Claude-SD `RelaxGPU` vs mumax3 `Minimize()`) gives only **53 %** and **56 %**
+cell-by-cell phase agreement — `MinimizeGPU` over-holds the seed, `RelaxGPU` over-collapses it. Matching
+the *dynamics* — both codes integrating the full LLG at the **same** `α = 0.05` for the same physical
+time — raises agreement to **92 %**, with the skyrmion surviving in a band that tracks $D_c$ in both
+codes. The lesson: report the integrator **and** its damping; a cross-code comparison is only meaningful
+when the operator, damping, and demag setting all match (see §4.8).
 
 ### 4.5 Precision & FFT backend
 
@@ -412,6 +461,54 @@ list of supported and **unsupported** mumax3 API, see
 The `benchmarks/` suite is reproducible: `run_throughput_cs.py`, `run_throughput_mumax.py`,
 `run_throughput_mumaxplus.py` → `make_report.py`. Timing is hardened (size-tiered step counts,
 5-repeat median + IQR). See `benchmarks/RESULTS_2026.md` for the methodology and full results.
+
+### 4.8 mumax3 conventions & cross-code interoperability
+
+Claude-SD is deliberately aligned to mumax3's sign and seed conventions so that a `.mx3` script or a
+side-by-side benchmark reproduces the same physics. The points below are the ones that most often trip
+up a cross-code comparison. **If two codes disagree, check these before suspecting the effective field.**
+
+**Topological charge $Q$ — compare magnitudes, not raw signs.** The sign of $Q$ depends on the
+finite-difference solid-angle convention (the order of the lattice cross product) *and* on the texture's
+chirality/polarity. Claude-SD's `mm.topological_charge_Q()`, mumax3's `ext_topologicalcharge`, and an
+ad-hoc NumPy `Σ m·(∂ₓm×∂ᵧm)` proxy can legitimately differ **in sign** for the *same* state. Classify
+phases by **`|Q|`**, and when you do need to compare signs, compute both sides with the *same* definition
+on the *same* array. (In the showcase phase diagrams the Claude-SD panel uses `topological_charge_Q` and
+the mumax3 panel a NumPy proxy, which is why isolated cells show opposite signs at equal `|Q|`.)
+
+**Skyrmion polarity & seed.** `NeelSkyrmion(charge, pol)` follows mumax3: **`pol=+1` → core up (+z)**,
+`pol=-1` → core down (unified in commit `c09c3da`; 6 seed tests updated). A Néel vs Bloch seed differs in
+the in-plane winding; match `charge`, `pol`, and the DMI sign together or the seed may relax out.
+
+**DMI sign & free boundaries.**
+
+- **Interfacial DMI** matches mumax3's `Dind` sign directly.
+- **Bulk DMI** now satisfies **`D_CS = D_mumax3`** (`Dbulk`) *and* is variationally consistent
+  (field $= -\delta E/\delta m$), fixed in `c16f118`; the `.mx3` runner maps `Dbulk` with **no** sign flip.
+- The **Rohart–Thiaville free-boundary condition** is applied by default (commits `97ea1d8`, `34bf3c5`,
+  incl. geometry-mask / zero-`Msat` edges) — without it a uniform PMA+DMI film is a spurious equilibrium
+  (edge canting 0 instead of the analytic $\sin\theta = D/2\sqrt{AK}$). The legacy naive stencil is
+  available via the `open_bc` property on the DMI field classes.
+
+**Zhang–Li STT — the `u` prefactor.** mumax3 folds the $1/(1+\xi^2)$ factor into the adiabatic velocity;
+Claude-SD does **not** by default. Set `ZhangLiSTT(.GPU).thiaville_u = True` (the `.mx3` runner does this
+automatically) to reproduce mumax3's velocity — otherwise $|v|$ differs by up to ~25 % at $\xi=0.5$
+(`7e2ca98`).
+
+**Demag parity.** A cross-check must match the demag setting on *both* sides: mumax3 `EnableDemag=false`
+corresponds to Claude-SD `mm.ZeroDemagGPU()`. Mismatched demag was the origin of an early cell-by-cell
+residual (~0.15) in a bulk-DMI edge-canting comparison that dropped to **0.0** once demag was matched.
+
+**Per-cell materials.** `set_material_field()` reaches the DMI prefactor on **both** CPU and GPU DMI
+classes (`656aba2`, `5c2828a`), so granular per-cell `Ms` is honored identically on either backend;
+this matches the existing per-cell exchange/anisotropy/cubic/surface-`Ks` support.
+
+**Recipe for a converging cross-code comparison.** Agreement requires **all** of: (1) the same effective
+field (DMI sign, free-BC, demag on/off), (2) the same relaxation *operator class and damping* (see §4.4 —
+real-LLG-vs-real-LLG, or minimizer-vs-minimizer, at the same `α`), and (3) the same seed (charge, polarity,
+Néel/Bloch). Match all three and Claude-SD and mumax3 agree (the showcase reaches 92 % cell-by-cell phase
+agreement under matched `α=0.05` LLG dynamics); break any one and the two land in different basins near
+$D_c$.
 
 ---
 

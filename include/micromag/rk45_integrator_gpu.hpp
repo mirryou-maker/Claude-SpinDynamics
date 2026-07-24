@@ -14,6 +14,16 @@
 // One D2H copy per trial step (single double — error norm scalar).
 // Zero PCIe overhead otherwise.
 //
+// OPERATOR CHOICE: a *real* LLG integrator (full precession + Gilbert damping
+// from Material::alpha) with adaptive step control — the preferred tool for a
+// physically faithful relaxation to a (meta)stable state, especially at low
+// damping, since it takes the fewest steps. step() returns the dt it actually
+// took, so integrate for a fixed physical time with:
+//     t = 0; while (t < T) t += integ.step(mat, demag, fields);
+// This is the correct way to ask "does this texture survive?" — unlike
+// RelaxGPU (precession-free, ignores mat.alpha) or MinimizeGPU (pins the seed).
+// See docs/USER_GUIDE.md §4.4 and the showcase phase-diagram case study.
+//
 // Requires MICROMAG_CUDA=1.
 
 #ifdef MICROMAG_CUDA

@@ -21,6 +21,14 @@
 // redirected via set_stream() at the beginning of each step().
 // Zero PCIe per step; download only when the caller calls download().
 //
+// OPERATOR CHOICE: this is a *real* LLG integrator — full precession + Gilbert
+// damping taken from Material::alpha. Use it (or RK45/Heun) for dynamics,
+// switching, FMR, and for any relaxation/metastability question where the
+// physical path matters (a fixed dt makes it simplest but needs dt small
+// enough for stability). Do NOT substitute RelaxGPU/MinimizeGPU there: those
+// are precession-free energy minimisers that ignore mat.alpha (RelaxGPU) or
+// pin the seeded topology (MinimizeGPU). See docs/USER_GUIDE.md §4.4.
+//
 // Requires MICROMAG_CUDA=1.
 
 #ifdef MICROMAG_CUDA

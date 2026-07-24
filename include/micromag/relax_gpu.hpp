@@ -21,8 +21,29 @@ namespace micromag {
 // RelaxGPU — damping-only LLG energy minimisation, fully on GPU.
 //
 // Algorithm: mumax3 Relax() equivalent
-//   dm/dt = -γ'αμ₀ m×(m×H_eff)  (no precession term)
+//   dm/dt = -γ'αμ₀ m×(m×H_eff)  (NO precession term)
 //   Fixed Euler step, convergence when max|m×H_eff| < threshold [A/m].
+//
+// WHAT THIS IS FOR
+//   A fast route to *an* energy minimum when you only need the relaxed texture
+//   and do NOT need the path there to be physically faithful (e.g. settling a
+//   film/vortex before a measurement, hysteresis inner loops).
+//
+// IMPORTANT — this is NOT a dynamics integrator, and it does NOT use mat.alpha:
+//   * The damping rate is set by RelaxGPUOptions.alpha_relax (default 1.0),
+//     NOT by Material::alpha. Changing mat.alpha has zero effect here.
+//   * There is no precession term, so RelaxGPU cannot represent low-damping
+//     dynamics. Used as a stand-in for a gentle (small-α) relaxation it will
+//     OVER-DAMP and can artificially annihilate a metastable texture such as a
+//     skyrmion near D_c — giving a phase map that disagrees with a real-LLG run.
+//   * For a physically faithful relaxation at a chosen damping, or for any
+//     metastability question, integrate the full LLG instead with
+//     RK4IntegratorGPU / RK45IntegratorGPU / HeunIntegratorGPU (they honour
+//     mat.alpha and include precession). See MinimizeGPU below for a pure
+//     energy minimiser that instead preserves the seeded topology.
+//   * Cross-code note: this mirrors mumax3's Relax() (also precession-free),
+//     so RelaxGPU-vs-Relax() is a fair pairing; do NOT compare it against a
+//     real-LLG Run() and expect the same basin. (See docs/USER_GUIDE.md §4.4.)
 //
 // Usage:
 //   RelaxGPU relax(grid);
@@ -34,7 +55,10 @@ namespace micromag {
 // `Options opts = {}` default arguments below compile on GCC. The in-class
 // `using` alias preserves RelaxGPU::Options for callers and Python bindings.
 struct RelaxGPUOptions {
-    Real alpha_relax   = 1.0;    // effective alpha during relaxation
+    Real alpha_relax   = 1.0;    // effective damping DURING RELAXATION ONLY —
+                                 // this is what RelaxGPU uses, NOT Material::alpha.
+                                 // 1.0 = fastest descent; lower it only to soften
+                                 // the (still precession-free) relaxation path.
     Real threshold     = 1.0;    // |m×H|_max [A/m]
     Real dt            = 1e-12;  // fixed step [s]
     int  max_steps     = 500'000;
@@ -110,6 +134,20 @@ private:
 // Uses the same damping-only step as RelaxGPU but with adaptive step size:
 // grows dt on successful energy decrease, shrinks on energy increase.
 // Requires GPU energy computation (dot-product reduction).
+//
+// BEHAVIOUR TO KNOW BEFORE YOU USE IT:
+//   * Like RelaxGPU this is a geometric energy minimiser, NOT an LLG integrator
+//     (no precession; Material::alpha is irrelevant to the descent).
+//   * As a steepest-descent method it converges to the NEAREST local minimum,
+//     so it PRESERVES the seeded topology: seed a skyrmion and MinimizeGPU keeps
+//     it in every cell, even deep in the uniform region where the ground state
+//     has none. That makes it excellent for cleanly settling a *single* intended
+//     texture, but it OVER-STATES the skyrmion-stable area if you use it to map a
+//     phase diagram from a fixed seed (it reports metastability, not the ground
+//     state). mumax3's Minimize(), by contrast, escapes the seed more readily.
+//   * Want the ground-state / relaxed boundary instead? Integrate the real LLG
+//     (RK45IntegratorGPU) or compare against mumax3 with a matched operator.
+//     See docs/USER_GUIDE.md §4.4 and the showcase phase-diagram case study.
 // ---------------------------------------------------------------------------
 struct MinimizeGPUOptions {
     Real threshold   = 1.0;    // |m×H|_max [A/m]
