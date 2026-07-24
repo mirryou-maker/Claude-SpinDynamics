@@ -9,6 +9,7 @@
 #include "micromag/material.hpp"
 #include "micromag/effective_field.hpp"
 #include "micromag/dmi.hpp"
+#include "micromag/material_field.hpp"
 
 using namespace micromag;
 using Catch::Matchers::WithinAbs;
@@ -407,3 +408,48 @@ TEST_CASE("OVF: save and load text roundtrip", "[ovf]") {
 
     std::filesystem::remove(fname);
 }
+
+// ---------------------------------------------------------------------------
+// CPU DMI set_material_field: per-cell Ms drives the 1/(mu0 Ms) prefactor
+// (parity with the GPU DMI). Half the grid at 2x Ms -> H halved there.
+// ---------------------------------------------------------------------------
+TEST_CASE("InterfacialDMIField: set_material_field applies per-cell Ms", "[dmi]") {
+    using namespace micromag;
+    StructuredGrid g(8, 8, 1, 2e-9, 2e-9, 1e-9);
+    Material mat; mat.Ms = 8e5; mat.A_exchange = 1.5e-11;
+    const Real D = 2e-3;
+
+    VectorField3D m(g);
+    for (Index i = 0; i < g.size(); ++i) {
+        const double t = 0.3 * static_cast<double>(i % 7);
+        Vec3 v{std::sin(t), 0.2, std::cos(t)};
+        m[i] = v / std::sqrt(v.dot(v));
+    }
+
+    InterfacialDMIField ref(D);
+    VectorField3D H_ref(g); ref.accumulate(m, mat, H_ref);   // uniform Ms
+
+    MaterialField3D matf(g, mat);
+    for (Index j = 0; j < 8; ++j)
+        for (Index i = 4; i < 8; ++i)
+            matf.Ms_field()[i + 8 * j] = 2 * mat.Ms;
+    InterfacialDMIField pc(D);
+    pc.set_material_field(&matf);
+    REQUIRE(pc.has_material_field());
+    VectorField3D H_pc(g); pc.accumulate(m, mat, H_pc);
+
+    bool any = false;
+    for (Index j = 0; j < 8; ++j)
+        for (Index i = 0; i < 8; ++i) {
+            const Index idx = i + 8 * j;
+            const double f = (i < 4) ? 1.0 : 0.5;   // H proportional to 1/Ms
+            for (int c = 0; c < 3; ++c) {
+                const double ref_c = (&H_ref[idx].x)[c];
+                if (std::abs(ref_c) < 1.0) continue;
+                any = true;
+                REQUIRE_THAT((&H_pc[idx].x)[c], Catch::Matchers::WithinRel(f * ref_c, 1e-9));
+            }
+        }
+    REQUIRE(any);
+}
+

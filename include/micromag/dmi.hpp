@@ -1,6 +1,7 @@
 #pragma once
 
 #include "effective_field.hpp"
+#include "material_field.hpp"
 
 namespace micromag {
 
@@ -34,9 +35,17 @@ public:
     bool open_bc() const      { return open_bc_; }
     void set_open_bc(bool ob) { open_bc_ = ob; }
 
+    // Per-cell Ms from a MaterialField3D (uniform D kept), matching the GPU
+    // set_material_field and ExchangeField/UniaxialAnisotropyField so a granular
+    // sample drives DMI's 1/(mu0 Ms) prefactor per cell. Only the FIELD depends
+    // on Ms; the DMI energy is Ms-independent.
+    void set_material_field(const MaterialField3D* matf) { matf_ = matf; }
+    bool has_material_field() const { return matf_ != nullptr; }
+
 private:
     Real D_;
     bool open_bc_ = false;
+    const MaterialField3D* matf_ = nullptr;
 };
 
 // InterfacialDMIField — interfacial DMI (mumax3 Dind), HM/FM interfaces.
@@ -69,9 +78,17 @@ public:
     bool open_bc() const      { return open_bc_; }
     void set_open_bc(bool ob) { open_bc_ = ob; }
 
+    // Per-cell Ms from a MaterialField3D (uniform D kept), matching the GPU
+    // set_material_field and ExchangeField/UniaxialAnisotropyField so a granular
+    // sample drives DMI's 1/(mu0 Ms) prefactor per cell. Only the FIELD depends
+    // on Ms; the DMI energy is Ms-independent.
+    void set_material_field(const MaterialField3D* matf) { matf_ = matf; }
+    bool has_material_field() const { return matf_ != nullptr; }
+
 private:
     Real D_;
     bool open_bc_ = false;
+    const MaterialField3D* matf_ = nullptr;
 };
 
 }  // namespace micromag

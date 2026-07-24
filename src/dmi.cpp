@@ -18,7 +18,6 @@ void BulkDMIField::accumulate(const VectorField3D& m,
     if (D_ == 0.0) return;
 
     const StructuredGrid& g = m.grid();
-    const Real prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
     // Free-boundary DMI condition (Rohart-Thiaville / mumax3 default):
     //   dm/dn = -(D/2A) (n_hat x m)  at a missing neighbour
     // (sign follows THIS code's field H=+2D/(mu0Ms) curl m, i.e. energy
@@ -29,9 +28,10 @@ void BulkDMIField::accumulate(const VectorField3D& m,
     // and replacing the exchange field's Neumann ghost by m* adds
     //   dH_exch = s (D / mu0 Ms d) gamma      (s = +1 max face, -1 min face);
     // the exchange class knows nothing about D, so that correction lives here.
+    // The prefactor and this exchange-ghost term carry 1/Ms, which is per-cell
+    // when a MaterialField3D is attached (see set_material_field).
     const bool bc = !open_bc_ && mat.A_exchange > Real{0};
     const Real quarterDoverA = bc ? D_ / (Real{4} * mat.A_exchange) : Real{0};
-    const Real bc_exch = bc ? D_ / (constants::mu_0 * mat.Ms) : Real{0};
 
     const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
     const Real dx = g.dx(), dy = g.dy(), dz = g.dz();
@@ -43,6 +43,9 @@ void BulkDMIField::accumulate(const VectorField3D& m,
         const Index iy   = trow % ny;
         const Index iz   = trow / ny;
         const Vec3 mc = m[idx];
+        const Real Ms_c = matf_ ? matf_->Ms(idx) : mat.Ms;
+        const Real prefac  = 2.0 * D_ / (constants::mu_0 * Ms_c);
+        const Real bc_exch = bc ? D_ / (constants::mu_0 * Ms_c) : Real{0};
         Vec3 dH{0, 0, 0};
         Vec3 gx, gy, gz;
         if (!bc) {
@@ -129,7 +132,6 @@ void InterfacialDMIField::accumulate(const VectorField3D& m,
     if (D_ == 0.0) return;
 
     const StructuredGrid& g = m.grid();
-    const Real prefac = 2.0 * D_ / (constants::mu_0 * mat.Ms);
     // Free-boundary DMI condition (Rohart-Thiaville / mumax3 default):
     //   dm/dn = -(D/2A) (z_hat x n_hat) x m  at missing in-plane neighbours
     // (sign follows THIS code's energy convention e = D[mz div(m) - m.grad(mz)];
@@ -137,10 +139,10 @@ void InterfacialDMIField::accumulate(const VectorField3D& m,
     // (z faces have n parallel to z_hat and contribute nothing). See
     // BulkDMIField::accumulate for the g_BC / dH_exch decomposition; without
     // this a uniform PMA+DMI film is a spurious equilibrium (no edge canting
-    // sin(theta) ~ D / 2 sqrt(AK)).
+    // sin(theta) ~ D / 2 sqrt(AK)). The 1/Ms prefactor and the exchange-ghost
+    // term are per-cell when a MaterialField3D is attached.
     const bool bc = !open_bc_ && mat.A_exchange > Real{0};
     const Real quarterDoverA = bc ? D_ / (Real{4} * mat.A_exchange) : Real{0};
-    const Real bc_exch = bc ? D_ / (constants::mu_0 * mat.Ms) : Real{0};
 
     const Index nx = g.nx(), ny = g.ny(), nz = g.nz();
     const Real dx = g.dx(), dy = g.dy();
@@ -152,6 +154,9 @@ void InterfacialDMIField::accumulate(const VectorField3D& m,
         const Index iy   = trow % ny;
         const Index iz   = trow / ny;
         const Vec3 mc = m[idx];
+        const Real Ms_c = matf_ ? matf_->Ms(idx) : mat.Ms;
+        const Real prefac  = 2.0 * D_ / (constants::mu_0 * Ms_c);
+        const Real bc_exch = bc ? D_ / (constants::mu_0 * Ms_c) : Real{0};
         Vec3 dH{0, 0, 0};
         Vec3 gx, gy;
         if (!bc) {

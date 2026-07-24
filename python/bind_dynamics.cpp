@@ -208,6 +208,15 @@ void bind_dynamics(py::module_& m) {
              "False (default): free-boundary DMI condition (mumax3 default). True: legacy naive stencil.")
         .def("energy",     &BulkDMIField::energy)
         .def_property("D", &BulkDMIField::D, &BulkDMIField::set_D)
+        .def("set_material_field",
+             [](BulkDMIField& f, const MaterialField3D& matf) { f.set_material_field(&matf); },
+             py::arg("matf"), py::keep_alive<1, 2>(),
+             "Per-cell Ms from a MaterialField3D (uniform D kept) — parity with "
+             "the GPU DMI, exchange and anisotropy; drives DMI's 1/(mu0 Ms) "
+             "prefactor per cell. Keep matf alive while attached.")
+        .def("clear_material_field",
+             [](BulkDMIField& f) { f.set_material_field(nullptr); })
+        .def_property_readonly("has_material_field", &BulkDMIField::has_material_field)
         .def_property_readonly("name", &BulkDMIField::name);
 
     py::class_<InterfacialDMIField, IEffectiveField,
@@ -221,6 +230,15 @@ void bind_dynamics(py::module_& m) {
              "False (default): free-boundary DMI condition (mumax3 default). True: legacy naive stencil.")
         .def("energy",     &InterfacialDMIField::energy)
         .def_property("D", &InterfacialDMIField::D, &InterfacialDMIField::set_D)
+        .def("set_material_field",
+             [](InterfacialDMIField& f, const MaterialField3D& matf) { f.set_material_field(&matf); },
+             py::arg("matf"), py::keep_alive<1, 2>(),
+             "Per-cell Ms from a MaterialField3D (uniform D kept) — parity with "
+             "the GPU DMI, exchange and anisotropy; drives DMI's 1/(mu0 Ms) "
+             "prefactor per cell. Keep matf alive while attached.")
+        .def("clear_material_field",
+             [](InterfacialDMIField& f) { f.set_material_field(nullptr); })
+        .def_property_readonly("has_material_field", &InterfacialDMIField::has_material_field)
         .def_property_readonly("name", &InterfacialDMIField::name);
 
     // ------------------------------------------------------------------
