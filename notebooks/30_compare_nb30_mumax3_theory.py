@@ -22,8 +22,11 @@ Delta = K * V / (kB * T)                                  # 120.7 (cube: no dema
 # --- Neel-Brown analytic (Brown high-barrier attempt frequency) ---
 Hk = 2*K/(mu0*Ms)
 f0 = (alpha*g0*mu0*Hk/(1+alpha**2)) * np.sqrt(Delta/np.pi) / (2*np.pi)
-jf = np.linspace(0.30, 1.0, 200)
-Delta_eff = Delta * (1 - jf)**2
+jf = np.linspace(0.30, 1.25, 240)
+# Sun barrier reduction holds only for J < Jc0; at J >= Jc0 the +z state is
+# linearly unstable (barrier gone) so Delta_eff = 0 (P_sw -> 1), NOT the
+# symmetric re-growth that (1 - J/Jc0)^2 alone would give above Jc0.
+Delta_eff = Delta * np.maximum(0.0, 1 - jf)**2
 P_theory = 1 - np.exp(-t_max * f0 * np.exp(-Delta_eff))
 
 # --- Claude-SD (mu0^2) ---

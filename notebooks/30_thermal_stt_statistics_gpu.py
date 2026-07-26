@@ -327,6 +327,6 @@ except Exception as e:
 print("\n=== Summary ===")
 print(f"  Pt/Co PMA: {int(dx*1e9)}nm cell, K={K/1e6:.2f}MJ/m3, Delta(300K)={Delta_300K:.1f}")
 print(f"  J_c0 = {J_c0/1e12:.3f}e12 A/m2  (Slonczewski perpendicular)")
-print(f"  Part A: J=0.50*J_c0, T=300K, N={N_A}: P_sw={P_sw_A:.2f}")
+print(f"  Part A: J=1.00*J_c0, T=300K, N={N_A}: P_sw={P_sw_A:.2f}")
 print(f"  Part B: " + "  ".join([f"J={f:.2f}->P={p:.1f}" for f,p in zip(J_factors_B, P_sw_B)]))
 print(f"  Part C: " + "  ".join([f"T={t:.0f}K->P={p:.1f}" for t,p in zip(T_sweep_C, P_sw_C)]))
