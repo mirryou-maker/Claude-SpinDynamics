@@ -167,8 +167,23 @@ double DepondtMertensGPU::therm_sigma(const Material& mat, double dt,
 {
     if (T_K <= 0.0 || mat.Ms <= 0.0) return 0.0;
     const double V = dx * dy * dz;
-    const double num = 2.0 * mat.alpha * constants::k_B * T_K;
-    const double den = constants::mu_0 * mat.Ms * constants::gamma_0 * V * dt;
+    // σ_H (A/m), CALIBRATED for this Depondt–Mertens predictor–corrector so that
+    // the field-coupled equilibrium reproduces the analytic Langevin law
+    // ⟨m_z⟩ = L(ξ), ξ = μ₀ Ms V H/k_B T (validated for ξ = 1,3,6, α = 0.1,0.5).
+    //
+    //   σ = √( α k_B T / (μ₀² Ms γ₀ V dt) )
+    //
+    // Two corrections vs the bare-μ₀, 2α form used elsewhere in the codebase:
+    //   (1) μ₀² (not μ₀): the field enters the LLG in A/m (B = μ₀H), so
+    //       H_th = B_th/μ₀ carries an extra 1/μ₀² in its variance;
+    //   (2) the factor-2 drop (2α→α) is the scheme-dependent effective-
+    //       temperature correction of adding the SAME noise in both the
+    //       predictor and corrector stages of THIS rotation scheme. It is NOT
+    //       transferable to the additive HeunIntegratorGPU, which needs its own
+    //       calibration — see CLAUDE-SD_FINITE_TEMP_ROADMAP.md finite-T σ finding.
+    const double num = mat.alpha * constants::k_B * T_K;
+    const double den = constants::mu_0 * constants::mu_0
+                       * mat.Ms * constants::gamma_0 * V * dt;
     return std::sqrt(num / den);
 }
 

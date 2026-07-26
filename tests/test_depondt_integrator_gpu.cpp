@@ -23,6 +23,7 @@
 
 using namespace micromag;
 using Catch::Matchers::WithinRel;
+using Catch::Matchers::WithinAbs;
 
 static double max_norm_dev(const VectorField3D& m) {
     double mx = 0;
@@ -147,6 +148,46 @@ TEST_CASE("DepondtMertensGPU: adaptive keeps |m| exact and adapts dt",
     REQUIRE(integ.dt() != dt0);                     // controller moved dt
     double mz = 0; for (Index i=0;i<m_out.size();++i) mz += m_out[i].z;
     REQUIRE(mz / m_out.size() > 0.99);              // still relaxes to easy axis
+}
+
+// 1-B FDT: field-coupled Langevin equilibrium validates the ABSOLUTE thermal
+// σ (not just its dt-scaling). A macrospin ensemble in a field H‖ẑ must relax to
+// ⟨m_z⟩ = L(ξ) = coth ξ − 1/ξ with ξ = μ₀ Ms V H/k_B T. This is the test the
+// existing (field-free) equipartition test could not do; it pins σ's absolute
+// scale for DepondtMertensGPU.
+TEST_CASE("DepondtMertensGPU FDT: Langevin <mz> in a field", "[depondt][gpu]") {
+    const double kB = 1.380649e-23, mu0 = 4e-7 * 3.14159265358979323846;
+    const double Ms = 1e6, dx = 2e-9, V = dx*dx*dx, T = 300.0;
+    const double xi = 3.0;
+    const double Hz = xi * kB * T / (mu0 * Ms * V);
+    const double L  = 1.0/std::tanh(xi) - 1.0/xi;   // ≈ 0.6716
+
+    StructuredGrid g(16, 16, 1, dx, dx, dx);         // 256 independent spins
+    Material mat; mat.Ms = Ms; mat.A_exchange = 0.0; mat.alpha = 0.5;
+    VectorField3D m0(g); m0.set_uniform({0, 0, 1});
+
+    ZeroDemagGPU   demag;
+    ZeemanFieldGPU zeeman(g, Vec3{0, 0, static_cast<Real>(Hz)});
+    FieldSumGPU fields; fields.add(zeeman);
+
+    DepondtMertensGPU integ(g, 1e-14, /*seed=*/5);
+    integ.upload(m0);
+    for (int k = 0; k < 25000; ++k) integ.step(mat, demag, fields, T);  // equilibrate
+
+    double acc = 0; int nsamp = 0;
+    VectorField3D m(g);
+    for (int k = 0; k < 30000; ++k) {
+        integ.step(mat, demag, fields, T);
+        if (k % 50 == 0) {
+            integ.download(m);
+            double mz = 0; for (Index i = 0; i < m.size(); ++i) mz += m[i].z;
+            acc += mz / m.size(); ++nsamp;
+        }
+    }
+    const double mz_mean = acc / nsamp;
+    INFO("<mz> = " << mz_mean << "  Langevin L(3) = " << L);
+    REQUIRE(max_norm_dev(m) < 1e-10);
+    REQUIRE_THAT(mz_mean, WithinAbs(L, 0.06));
 }
 
 #endif // MICROMAG_CUDA

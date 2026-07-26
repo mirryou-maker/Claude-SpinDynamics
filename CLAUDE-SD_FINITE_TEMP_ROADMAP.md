@@ -213,11 +213,21 @@ Arrhenius/FDT DoD가 성립한다.
   σ가 √μ₀≈892배 작음.
 - **영향**: Heun 유한온도 전반, `test_thermal.cpp` 등분배 테스트(극단 T=1e8/dt=1e-10가 이
   작은 σ에 맞춰 튜닝됨 — 수정 시 재설계 필요), **논문 NB30 STT switching** 등 유한온도 결과.
-- **조치**: 임의 수정 금지(shipped 거동·논문 결과 변경) → **사용자 보고 후** σ 정정 +
-  등분배 테스트 재설계 + Langevin/Arrhenius/FDT 회귀 신규 작성. 이것이 Task 1의 실제 남은 핵심.
-- **현재 커밋 범위**: Depondt 1-A(결정론, |m| 정확)·1-B(Philox 배선, Heun baseline과 동일 σ)·
-  1-C(적응 stepping)는 **baseline과 일관**하게 구현·검증됨. 회귀 테스트는 |m| 정확성·노이즈 활성·
-  적응 dt·σ 스케일링만 주장하며 **절대 FDT는 주장하지 않는다**(위 이슈 해결 전까지).
+- **해결 진행 (2026-07-26, 2차 커밋)**:
+  - **Depondt는 FDT-보정 완료·검증**: `therm_sigma`를 **σ = √(α k_BT/(μ₀² Ms γ₀ V dt))**로
+    확정. 장-결합 Langevin ⟨m_z⟩=L(ξ)를 ξ=1,3,6·α=0.1,0.5에서 일치 확인, Catch2 회귀
+    `[depondt][gpu] FDT: Langevin <mz> in a field` 추가(통과).
+  - **두 보정**: (1) μ₀→μ₀²(A/m 단위, 공통 필수), (2) **factor-2 drop(2α→α)** = predictor+
+    corrector에 같은 노이즈를 넣는 이 rotation 스킴의 유효온도 보정(측정 T_eff/T≈2).
+  - **⚠️ 스킴 의존성 발견**: 같은 보정을 Heun(additive+renormalize)에 적용하면 ⟨mz⟩=0.83로
+    **undershoot**(T_eff/T≈0.65) — 계수가 스킴마다 다르다(Heun은 ~1.5α 필요, 비정수). 즉
+    "한 식으로 두 적분기"가 성립하지 않는다.
+- **미해결 (후속 필수)**:
+  - **Heun σ는 되돌려 둠**(bare-μ₀, 2α 원본 유지). 30% 어긋난 값을 "고친 듯" shipping하는
+    위험 회피. Heun 전용 계수를 정밀 보정(다중 ξ·α, 오차막대, 이론 대조: 노이즈를 스테이지당
+    한 번만 넣도록 스킴 수정 검토)해야 함. 등분배 테스트(극단 T=1e8)는 Heun σ 변경 시 재설계 필요.
+  - **논문 NB30(STT switching)은 Heun 사용** → 현재도 열교란 ~1/μ₀ 약함. Heun 보정 후
+    **NB30 P_sw 곡선 전면 재계산·재검증 필요**(열-assist가 사실상 빠진 상태였을 가능성).
 
 ### Task 2 — 파일 단위 계획 (의존: Task 1)
 
