@@ -430,6 +430,47 @@ TEST_CASE("Thermal equilibrium: energy equipartition (K=0)", "[thermal]") {
 }
 
 // ---------------------------------------------------------------------------
+// T3-A2: Field-coupled Langevin equilibrium — validates the ABSOLUTE sigma.
+//
+// A macrospin ensemble in a field H‖z relaxes to <m_z> = L(xi) = coth(xi) - 1/xi
+// with xi = mu0 Ms V H / kB T. Unlike the field-FREE equipartition test above
+// (which only checks isotropy and passes for ANY sigma scale), this pins sigma's
+// absolute magnitude. It is the regression that guards the finite-T sigma fix
+// (bare-mu0 -> mu0^2): with the old sigma this gave <mz>=1.0 (thermal ~1/mu0 too
+// weak); the corrected sigma reproduces L(xi).
+// ---------------------------------------------------------------------------
+TEST_CASE("Thermal equilibrium: Langevin <mz> in a field (absolute sigma)",
+          "[thermal]") {
+    const double kB = 1.380649e-23, mu0 = 4e-7 * 3.14159265358979323846;
+    const double Ms = 1e6, d = 2e-9, V = d*d*d, T = 300.0, xi = 3.0;
+    const double Hz = xi * kB * T / (mu0 * Ms * V);
+    const double L  = 1.0/std::tanh(xi) - 1.0/xi;      // ≈ 0.6716
+
+    StructuredGrid grid(12, 12, 1, d, d, d);            // 144 independent spins
+    Material mat; mat.Ms = Ms; mat.alpha = 0.5; mat.K_uniaxial = 0.0;
+    VectorField3D m(grid); m.set_uniform({0, 0, 1});
+
+    EffectiveFieldSum heff;
+    heff.add(std::make_shared<ZeemanField>(Vec3{0, 0, static_cast<Real>(Hz)}));
+    const Real dt = 1e-14;
+    ThermalField thermal(grid, T, dt);
+    HeunIntegrator heun(dt);
+
+    for (int s = 0; s < 20000; ++s) heun.step(m, mat, heff, &thermal);  // equilibrate
+    double acc = 0; int ns = 0;
+    for (int s = 0; s < 25000; ++s) {
+        heun.step(m, mat, heff, &thermal);
+        if (s % 25 == 0) {
+            double mz = 0; for (Index i = 0; i < m.size(); ++i) mz += m[i].z;
+            acc += mz / m.size(); ++ns;
+        }
+    }
+    const double mz_mean = acc / ns;
+    INFO("<mz> = " << mz_mean << "  Langevin L(3) = " << L);
+    REQUIRE_THAT(mz_mean, WithinAbs(L, 0.06));
+}
+
+// ---------------------------------------------------------------------------
 // T3-B: Anisotropy drives deterministic relaxation to easy axis (T=0)
 //
 // Physical reason T=0 test is needed: at finite T, the thermal noise σ is
@@ -498,7 +539,12 @@ TEST_CASE("Anisotropy + noise: spin stays near easy axis at low T", "[thermal]")
     VectorField3D m(grid);
     m.set_uniform({0.0, 0.0, 1.0});   // start at easy-axis pole
 
-    const Real T  = 300.0;
+    // Confinement needs the barrier to beat kT: with the FDT-correct sigma,
+    // K=1e4 J/m3 over (5nm)^3 gives Delta E = 1.25e-21 J, so T=5 K puts
+    // Delta E / kT ~ 18 (strongly confined, <mz^2> ~ 0.88). (The old T=300 K
+    // "passed" only because the pre-fix sigma was ~1/mu0 too weak; see the
+    // finite-T sigma fix.)
+    const Real T  = 5.0;
     const Real dt = 1e-12;
 
     EffectiveFieldSum heff;
@@ -596,10 +642,12 @@ static double mean_fpt(Real T_K, int N_real, int max_steps,
 // ---------------------------------------------------------------------------
 TEST_CASE("Neel-Brown attempt freq: lower T gives longer crossing time", "[thermal]") {
     const Real K  = 0.0;       // no barrier — pure free diffusion
-    const Real dt = 1e-10;     // 100 ps
+    const Real dt = 1e-12;     // 1 ps
 
-    const double tau_low  = mean_fpt(1e7, 30, 500, K, dt);   // T = 10 MK
-    const double tau_high = mean_fpt(1e8, 30, 500, K, dt);   // T = 100 MK
+    // With the FDT-correct sigma, PHYSICAL temperatures give measurable (non-
+    // saturated) free-diffusion crossing times: tau ∝ 1/D_theta ∝ 1/sigma^2 ∝ 1/T.
+    const double tau_low  = mean_fpt(100.0,  30, 20000, K, dt);   // T = 100 K
+    const double tau_high = mean_fpt(1000.0, 30, 20000, K, dt);   // T = 1000 K
 
     INFO("tau(1e7K)=" << tau_low << "  tau(1e8K)=" << tau_high
           << "  ratio=" << tau_low/tau_high);
@@ -617,11 +665,11 @@ TEST_CASE("Neel-Brown attempt freq: lower T gives longer crossing time", "[therm
 // ---------------------------------------------------------------------------
 TEST_CASE("Neel-Brown: crossing time scales as 1/T for free diffusion", "[thermal]") {
     const Real K  = 0.0;
-    const Real dt = 1e-10;
+    const Real dt = 1e-12;
     const int  N_r = 50;
 
-    const double tau_lo = mean_fpt(1e7, N_r, 1000, K, dt);
-    const double tau_hi = mean_fpt(1e8, N_r, 1000, K, dt);
+    const double tau_lo = mean_fpt(100.0,  N_r, 40000, K, dt);   // T = 100 K
+    const double tau_hi = mean_fpt(1000.0, N_r, 40000, K, dt);   // T = 1000 K
     const double ratio  = tau_lo / tau_hi;
 
     INFO("tau(T=1e7K)=" << tau_lo << "  tau(T=1e8K)=" << tau_hi

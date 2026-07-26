@@ -167,21 +167,18 @@ double DepondtMertensGPU::therm_sigma(const Material& mat, double dt,
 {
     if (T_K <= 0.0 || mat.Ms <= 0.0) return 0.0;
     const double V = dx * dy * dz;
-    // σ_H (A/m), CALIBRATED for this Depondt–Mertens predictor–corrector so that
-    // the field-coupled equilibrium reproduces the analytic Langevin law
-    // ⟨m_z⟩ = L(ξ), ξ = μ₀ Ms V H/k_B T (validated for ξ = 1,3,6, α = 0.1,0.5).
+    // σ_H (A/m) — standard Brown thermal field with the A/m unit correction:
     //
-    //   σ = √( α k_B T / (μ₀² Ms γ₀ V dt) )
+    //   σ = √( 2α k_B T / (μ₀² Ms γ₀ V dt) )
     //
-    // Two corrections vs the bare-μ₀, 2α form used elsewhere in the codebase:
-    //   (1) μ₀² (not μ₀): the field enters the LLG in A/m (B = μ₀H), so
-    //       H_th = B_th/μ₀ carries an extra 1/μ₀² in its variance;
-    //   (2) the factor-2 drop (2α→α) is the scheme-dependent effective-
-    //       temperature correction of adding the SAME noise in both the
-    //       predictor and corrector stages of THIS rotation scheme. It is NOT
-    //       transferable to the additive HeunIntegratorGPU, which needs its own
-    //       calibration — see CLAUDE-SD_FINITE_TEMP_ROADMAP.md finite-T σ finding.
-    const double num = mat.alpha * constants::k_B * T_K;
+    // The single correction vs the form previously used in the codebase is
+    // μ₀ → μ₀²: the field enters the LLG in A/m (B = μ₀H), so H_th = B_th/μ₀
+    // carries an extra 1/μ₀² in its variance. (The bare-μ₀ form made the
+    // field-coupled thermal ~1/μ₀ too weak — <mz>=1 where L(ξ)≈0.67.)
+    // Validated against the Langevin law ⟨m_z⟩ = L(ξ), ξ = μ₀ Ms V H/k_B T for
+    // ξ = 1,3,6. Same formula as HeunIntegratorGPU / ThermalField (an earlier
+    // apparent "factor-2 scheme difference" was a d_H stream race, since fixed).
+    const double num = 2.0 * mat.alpha * constants::k_B * T_K;
     const double den = constants::mu_0 * constants::mu_0
                        * mat.Ms * constants::gamma_0 * V * dt;
     return std::sqrt(num / den);
@@ -306,6 +303,12 @@ Real DepondtMertensGPU::step(const Material& mat, IDemagGPU& demag,
     if (torques && torques->size() > 0)
         throw std::runtime_error(
             "DepondtMertensGPU: spin-torque path not yet wired (Task 1 follow-up).");
+
+    // Bind all field evaluations to the integrator's stream, else the field
+    // kernels race with the rotation/noise kernels on d_H (non-deterministic
+    // results even with a fixed seed). Mirrors HeunIntegratorGPU.
+    demag.set_stream(state_.stream());
+    extra_fields.set_stream(state_.stream());
 
     const double h = static_cast<double>(dt_);
     if (!opts_.adaptive) {

@@ -256,7 +256,7 @@ void HeunIntegratorGPU::step(
         // ? = sqrt(2慣 k_B T / (關? Ms 款? V dt))
         const Real V   = dx_ * dy_ * dz_;
         const Real num = 2.0 * mat.alpha * constants::k_B * T_K;
-        const Real den = constants::mu_0 * mat.Ms * constants::gamma_0 * V * h;
+        const Real den = constants::mu_0 * constants::mu_0 * mat.Ms * constants::gamma_0 * V * h;
         const double sig = std::sqrt(num / den);
 
         // cuRAND: fills d_noise_[N_pad_] with N(0, sig) ??type matches GReal.
@@ -374,7 +374,7 @@ void HeunIntegratorGPU::step(
     // T>0: generate thermal noise then run directly
     const Real V   = dx_ * dy_ * dz_;
     const Real num = 2.0 * mat.alpha * constants::k_B * T_K;
-    const Real den = constants::mu_0 * mat.Ms * constants::gamma_0 * V * h;
+    const Real den = constants::mu_0 * constants::mu_0 * mat.Ms * constants::gamma_0 * V * h;
     const double sig = std::sqrt(num / den);
 #ifdef MICROMAG_FLOAT32
     CURAND_CHECK(curandGenerateNormal(

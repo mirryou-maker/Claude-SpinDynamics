@@ -19,7 +19,7 @@ Real ThermalField::sigma(Real T_K, Real dt,
                           const Material& mat, const StructuredGrid& grid) {
     const Real V   = grid.dx() * grid.dy() * grid.dz();   // cell volume [m³]
     const Real num = 2.0 * mat.alpha * constants::k_B * T_K;
-    const Real den = constants::mu_0 * mat.Ms * constants::gamma_0 * V * dt;
+    const Real den = constants::mu_0 * constants::mu_0 * mat.Ms * constants::gamma_0 * V * dt;
     return std::sqrt(num / den);
 }
 

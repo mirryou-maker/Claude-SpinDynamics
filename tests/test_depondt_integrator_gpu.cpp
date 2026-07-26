@@ -86,14 +86,9 @@ TEST_CASE("DepondtMertensGPU: therm_sigma ~ 1/sqrt(dt)", "[depondt][gpu]") {
     REQUIRE(DepondtMertensGPU::therm_sigma(mat, 1e-13, 2e-9,2e-9,2e-9, 0.0) == 0.0);
 }
 
-// 1-B: finite-T thermal path (device Philox). This asserts the INFRASTRUCTURE
-// only — |m| stays exact under the thermal field, and the noise is actually
-// active (the spin leaves its initial state). It does NOT assert absolute
-// field-coupled FDT: the codebase's thermal sigma (shared with the validated
-// HeunIntegratorGPU baseline) is under investigation — a field-coupled Langevin
-// check gives <mz>=1.0 where L(xi=3)=0.67, i.e. thermal is ~1/mu0 too weak in a
-// field. Tracked as the Task 1 finite-T normalisation follow-up. This test
-// deliberately uses a free spin (no field) so it is independent of that issue.
+// 1-B: finite-T thermal path (device Philox), free-spin infrastructure check —
+// |m| stays exact under the thermal field and the noise is active. The ABSOLUTE
+// field-coupled scale is checked separately by the Langevin test below.
 TEST_CASE("DepondtMertensGPU T>0: |m| exact + noise active (free spin)",
           "[depondt][gpu]") {
     StructuredGrid g(4, 4, 1, 2e-9, 2e-9, 2e-9);
