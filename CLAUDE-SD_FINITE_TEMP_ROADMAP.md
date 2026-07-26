@@ -242,6 +242,27 @@ Arrhenius/FDT DoD가 성립한다.
 - **2-D** 검증: R=1 회귀 · throughput R∈{1,8,64,256,1024} ≥20×(N~1e3) · 교차상관 노이즈수준 ·
   retire/refill 정확성 · bitwise 재현 · VRAM vs R(로컬 8GB 상한).
 
+#### Task 2 — Phase 실행 순서 (2026-07-27 구체화)
+
+동기: NB30 단일-셀 매크로스핀이 **GPU 26%**(launch/Python 오버헤드 병목)로 실측됨 → 유한온도
+통계(수천 궤적)를 **replica 차원 R**로 한 step()에 병렬 전진. 이식 대상은 `DepondtMertensGPU`
+(Task 1에서 batch-ready 시그니처 + device Philox 보유).
+
+- **Phase 2.0 — 스캐폴딩(R=1부터, MVP)** ← *최우선, 되돌리기 어려운 레이아웃 결정*
+  - 첫 배칭 대상은 **단일-셀 매크로스핀**(N=1, NB30/MTJ 워크로드) — GPUMagState/필드 클래스
+    깊은 리팩터 없이 자립형 `BatchedMacrospinGPU`로 R-차원·throughput·retire-ready 구조를 먼저 증명.
+  - 레이아웃 **replica-outermost** `m[r*3 + c]`(N=1) → 일반화 시 `m[r*3N + c*N + i]`.
+  - Depondt 회전(omega/rotate/avg) + inline 단축이방성·Zeeman·Slonczewski STT + **batched Philox**
+    (key=global_replica_id). `step_all()` 1회 = R replica 전진. Python `upload/download [R,3]`, `mz[R]`.
+  - **불변**: R=1이 `DepondtMertensGPU` 매크로스핀 결과를 재현.
+- **Phase 2.1 — 로컬 필드 배칭**: Exchange/Uniaxial/Zeeman/ZeroDemag 커널을 `R·N` 스레드로(자명).
+  다중-셀(N>1)로 일반화, `GPUMagState` 버퍼 `[R·3N]` 승격.
+- **Phase 2.2 — batched demag(핵심 난이도)**: cuFFT batch=R, kernel tensor 1회 공유·broadcast.
+  `IDemagGPU` 배칭 변형(`fft` 우선).
+- **Phase 2.3 — Philox replica 확장**: subsequence=global_replica_id·N+cell, refill 시 새 id.
+- **Phase 2.4 — retire/refill**: per-replica 상태배열 + compaction(§2.4, Task 3 선반영).
+- **Phase 2.5 — Python API + throughput**: `mm.BatchedDepondtGPU`, NB30 배칭 재작성 → R 스윕 실측.
+
 ---
 
 ## Task 3 — `rare_event/` 모듈

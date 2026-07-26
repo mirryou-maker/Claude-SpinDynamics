@@ -13,6 +13,7 @@
 #include "micromag/rk45_integrator_gpu.hpp"
 #include "micromag/heun_integrator_gpu.hpp"
 #include "micromag/depondt_integrator_gpu.hpp"
+#include "micromag/batched_macrospin_gpu.hpp"
 #include "micromag/magnetoelastic_gpu.hpp"
 #include "micromag/surface_anisotropy_gpu.hpp"
 #include "micromag/zeeman_spatial_gpu.hpp"
@@ -624,6 +625,39 @@ void bind_gpu(py::module_& m) {
              py::arg("dz"), py::arg("T_K"),
              "Canonical thermal-field sigma (single 1/sqrt(dt) point, roadmap 1-D).")
         .def("max_angle_gpu", &DepondtMertensGPU::max_angle_gpu);
+
+    // ------------------------------------------------------------------
+    // BatchedMacrospinGPU — Task 2 Phase 2.0: R replicas, one launch/step.
+    //   cfg = mm.BatchedMacrospinConfig(); cfg.Ms = 580e3; cfg.K1 = 0.5e6; ...
+    //   b = mm.BatchedMacrospinGPU(R, cfg, dt, seed=42)
+    //   b.set_J(J_per_replica); b.set_T(T_per_replica); b.run(n_steps)
+    //   mz = b.get_mz()          # length R
+    // ------------------------------------------------------------------
+    py::class_<BatchedMacrospinConfig>(m, "BatchedMacrospinConfig")
+        .def(py::init<>())
+        .def_readwrite("Ms",     &BatchedMacrospinConfig::Ms)
+        .def_readwrite("alpha",  &BatchedMacrospinConfig::alpha)
+        .def_readwrite("V",      &BatchedMacrospinConfig::V)
+        .def_readwrite("K1",     &BatchedMacrospinConfig::K1)
+        .def_readwrite("easy",   &BatchedMacrospinConfig::easy)
+        .def_readwrite("H_ext",  &BatchedMacrospinConfig::H_ext)
+        .def_readwrite("d_free", &BatchedMacrospinConfig::d_free)
+        .def_readwrite("P",      &BatchedMacrospinConfig::P)
+        .def_readwrite("Lambda", &BatchedMacrospinConfig::Lambda)
+        .def_readwrite("beta",   &BatchedMacrospinConfig::beta)
+        .def_readwrite("p",      &BatchedMacrospinConfig::p);
+
+    py::class_<BatchedMacrospinGPU>(m, "BatchedMacrospinGPU")
+        .def(py::init<int, const BatchedMacrospinConfig&, Real, unsigned>(),
+             py::arg("R"), py::arg("cfg"), py::arg("dt"), py::arg("seed") = 42u)
+        .def("set_J",     &BatchedMacrospinGPU::set_J,     py::arg("J"))
+        .def("set_T",     &BatchedMacrospinGPU::set_T,     py::arg("T"))
+        .def("set_state", &BatchedMacrospinGPU::set_state, py::arg("m"))
+        .def("run",       &BatchedMacrospinGPU::run,       py::arg("n_steps"))
+        .def("get_state", &BatchedMacrospinGPU::get_state)
+        .def("get_mz",    &BatchedMacrospinGPU::get_mz)
+        .def_property_readonly("R", &BatchedMacrospinGPU::R)
+        .def_property_readonly("step_index", &BatchedMacrospinGPU::step_index);
 
     // ------------------------------------------------------------------
     // GPU Spin Torques: ISpinTorqueGPU, SpinTorqueSumGPU,
