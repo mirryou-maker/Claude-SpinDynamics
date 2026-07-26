@@ -143,6 +143,17 @@ All GPU classes are in `include/micromag/*_gpu.hpp` and compiled into `micromag_
 | `RK4IntegratorGPU` | rk4_integrator_gpu.hpp | Fixed-step RK4, FSAL |
 | `RK45IntegratorGPU` | rk45_integrator_gpu.hpp | Adaptive DOPRI5/FSAL, 1 D2H scalar/trial step |
 | `HeunIntegratorGPU` | heun_integrator_gpu.hpp | Stratonovich Heun, cuRAND noise |
+| `DepondtMertensGPU` | depondt_integrator_gpu.hpp | Rotation (Rodrigues, \|m\|=1 exact); Philox thermal; adaptive |
+
+**Replica batching** (Task 2 — finite-T ensembles; one launch/step over R replicas, per-replica `J`/`T`, device Philox, `R=1` reproduces the `DepondtMertensGPU` path to round-off). See `CLAUDE-SD_FINITE_TEMP_ROADMAP.md` and USER_GUIDE §8.10.
+
+| Class | File | Scope |
+|-------|------|-------|
+| `BatchedMacrospinGPU` | batched_macrospin_gpu.hpp | R single-cell macrospins (Néel–Brown/MTJ); `enable_retire`/`refill` for variable-length trials |
+| `BatchedLLGGPU` | batched_llg_gpu.hpp | R × N-cell grids: exchange+uniaxial+Zeeman+STT+thermal; `enable_demag()` |
+| `BatchedDemagGPU` | batched_demag_gpu.hpp | Shared Newell kernel, cuFFT batch=3R, `H_f=-(N·M_f)` broadcast |
+
+Layout: replica-outermost, component-major within a replica (`m[r·3N + c·N + idx]`). dt must scale with dx² as the mesh refines (exchange ~ 1/dx²) — too-large dt silently suppresses switching (Depondt stays norm-stable, so no blow-up). NB30-batched (0.56 s vs ~2.5 h loop), NB31 (spatially-resolved MTJ), NB32 (mesh convergence) demonstrate the payoff.
 
 GPU usage pattern:
 ```cpp
