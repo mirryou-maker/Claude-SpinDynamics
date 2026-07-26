@@ -14,6 +14,7 @@
 #include "micromag/heun_integrator_gpu.hpp"
 #include "micromag/depondt_integrator_gpu.hpp"
 #include "micromag/batched_macrospin_gpu.hpp"
+#include "micromag/batched_llg_gpu.hpp"
 #include "micromag/magnetoelastic_gpu.hpp"
 #include "micromag/surface_anisotropy_gpu.hpp"
 #include "micromag/zeeman_spatial_gpu.hpp"
@@ -658,6 +659,39 @@ void bind_gpu(py::module_& m) {
         .def("get_mz",    &BatchedMacrospinGPU::get_mz)
         .def_property_readonly("R", &BatchedMacrospinGPU::R)
         .def_property_readonly("step_index", &BatchedMacrospinGPU::step_index);
+
+    // ------------------------------------------------------------------
+    // BatchedLLGGPU — Task 2 Phase 2.1: multi-cell (N>1) replica batching
+    // with exchange (Neumann) + uniaxial + Zeeman + STT + thermal.
+    // ------------------------------------------------------------------
+    py::class_<BatchedLLGConfig>(m, "BatchedLLGConfig")
+        .def(py::init<>())
+        .def_readwrite("Ms",     &BatchedLLGConfig::Ms)
+        .def_readwrite("alpha",  &BatchedLLGConfig::alpha)
+        .def_readwrite("A",      &BatchedLLGConfig::A)
+        .def_readwrite("K1",     &BatchedLLGConfig::K1)
+        .def_readwrite("easy",   &BatchedLLGConfig::easy)
+        .def_readwrite("H_ext",  &BatchedLLGConfig::H_ext)
+        .def_readwrite("d_free", &BatchedLLGConfig::d_free)
+        .def_readwrite("P",      &BatchedLLGConfig::P)
+        .def_readwrite("Lambda", &BatchedLLGConfig::Lambda)
+        .def_readwrite("beta",   &BatchedLLGConfig::beta)
+        .def_readwrite("p",      &BatchedLLGConfig::p);
+
+    py::class_<BatchedLLGGPU>(m, "BatchedLLGGPU")
+        .def(py::init<int, const StructuredGrid&, const BatchedLLGConfig&, Real, unsigned>(),
+             py::keep_alive<1, 3>(),
+             py::arg("R"), py::arg("grid"), py::arg("cfg"), py::arg("dt"), py::arg("seed") = 42u)
+        .def("set_J",       &BatchedLLGGPU::set_J,       py::arg("J"))
+        .def("set_T",       &BatchedLLGGPU::set_T,       py::arg("T"))
+        .def("set_state",   &BatchedLLGGPU::set_state,   py::arg("m"))
+        .def("set_uniform", &BatchedLLGGPU::set_uniform, py::arg("mx"), py::arg("my"), py::arg("mz"))
+        .def("run",         &BatchedLLGGPU::run,         py::arg("n_steps"))
+        .def("get_state",   &BatchedLLGGPU::get_state)
+        .def("get_avg_m",   &BatchedLLGGPU::get_avg_m)
+        .def_property_readonly("R", &BatchedLLGGPU::R)
+        .def_property_readonly("N", &BatchedLLGGPU::N)
+        .def_property_readonly("step_index", &BatchedLLGGPU::step_index);
 
     // ------------------------------------------------------------------
     // GPU Spin Torques: ISpinTorqueGPU, SpinTorqueSumGPU,

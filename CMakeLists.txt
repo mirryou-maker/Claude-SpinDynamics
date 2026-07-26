@@ -245,6 +245,7 @@ if(MICROMAG_USE_CUDA)
         src/heun_integrator_gpu.cu  # G8: HeunIntegratorGPU (GPU SLLG, cuRAND)
         src/depondt_integrator_gpu.cu  # Task 1-A: Depondt–Mertens rotation integrator
         src/batched_macrospin_gpu.cu   # Task 2 Phase 2.0: replica-batched macrospin
+        src/batched_llg_gpu.cu         # Task 2 Phase 2.1: multi-cell replica-batched LLG
         src/rk45_integrator_gpu.cu  # G9: RK45IntegratorGPU (adaptive DOPRI5)
         src/spin_torque_gpu.cu      # P3: GPU STT/SOT/Zhang-Li spin torque kernels
         src/magnetoelastic_gpu.cu       # Phase S: GPU magnetoelastic field
