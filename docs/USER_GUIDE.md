@@ -938,6 +938,58 @@ results = mm.parameter_sweep(fn, {"D": D_vals, "K": K_vals}, n_jobs=4)
 import micromag.mx3 as mx3; mx3.run("script.mx3")   # mumax3 .mx3 subset
 ```
 
+### 8.10 Replica batching (finite-T ensembles)
+
+Single-cell macrospin and small (10²–10³ cell) MTJ ensembles leave the GPU
+mostly idle when each trial is a separate Python loop (launch/overhead bound,
+~26 % utilisation). The **batched engines** add a leading *replica* dimension
+`R` and advance all replicas in one kernel launch per step (zero PCIe), giving
+50–160× throughput. Each replica carries its **own** current density `J` and
+temperature `T` (the sweep axes), integrated with Depondt–Mertens (|m|=1 exact)
+and per-replica Philox noise (statistically independent, bitwise reproducible).
+`R=1` reproduces the `DepondtMertensGPU` path to round-off.
+
+```python
+# --- single-cell macrospin (Néel–Brown / MTJ switching statistics) ---
+cfg = mm.BatchedMacrospinConfig()
+cfg.Ms, cfg.alpha, cfg.V, cfg.K1 = 580e3, 0.02, 1e-24, 0.5e6
+cfg.easy = mm.Vec3(0,0,1); cfg.p = mm.Vec3(0,0,1)
+cfg.d_free, cfg.P, cfg.Lambda = 10e-9, 0.5, 1.0   # Slonczewski ε(Λ)
+R = 5000
+b = mm.BatchedMacrospinGPU(R, cfg, dt=1e-13, seed=2024)
+b.set_J(J_per_replica)      # length R  [A/m²]
+b.set_T(T_per_replica)      # length R  [K]
+b.run(20000)                # advance all R by 20000 steps
+mz = b.get_mz()             # length R   (P_sw = mean(mz < -0.5))
+
+# --- multi-cell grid: exchange + uniaxial + Zeeman + STT + thermal ---
+cfg = mm.BatchedLLGConfig()
+cfg.Ms, cfg.alpha, cfg.A, cfg.K1 = 800e3, 0.1, 1.3e-11, 0.0
+b = mm.BatchedLLGGPU(R, grid, cfg, dt=2e-14, seed=42)
+b.enable_demag()            # Phase 2.2: cuFFT batch=3R, shared Newell kernel
+b.set_uniform(0.1, 0.0, 0.995)
+b.set_T([300.0]*R); b.run(2000)
+avg = b.get_avg_m()         # per-replica spatial mean, flat [R*3]
+
+# --- retire / refill: variable-length trials (switch-time distributions) ---
+b = mm.BatchedMacrospinGPU(R, cfg_m, dt=1e-13, seed=7)
+b.set_J([1.05*Jc0]*R); b.set_T([300.0]*R)
+b.enable_retire(mz_switch=-0.5)      # freeze a replica when m_z < −0.5
+times = []
+while len(times) < N_target:
+    b.run(2000)
+    retired = [i for i,a in enumerate(b.get_active()) if a == 0]
+    if retired:
+        sc = b.get_stepcount()
+        times += [sc[i] for i in retired]     # switch step (× dt = switch time)
+        b.refill(retired)                      # fresh Philox stream, back to +easy
+```
+
+Notebook `notebooks/30_thermal_stt_batched_gpu.py` reproduces the notebook-30
+Néel–Brown P_sw(J)/P_sw(T) sweeps this way (Part B: 5000 replicas × 20000 steps
+in ~0.6 s vs ~2.5 h for the per-trial loop). VRAM scales with `R` — on an 8 GB
+card, R≈1024 fits comfortably for ~10³-cell grids; larger grids cap `R`.
+
 ---
 
 ## 9. µMAG validation
