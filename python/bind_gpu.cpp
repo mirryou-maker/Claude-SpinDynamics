@@ -12,6 +12,7 @@
 #include "micromag/rk4_integrator_gpu.hpp"
 #include "micromag/rk45_integrator_gpu.hpp"
 #include "micromag/heun_integrator_gpu.hpp"
+#include "micromag/depondt_integrator_gpu.hpp"
 #include "micromag/magnetoelastic_gpu.hpp"
 #include "micromag/surface_anisotropy_gpu.hpp"
 #include "micromag/zeeman_spatial_gpu.hpp"
@@ -581,6 +582,48 @@ void bind_gpu(py::module_& m) {
         .def("max_angle_gpu", &HeunIntegratorGPU::max_angle_gpu,
              "Max misalignment angle between adjacent spins (°, GPU-side, no D2H transfer). "
              "Enables run_until_converged_gpu convergence check without downloading m.");
+
+    // ------------------------------------------------------------------
+    // DepondtMertensGPU — Task 1-A: rotation integrator, |m|=1 exact.
+    //   integ = mm.DepondtMertensGPU(grid, dt, seed=42)
+    //   integ.upload(m0); dt_used = integ.step(mat, demag, fields)  # T_K=0
+    // Finite-T (T_K>0) and adaptive stepping are wired in Task 1-B/1-C.
+    // ------------------------------------------------------------------
+    py::class_<DepondtGPUOptions>(m, "DepondtGPUOptions")
+        .def(py::init<>())
+        .def_readwrite("adaptive", &DepondtGPUOptions::adaptive)
+        .def_readwrite("rtol",     &DepondtGPUOptions::rtol)
+        .def_readwrite("atol",     &DepondtGPUOptions::atol)
+        .def_readwrite("dt_min",   &DepondtGPUOptions::dt_min)
+        .def_readwrite("dt_max",   &DepondtGPUOptions::dt_max)
+        .def_readwrite("safety",   &DepondtGPUOptions::safety)
+        .def_readwrite("fac_min",  &DepondtGPUOptions::fac_min)
+        .def_readwrite("fac_max",  &DepondtGPUOptions::fac_max);
+
+    py::class_<DepondtMertensGPU>(m, "DepondtMertensGPU")
+        .def(py::init<const StructuredGrid&, Real, unsigned>(),
+             py::keep_alive<1, 2>(),
+             py::arg("grid"), py::arg("dt"), py::arg("seed") = 42u)
+        .def("upload",   &DepondtMertensGPU::upload,   py::arg("m"))
+        .def("download", &DepondtMertensGPU::download, py::arg("m"))
+        .def("step",
+             [](DepondtMertensGPU& integ, const Material& mat,
+                IDemagGPU& demag, FieldSumGPU& fields, Real T_K,
+                SpinTorqueSumGPU* torques) {
+                 return integ.step(mat, demag, fields, T_K, torques);
+             },
+             py::arg("mat"), py::arg("demag"), py::arg("fields"),
+             py::arg("T_K") = 0.0, py::arg("torques") = nullptr,
+             "One Depondt–Mertens step; returns the dt taken. T_K>0 not yet wired.")
+        .def_property("dt", &DepondtMertensGPU::dt, &DepondtMertensGPU::set_dt)
+        .def_property_readonly("options",
+             [](DepondtMertensGPU& i) -> DepondtGPUOptions& { return i.options(); },
+             py::return_value_policy::reference_internal)
+        .def_static("therm_sigma", &DepondtMertensGPU::therm_sigma,
+             py::arg("mat"), py::arg("dt"), py::arg("dx"), py::arg("dy"),
+             py::arg("dz"), py::arg("T_K"),
+             "Canonical thermal-field sigma (single 1/sqrt(dt) point, roadmap 1-D).")
+        .def("max_angle_gpu", &DepondtMertensGPU::max_angle_gpu);
 
     // ------------------------------------------------------------------
     // GPU Spin Torques: ISpinTorqueGPU, SpinTorqueSumGPU,

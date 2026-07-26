@@ -71,6 +71,7 @@ if(MICROMAG_USE_CUDA)
         test_rk4_gpu.cpp                # G4+G5: LLG torque + RK4 stage tests
         test_rk4_integrator_gpu.cpp     # G6: RK4IntegratorGPU accuracy tests
         test_heun_integrator_gpu.cpp    # G8: HeunIntegratorGPU (SLLG) tests
+        test_depondt_integrator_gpu.cpp # Task 1-A: DepondtMertensGPU tests
         test_dmi_gpu.cpp                # K2: BulkDMIFieldGPU + InterfacialDMIFieldGPU tests
         test_relax_gpu.cpp              # P4: RelaxGPU + MinimizeGPU tests
         test_field_sum_gpu.cpp          # P2: FieldSumGPU compositor tests
