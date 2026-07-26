@@ -242,6 +242,16 @@ Arrhenius/FDT DoD가 성립한다.
 - **2-D** 검증: R=1 회귀 · throughput R∈{1,8,64,256,1024} ≥20×(N~1e3) · 교차상관 노이즈수준 ·
   retire/refill 정확성 · bitwise 재현 · VRAM vs R(로컬 8GB 상한).
 
+#### Task 2 — Phase 진행 현황 (2026-07-27)
+
+- ✅ **Phase 2.0** `BatchedMacrospinGPU`: R=1 bitwise 회귀, STT/FDT 검증, 158× throughput.
+- ✅ **Phase 2.1** `BatchedLLGGPU`: N-셀 exchange+uniaxial+Zeeman 배칭, R=1 vs Depondt 5.9e-15, 59.8×.
+- ✅ **Phase 2.4** retire/refill: per-replica active/reason/step_counter/rng_stream_id,
+  은퇴·재충전(새 Philox 스트림), Néel-Brown switch-time 분포. front-compaction은 후속 최적화.
+- ⏳ **Phase 2.2** batched demag(cuFFT batch=R) — 미착수(다층 MTJ/디스크 계에 필요).
+- ⏳ **Phase 2.3** — 2.1/2.4에 Philox replica 스트림 이미 반영, cuFFT 배칭 시 확정.
+- ✅ **NB30 배칭 재작성** `30_thermal_stt_batched_gpu.py`: Part B 0.56s(vs ~2.5h), 전이 0.97.
+
 #### Task 2 — Phase 실행 순서 (2026-07-27 구체화)
 
 동기: NB30 단일-셀 매크로스핀이 **GPU 26%**(launch/Python 오버헤드 병목)로 실측됨 → 유한온도
