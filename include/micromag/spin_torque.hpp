@@ -51,28 +51,34 @@ public:
     // d   : free-layer thickness [m]
     // p   : reference-layer polarisation direction (normalised internally)
     // beta: field-like / damping-like ratio (b_J = −β a_J)
-    SlonczewskiSTT(Real J, Real P, Real d, Vec3 p, Real beta = 0.0);
+    // Lambda: Slonczewski angular asymmetry (mumax3 `Lambda`); the efficiency is
+    //         ε(m·p) = P·Λ²/((Λ²+1)+(Λ²−1)(m·p)). Λ=1 (default) → ε=P/2 (mumax3
+    //         default); Λ→∞ → ε=P (legacy constant form).
+    SlonczewskiSTT(Real J, Real P, Real d, Vec3 p, Real beta = 0.0,
+                   Real Lambda = 1.0);
 
     void accumulate(const VectorField3D& m, const Material& mat,
                     VectorField3D& dm_out) const override;
 
     const char* name() const override { return "SlonczewskiSTT"; }
 
-    // Compute a_J for a given Ms [1/s]
-    Real a_J(Real Ms) const;
+    // Damping-like coefficient base·ε(m·p) [1/s]; mdotp = m·p (default +1).
+    Real a_J(Real Ms, Real mdotp = Real{1}) const;
 
-    Real J()    const { return J_; }
-    Real P()    const { return P_; }
-    Real d()    const { return d_; }
-    Real beta() const { return beta_; }
-    Vec3 p()    const { return p_; }
+    Real J()      const { return J_; }
+    Real P()      const { return P_; }
+    Real d()      const { return d_; }
+    Real beta()   const { return beta_; }
+    Real Lambda() const { return lambda_; }
+    Vec3 p()      const { return p_; }
 
-    void set_J(Real J)       { J_ = J; }
-    void set_P(Real P)       { P_ = P; }
-    void set_beta(Real beta) { beta_ = beta; }
+    void set_J(Real J)           { J_ = J; }
+    void set_P(Real P)           { P_ = P; }
+    void set_beta(Real beta)     { beta_ = beta; }
+    void set_Lambda(Real Lambda) { lambda_ = Lambda; }
 
 private:
-    Real J_, P_, d_, beta_;
+    Real J_, P_, d_, beta_, lambda_;
     Vec3 p_;  // unit polarisation vector
 };
 

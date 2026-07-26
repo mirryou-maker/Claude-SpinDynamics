@@ -28,14 +28,24 @@ namespace micromag {
 //
 // ? = a_J [m횞(m횞p?)] + b_J [m횞p?]
 // ---------------------------------------------------------------------------
+// base = γ₀ħJ / (2·e·Ms·d)   [1/s]; the polarisation enters through the
+// mumax3 angular efficiency ε(m·p) = P·Λ²/((Λ²+1)+(Λ²−1)(m·p)). Λ→∞ recovers
+// the constant-ε (=P) form; Λ=1 gives ε=P/2 (mumax3 default). Field-like term
+// b_J = −β·a_J (a_J is now angle-dependent).
 __global__ static void kernel_slonczewski(
     GReal* dm_out, const GReal* m, int N,
-    double aJ, double bJ, double px, double py, double pz)
+    double base, double Pval, double lam2, double beta,
+    double px, double py, double pz)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
     const double mx = m[i], my = m[N+i], mz = m[2*N+i];
+
+    const double mdotp = mx*px + my*py + mz*pz;
+    const double eps   = Pval * lam2 / ((lam2 + 1.0) + (lam2 - 1.0) * mdotp);
+    const double aJ = base * eps;
+    const double bJ = -beta * aJ;
 
     const double mxpx = my*pz - mz*py;
     const double mxpy = mz*px - mx*pz;
@@ -157,8 +167,9 @@ __global__ static void kernel_zhangli(
 // ---------------------------------------------------------------------------
 
 SlonczewskiSTTGPU::SlonczewskiSTTGPU(
-    const StructuredGrid& grid, Real J, Real P, Real d, Vec3 p, Real beta)
-    : N_(grid.size()), J_(J), P_(P), d_(d), beta_(beta)
+    const StructuredGrid& grid, Real J, Real P, Real d, Vec3 p, Real beta,
+    Real Lambda)
+    : N_(grid.size()), J_(J), P_(P), d_(d), beta_(beta), lambda_(Lambda)
 {
     const Real n = p.norm();
     p_ = (n > 1e-30) ? p / n : Vec3{0, 0, 1};
@@ -171,24 +182,28 @@ SlonczewskiSTTGPU::~SlonczewskiSTTGPU() {
     if (stream_ && stream_owned_) cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
 }
 
-double SlonczewskiSTTGPU::a_J(double Ms) const {
-    return constants::gamma_0 * constants::hbar * J_ * P_
-           / (2.0 * constants::e_charge * Ms * d_);
+double SlonczewskiSTTGPU::a_J(double Ms, double mdotp) const {
+    const double base = constants::gamma_0 * constants::hbar * J_
+                        / (2.0 * constants::e_charge * Ms * d_);
+    const double lam2 = double(lambda_) * double(lambda_);
+    const double eps  = double(P_) * lam2 / ((lam2 + 1.0) + (lam2 - 1.0) * mdotp);
+    return base * eps;
 }
 
 void SlonczewskiSTTGPU::accumulate_gpu_ptr(
     const GReal* d_m, const Material& mat, GReal* d_dm_out) const
 {
     const int N = static_cast<int>(N_);
-    const double aJ = a_J(mat.Ms);
-    const double bJ = -beta_ * aJ;
+    const double base = constants::gamma_0 * constants::hbar * double(J_)
+                        / (2.0 * constants::e_charge * mat.Ms * double(d_));
+    const double lam2 = double(lambda_) * double(lambda_);
     auto s = static_cast<cudaStream_t>(stream_);
     const int threads = 256;
     const int blocks  = (N + threads - 1) / threads;
     kernel_slonczewski<<<blocks, threads, 0, s>>>(
         d_dm_out,
         d_m,
-        N, aJ, bJ, p_.x, p_.y, p_.z);
+        N, base, double(P_), lam2, double(beta_), p_.x, p_.y, p_.z);
     // Note: no cudaGetLastError() here — that call is forbidden during CUDA Graph
     // capture and would cause the capture to fail.  Kernel launch errors are
     // caught by the integrator's cudaStreamSynchronize() at the end of step().

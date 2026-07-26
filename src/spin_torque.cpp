@@ -7,28 +7,36 @@ namespace micromag {
 // SlonczewskiSTT
 // ---------------------------------------------------------------------------
 
-SlonczewskiSTT::SlonczewskiSTT(Real J, Real P, Real d, Vec3 p, Real beta)
-    : J_(J), P_(P), d_(d), beta_(beta) {
+SlonczewskiSTT::SlonczewskiSTT(Real J, Real P, Real d, Vec3 p, Real beta,
+                               Real Lambda)
+    : J_(J), P_(P), d_(d), beta_(beta), lambda_(Lambda) {
     Real n = p.norm();
     p_ = (n > 1e-30) ? p / n : Vec3{0, 0, 1};
 }
 
-Real SlonczewskiSTT::a_J(Real Ms) const {
-    // a_J = γ₀ ħ J P / (2 e Ms d)  [1/s]
-    return constants::gamma_0 * constants::hbar * J_ * P_
-           / (2.0 * constants::e_charge * Ms * d_);
+Real SlonczewskiSTT::a_J(Real Ms, Real mdotp) const {
+    // base = γ₀ħJ/(2·e·Ms·d); ε(m·p) = P·Λ²/((Λ²+1)+(Λ²−1)(m·p))  (mumax3 form)
+    const Real base = constants::gamma_0 * constants::hbar * J_
+                      / (Real{2} * constants::e_charge * Ms * d_);
+    const Real lam2 = lambda_ * lambda_;
+    const Real eps  = P_ * lam2 / ((lam2 + Real{1}) + (lam2 - Real{1}) * mdotp);
+    return base * eps;
 }
 
 void SlonczewskiSTT::accumulate(const VectorField3D& m,
                                  const Material& mat,
                                  VectorField3D& dm_out) const {
-    const Real aJ = a_J(mat.Ms);
-    const Real bJ = -beta_ * aJ;
+    const Real base = constants::gamma_0 * constants::hbar * J_
+                      / (Real{2} * constants::e_charge * mat.Ms * d_);
+    const Real lam2 = lambda_ * lambda_;
 
     const Index N = m.size();
     #pragma omp parallel for schedule(static) if(N > 4096)
     for (Index i = 0; i < N; ++i) {
         Vec3 mi      = m[i];
+        const Real eps = P_ * lam2 / ((lam2 + Real{1}) + (lam2 - Real{1}) * mi.dot(p_));
+        const Real aJ  = base * eps;
+        const Real bJ  = -beta_ * aJ;
         Vec3 mxp     = mi.cross(p_);
         Vec3 mxmxp   = mi.cross(mxp);
         dm_out[i]   += mxmxp * aJ + mxp * bJ;

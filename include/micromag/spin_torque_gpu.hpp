@@ -85,9 +85,14 @@ public:
     // P     : spin polarisation [0,1]
     // d     : free-layer thickness [m]
     // p     : reference polarisation direction (normalised internally)
-    // beta  : field-like/damping-like ratio (b_J = -棺 a_J)
+    // beta  : field-like/damping-like ratio (b_J = -β a_J)
+    // Lambda: Slonczewski angular-asymmetry parameter (mumax3 `Lambda`). The
+    //         spin-transfer efficiency is ε(m·p) = P·Λ²/((Λ²+1)+(Λ²−1)(m·p)),
+    //         matching mumax3. Λ=1 (default) → ε=P/2 (mumax3 default); Λ→∞ →
+    //         ε=P (the legacy constant-efficiency form).
     SlonczewskiSTTGPU(const StructuredGrid& grid,
-                       Real J, Real P, Real d, Vec3 p, Real beta = 0.0);
+                       Real J, Real P, Real d, Vec3 p, Real beta = 0.0,
+                       Real Lambda = 1.0);
     ~SlonczewskiSTTGPU();
 
     SlonczewskiSTTGPU(const SlonczewskiSTTGPU&)            = delete;
@@ -96,21 +101,25 @@ public:
     void accumulate_gpu_ptr(const GReal* d_m, const Material& mat, GReal* d_dm_out) const override;
     void set_stream(void* s) override { stream_ = s; stream_owned_ = false; }
 
-    Real J()    const { return J_; }
-    Real P()    const { return P_; }
-    Real d()    const { return d_; }
-    Real beta() const { return beta_; }
-    Vec3 p()    const { return p_; }
+    Real J()      const { return J_; }
+    Real P()      const { return P_; }
+    Real d()      const { return d_; }
+    Real beta()   const { return beta_; }
+    Real Lambda() const { return lambda_; }
+    Vec3 p()      const { return p_; }
 
-    void set_J(Real J)       { J_ = J; }
-    void set_P(Real P)       { P_ = P; }
-    void set_beta(Real beta) { beta_ = beta; }
+    void set_J(Real J)           { J_ = J; }
+    void set_P(Real P)           { P_ = P; }
+    void set_beta(Real beta)     { beta_ = beta; }
+    void set_Lambda(Real Lambda) { lambda_ = Lambda; }
 
-    double a_J(double Ms) const;
+    // Damping-like coefficient base·ε(m·p): γ₀ħJ/(2·e·Ms·d)·ε. mdotp = m·p
+    // (default +1, i.e. m ∥ p, where ε = P/2 for every Λ).
+    double a_J(double Ms, double mdotp = 1.0) const;
 
 private:
     Index N_;
-    Real J_, P_, d_, beta_;
+    Real J_, P_, d_, beta_, lambda_;
     Vec3 p_;
     void* stream_       = nullptr;
     bool  stream_owned_ = true;

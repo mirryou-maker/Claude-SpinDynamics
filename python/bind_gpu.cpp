@@ -647,16 +647,20 @@ void bind_gpu(py::module_& m) {
     // SlonczewskiSTTGPU
     py::class_<SlonczewskiSTTGPU, ISpinTorqueGPU,
                std::shared_ptr<SlonczewskiSTTGPU>>(m, "SlonczewskiSTTGPU")
-        .def(py::init<const StructuredGrid&, Real, Real, Real, Vec3, Real>(),
+        .def(py::init<const StructuredGrid&, Real, Real, Real, Vec3, Real, Real>(),
              py::arg("grid"), py::arg("J"), py::arg("P"), py::arg("d"),
              py::arg("p"), py::arg("beta") = Real{0.0},
-             "GPU Slonczewski CPP-STT. "
+             py::arg("Lambda") = Real{1.0},
+             "GPU Slonczewski CPP-STT (mumax3-compatible). "
              "J: current density [A/m²]; P: polarisation [0,1]; "
              "d: FL thickness [m]; p: reference polarisation direction; "
-             "beta: field-like/damping-like ratio.")
-        .def_property("J",    &SlonczewskiSTTGPU::J,    &SlonczewskiSTTGPU::set_J)
-        .def_property("P",    &SlonczewskiSTTGPU::P,    &SlonczewskiSTTGPU::set_P)
-        .def_property("beta", &SlonczewskiSTTGPU::beta, &SlonczewskiSTTGPU::set_beta)
+             "beta: field-like/damping-like ratio; "
+             "Lambda: angular asymmetry, eps(m.p)=P*L^2/((L^2+1)+(L^2-1)(m.p)) "
+             "(Lambda=1 -> eps=P/2 as in mumax3; Lambda->inf -> eps=P).")
+        .def_property("J",      &SlonczewskiSTTGPU::J,      &SlonczewskiSTTGPU::set_J)
+        .def_property("P",      &SlonczewskiSTTGPU::P,      &SlonczewskiSTTGPU::set_P)
+        .def_property("beta",   &SlonczewskiSTTGPU::beta,   &SlonczewskiSTTGPU::set_beta)
+        .def_property("Lambda", &SlonczewskiSTTGPU::Lambda, &SlonczewskiSTTGPU::set_Lambda)
         .def_property_readonly("d", &SlonczewskiSTTGPU::d)
         .def_property_readonly("p", &SlonczewskiSTTGPU::p);
 

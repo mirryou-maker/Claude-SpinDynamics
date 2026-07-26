@@ -67,13 +67,15 @@ void bind_dynamics(py::module_& m) {
 
     py::class_<SlonczewskiSTT, ISpinTorque, std::shared_ptr<SlonczewskiSTT>>(
             m, "SlonczewskiSTT")
-        .def(py::init<Real, Real, Real, Vec3, Real>(),
+        .def(py::init<Real, Real, Real, Vec3, Real, Real>(),
              py::arg("J"), py::arg("P"), py::arg("d"), py::arg("p"),
-             py::arg("beta") = Real{0.0})
-        .def("a_J",        &SlonczewskiSTT::a_J)
-        .def_property("J",    &SlonczewskiSTT::J,    &SlonczewskiSTT::set_J)
-        .def_property("P",    &SlonczewskiSTT::P,    &SlonczewskiSTT::set_P)
-        .def_property("beta", &SlonczewskiSTT::beta, &SlonczewskiSTT::set_beta)
+             py::arg("beta") = Real{0.0}, py::arg("Lambda") = Real{1.0})
+        .def("a_J",        &SlonczewskiSTT::a_J,
+             py::arg("Ms"), py::arg("mdotp") = Real{1})
+        .def_property("J",      &SlonczewskiSTT::J,      &SlonczewskiSTT::set_J)
+        .def_property("P",      &SlonczewskiSTT::P,      &SlonczewskiSTT::set_P)
+        .def_property("beta",   &SlonczewskiSTT::beta,   &SlonczewskiSTT::set_beta)
+        .def_property("Lambda", &SlonczewskiSTT::Lambda, &SlonczewskiSTT::set_Lambda)
         .def_property_readonly("d", &SlonczewskiSTT::d)
         .def_property_readonly("p", &SlonczewskiSTT::p);
 
