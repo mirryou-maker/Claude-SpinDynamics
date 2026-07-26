@@ -253,6 +253,9 @@ Arrhenius/FDT DoD가 성립한다.
   exchange+uniaxial+Zeeman+demag+STT+thermal 물리적 완비.
 - ✅ **Phase 2.3** — Philox replica 스트림 2.1/2.4/2.2에 반영 완료.
 - ✅ **NB30 배칭 재작성** `30_thermal_stt_batched_gpu.py`: Part B 0.56s(vs ~2.5h), 전이 0.97.
+- ✅ **Phase 2.5** API 문서화(USER_GUIDE §8.10) + 물리완비 MTJ 데모 `31_mtj_batched_switching_gpu.py`:
+  공간분해 CoFeB PMA 자유층 P_sw(J), 1248 replica; 다중셀 전이 1.30 vs coherent 1.10(own Jc0).
+- ⏳ front-compaction(은퇴>25% warp효율) — 후속 최적화(정확성 경로 완성).
 
 #### Task 2 — Phase 실행 순서 (2026-07-27 구체화)
 
