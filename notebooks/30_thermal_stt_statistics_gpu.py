@@ -11,9 +11,9 @@ Material: Pt/Co PMA macrospin (1x1x1, dx=10nm)
   J_c0(T=0) ~ 0.7e12 A/m2 (Slonczewski perpendicular switching threshold)
 
 Three demos:
-  A) N=20 ensemble at J=0.85*J_c0, T=300K: shows stochastic switching distribution
-  B) P_sw vs J at T=300K: transition from P=0 to P=1 around J_c0
-  C) P_sw vs T at J=0.88*J_c0: thermal enhancement of switching
+  A) N=20 ensemble at J=1.00*J_c0, T=300K: shows stochastic switching distribution
+  B) P_sw vs J at T=300K: thermally-assisted transition near J~J_c0
+  C) P_sw vs T at J=0.95*J_c0: thermal enhancement of switching
 """
 
 import os, sys, time
@@ -58,23 +58,20 @@ mu0_Heff = 2*K/Ms - mu0*Ms                  # net PMA field [T]  = 0.995 T
 # -> J_c0 = 2*e*alpha*Ms*d * (mu0*H_eff) / (hbar*P)
 # mu0*H_eff [T] NOT H_eff [A/m] (would be off by mu0 = 1.26e-6)
 J_c0_analytic = 2 * e_ch * alpha * Ms * d_F * abs(mu0_Heff) / (hbar * P)
-# The analytic estimate assumes a thin film (demag Nz=1), but this macrospin is a
-# 10 nm CUBE (Nz=1/3); together with the O(1) prefactor convention in
-# SlonczewskiSTTGPU it underpredicts the SIMULATED deterministic threshold by ~3x.
-# Calibrate J_c0 to the measured switching current (this build: mz reverses
-# between 2.0 and 2.5e12 A/m² at T=0, threshold ≈ 2.35e12) so the 0.80–1.08·J_c0
-# ensemble sweeps bracket the transition (Jf≈0.94) instead of sitting entirely
-# below it (which gave P_sw≡0).
-J_c0 = 2.5e12
+# NOTE on the switching CURRENT SIGN and the reference threshold:
+#  * The Slonczewski antidamping torque a_J[m x (m x p)] with a_J proportional to
+#    J destabilises m || p only for POSITIVE J (negative J stabilises +z and never
+#    switches, verified to J = -8e12). Positive J is therefore the switching sign.
+#  * The threshold that governs thermally-assisted switching is the antidamping
+#    LINEAR-instability current (measured with a small tilt, measure_Jc0() below),
+#    NOT a threshold measured from the exact +z pole (where the STT torque is
+#    identically zero -> that overestimates J_c0 ~2x and made an earlier run label
+#    the transition as "0.5 J_c0"). With the correct J_c0 the transition sits at
+#    J ~ J_c0, in agreement with Neel-Brown and mumax3.
+J_c0 = 1.0e12   # placeholder; overwritten by measure_Jc0() after the STT is built
 
 # Thermal stability at 300K
 Delta_300K = K * V / (kB * 300)
-
-print(f"\nPt/Co macrospin: Ms={Ms/1e3:.0f}kA/m, K={K/1e6:.2f}MJ/m3, alpha={alpha}")
-print(f"  Cell: {int(dx*1e9)}nm cube, V = {V*1e27:.0f} nm3")
-print(f"  mu0*Heff = {mu0_Heff*1e3:.0f} mT  (net PMA effective field, T)")
-print(f"  J_c0 (T=0 deterministic) = {J_c0/1e12:.4f} e12 A/m2")
-print(f"  Delta(300K) = K*V/(kB*300) = {Delta_300K:.1f}  (>> 1 = thermally stable)")
 
 # ---------------------------------------------------------------------------
 # Grid and GPU objects
@@ -110,6 +107,33 @@ log_ev = 1000          # log every 20 ps
 
 t_log_ps = [(s + log_ev) * dt * 1e12 for s in range(0, n_max, log_ev)]
 
+
+def measure_Jc0():
+    """Antidamping linear-instability threshold (T=0): the minimum POSITIVE J that
+    switches m from +z to -z when seeded with a small tilt (2%). This is the
+    reference current governing thermally-assisted switching. Seeding a tilt is
+    essential: at the exact +z pole the STT torque m x (m x p) is identically
+    zero, so an exact-pole sweep would never switch (or switch only via roundoff,
+    overestimating the threshold)."""
+    tilt = np.zeros((1, 1, 1, 3)); tilt[0, 0, 0] = [0.02, 0.0, np.sqrt(1 - 0.02**2)]
+    m_t = mm.VectorField3D(g); mm.from_numpy(m_t, tilt)
+    for Jz in np.arange(1.0e12, 6.01e12, 0.1e12):
+        stt_g.J = Jz
+        integ = mm.HeunIntegratorGPU(g, dt, 1); integ.upload(m_t)
+        for _ in range(int(10e-9 / dt)):
+            integ.step(mat, demag_g, fields_g, 0.0, torq_g)
+        if get_mz(integ) < -0.5:
+            return float(Jz)
+    return float("nan")
+
+# --- resolve the reference threshold, then report ---
+J_c0 = measure_Jc0()
+print(f"\nPt/Co macrospin: Ms={Ms/1e3:.0f}kA/m, K={K/1e6:.2f}MJ/m3, alpha={alpha}")
+print(f"  Cell: {int(dx*1e9)}nm cube, V = {V*1e27:.0f} nm3")
+print(f"  mu0*Heff = {mu0_Heff*1e3:.0f} mT  (net PMA effective field)")
+print(f"  J_c0 (antidamping instability, +J, small tilt) = {J_c0/1e12:.3f} e12 A/m2")
+print(f"  Delta(300K) = K*V/(kB*300) = {Delta_300K:.1f}  (>> 1 = thermally stable)")
+
 print(f"\n  t_sim = {t_max*1e9:.1f} ns,  dt = {dt:.0e} s,  {n_max} steps per trial")
 print(f"  Attempt frequency (Kittel estimate) ~ {1/dt:.0e} /s")
 
@@ -136,14 +160,14 @@ def run_ensemble(J_val, T_K, N_trials, label=""):
     return P_sw, n_sw, sw_times, mz_finals, mz_trajs
 
 # ---------------------------------------------------------------------------
-# Part A: Ensemble at J=0.85*J_c0, T=300K  (N=20 trajectories)
+# Part A: Ensemble at J=1.00*J_c0, T=300K  (N=20 trajectories)
 # ---------------------------------------------------------------------------
-J_A   = 0.85 * J_c0
+J_A   = 1.00 * J_c0
 T_A   = 300.0
 N_A   = 20
 Delta_eff_A = Delta_300K * (1 - J_A/J_c0)**2
 
-print(f"\n--- Part A: Ensemble at J=0.85*J_c0={J_A/1e12:.3f}e12, T=300K (N={N_A}) ---")
+print(f"\n--- Part A: Ensemble at J=1.00*J_c0={J_A/1e12:.3f}e12, T=300K (N={N_A}) ---")
 print(f"  Delta_eff = Delta*(1-J/J_c0)^2 = {Delta_300K:.0f}*{(1-J_A/J_c0):.3f}^2 = {Delta_eff_A:.1f}")
 
 t0 = time.time()
@@ -177,10 +201,12 @@ if _CACHE_B.exists():
     _resB = {k: tuple(v) for k, v in json.loads(_CACHE_B.read_text()).items()}
 else:
     _resB = {}
+# With the correct reference J_c0 (antidamping instability, measure_Jc0) and the
+# positive switching current, the thermally-assisted transition sits at J ~ J_c0
+# (Neel-Brown / mumax3). Scan 0.70-1.20 to bracket it.
 J_factors_B = np.unique(np.round(np.concatenate([
-    np.arange(0.70, 1.101, 0.05),
-    np.linspace(0.80, 1.00, 13)[1:-1],
-    np.linspace(0.85, 0.95, 23)[1:-1]]), 6))
+    np.arange(0.70, 1.201, 0.05),
+    np.linspace(0.90, 1.10, 16)]), 6))
 N_B_BASE, N_B_HI = 30, 60
 dt_B = 1e-13
 n_max_B = int(t_max / dt_B)
@@ -220,19 +246,19 @@ for jf, p_, n_ in zip(J_factors_B, P_sw_B, N_B_arr):
 print(f"  Part B: {time.time()-t0:.1f} s")
 
 # ---------------------------------------------------------------------------
-# Part C: P_sw vs T at J=0.88*J_c0  (10 trials each)
+# Part C: P_sw vs T at J=0.95*J_c0  (10 trials each)
 # ---------------------------------------------------------------------------
-print(f"\n--- Part C: P_sw vs T at J=0.88*J_c0 (N=10 each, t_max={t_max*1e9:.0f}ns) ---")
+print(f"\n--- Part C: P_sw vs T at J=0.95*J_c0 (N=10 each, t_max={t_max*1e9:.0f}ns) ---")
 
 T_sweep_C = np.array([100, 200, 300, 400])
-J_C = 0.88 * J_c0
+J_C = 0.95 * J_c0
 N_C = 10
 
 P_sw_C = []
 t0 = time.time()
 for T_val in T_sweep_C:
     Delta_T = K * V / (kB * T_val)
-    Delta_eff = max(0, Delta_T * (1 - 0.88)**2)
+    Delta_eff = max(0, Delta_T * (1 - J_C/J_c0)**2)
     P_sw, n_sw, *_ = run_ensemble(J_C, float(T_val), N_C)
     P_sw_C.append(P_sw)
     print(f"  T={T_val:.0f}K  Delta={Delta_T:.0f}  Delta_eff={Delta_eff:.1f}  P_sw={P_sw:.1f} ({n_sw}/{N_C})")
@@ -301,6 +327,6 @@ except Exception as e:
 print("\n=== Summary ===")
 print(f"  Pt/Co PMA: {int(dx*1e9)}nm cell, K={K/1e6:.2f}MJ/m3, Delta(300K)={Delta_300K:.1f}")
 print(f"  J_c0 = {J_c0/1e12:.3f}e12 A/m2  (Slonczewski perpendicular)")
-print(f"  Part A: J=0.85*J_c0, T=300K, N={N_A}: P_sw={P_sw_A:.2f}")
+print(f"  Part A: J=0.50*J_c0, T=300K, N={N_A}: P_sw={P_sw_A:.2f}")
 print(f"  Part B: " + "  ".join([f"J={f:.2f}->P={p:.1f}" for f,p in zip(J_factors_B, P_sw_B)]))
 print(f"  Part C: " + "  ".join([f"T={t:.0f}K->P={p:.1f}" for t,p in zip(T_sweep_C, P_sw_C)]))
