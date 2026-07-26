@@ -246,6 +246,7 @@ if(MICROMAG_USE_CUDA)
         src/depondt_integrator_gpu.cu  # Task 1-A: Depondt–Mertens rotation integrator
         src/batched_macrospin_gpu.cu   # Task 2 Phase 2.0: replica-batched macrospin
         src/batched_llg_gpu.cu         # Task 2 Phase 2.1: multi-cell replica-batched LLG
+        src/batched_demag_gpu.cu       # Task 2 Phase 2.2: replica-batched demag (cuFFT batch=R)
         src/rk45_integrator_gpu.cu  # G9: RK45IntegratorGPU (adaptive DOPRI5)
         src/spin_torque_gpu.cu      # P3: GPU STT/SOT/Zhang-Li spin torque kernels
         src/magnetoelastic_gpu.cu       # Phase S: GPU magnetoelastic field

@@ -694,6 +694,9 @@ void bind_gpu(py::module_& m) {
              py::arg("R"), py::arg("grid"), py::arg("cfg"), py::arg("dt"), py::arg("seed") = 42u)
         .def("set_J",       &BatchedLLGGPU::set_J,       py::arg("J"))
         .def("set_T",       &BatchedLLGGPU::set_T,       py::arg("T"))
+        .def("enable_demag",   &BatchedLLGGPU::enable_demag,
+             "Enable replica-batched demag (cuFFT batch=R). Call before run().")
+        .def_property_readonly("demag_enabled", &BatchedLLGGPU::demag_enabled)
         .def("set_state",   &BatchedLLGGPU::set_state,   py::arg("m"))
         .def("set_uniform", &BatchedLLGGPU::set_uniform, py::arg("mx"), py::arg("my"), py::arg("mz"))
         .def("run",         &BatchedLLGGPU::run,         py::arg("n_steps"))

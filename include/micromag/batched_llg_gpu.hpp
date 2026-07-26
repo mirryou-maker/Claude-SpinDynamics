@@ -24,6 +24,8 @@
 
 namespace micromag {
 
+class BatchedDemagGPU;   // Phase 2.2 (defined under MICROMAG_CUDA)
+
 struct BatchedLLGConfig {
     Real Ms    = 580e3;    // saturation magnetisation [A/m]
     Real alpha = 0.02;     // Gilbert damping
@@ -54,6 +56,12 @@ public:
 
     void set_J(const std::vector<double>& J);   // length R  [A/m²]
     void set_T(const std::vector<double>& T);   // length R  [K]
+
+    // Phase 2.2: enable replica-batched demag (cuFFT batch=R, shared Newell
+    // kernel). Off by default. Call before run(); the demag object lives for
+    // the integrator's lifetime.
+    void enable_demag();
+    bool demag_enabled() const { return demag_ != nullptr; }
 
     // Overwrite state: flat [R*3N], m[r*3N + c*N + idx]; normalised per cell.
     void set_state(const std::vector<double>& m);
@@ -89,6 +97,8 @@ private:
     void* d_w2_ = nullptr;   // GReal [R*3N] ω2
     void* d_J_  = nullptr;   // double [R]
     void* d_T_  = nullptr;   // double [R]
+
+    BatchedDemagGPU* demag_ = nullptr;   // Phase 2.2 (owned; null = disabled)
 };
 
 }  // namespace micromag

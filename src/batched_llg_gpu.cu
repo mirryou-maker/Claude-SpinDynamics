@@ -12,6 +12,7 @@
 #include <string>
 
 #include "micromag/batched_llg_gpu.hpp"
+#include "micromag/batched_demag_gpu.hpp"
 #include "micromag/gpu_real.hpp"
 #include "micromag/types.hpp"
 
@@ -196,9 +197,16 @@ BatchedLLGGPU::BatchedLLGGPU(int R, const StructuredGrid& grid,
 }
 
 BatchedLLGGPU::~BatchedLLGGPU() {
+    delete demag_;
     if (d_m_) cudaFree(d_m_);  if (d_m0_) cudaFree(d_m0_); if (d_H_) cudaFree(d_H_);
     if (d_w1_) cudaFree(d_w1_); if (d_w2_) cudaFree(d_w2_);
     if (d_J_) cudaFree(d_J_);  if (d_T_) cudaFree(d_T_);
+}
+
+void BatchedLLGGPU::enable_demag() {
+    if (demag_) return;
+    StructuredGrid grid(nx_, ny_, nz_, dx_, dy_, dz_);
+    demag_ = new BatchedDemagGPU(grid, R_);
 }
 
 void BatchedLLGGPU::set_J(const std::vector<double>& J) {
@@ -263,6 +271,7 @@ void BatchedLLGGPU::substep_(unsigned long long noise_offset) {
     // predictor
     field_kernel<<<nblocks(RN), TPB>>>(H, m0, R_, nx_, ny_, nz_, pre_x, pre_y, pre_z,
         twoK, cfg_.easy.x, cfg_.easy.y, cfg_.easy.z, cfg_.H_ext.x, cfg_.H_ext.y, cfg_.H_ext.z);
+    if (demag_) demag_->accumulate_add(m0, H, double(cfg_.Ms), nullptr);
     thermal_kernel<<<nblocks(RN), TPB>>>(H, T, R_, N, double(cfg_.Ms), alpha, V, dt, seed_, noise_offset);
     omega_kernel<<<nblocks(RN), TPB>>>(w1, m0, H, J, R_, N, gp, alpha, g0hbar,
         double(cfg_.P), lam2, double(cfg_.beta), cfg_.p.x, cfg_.p.y, cfg_.p.z);
@@ -270,6 +279,7 @@ void BatchedLLGGPU::substep_(unsigned long long noise_offset) {
     // corrector (same noise realisation)
     field_kernel<<<nblocks(RN), TPB>>>(H, m, R_, nx_, ny_, nz_, pre_x, pre_y, pre_z,
         twoK, cfg_.easy.x, cfg_.easy.y, cfg_.easy.z, cfg_.H_ext.x, cfg_.H_ext.y, cfg_.H_ext.z);
+    if (demag_) demag_->accumulate_add(m, H, double(cfg_.Ms), nullptr);
     thermal_kernel<<<nblocks(RN), TPB>>>(H, T, R_, N, double(cfg_.Ms), alpha, V, dt, seed_, noise_offset);
     omega_kernel<<<nblocks(RN), TPB>>>(w2, m, H, J, R_, N, gp, alpha, g0hbar,
         double(cfg_.P), lam2, double(cfg_.beta), cfg_.p.x, cfg_.p.y, cfg_.p.z);
