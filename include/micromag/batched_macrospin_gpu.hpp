@@ -77,8 +77,28 @@ public:
     // Convenience: m_z of each replica, length R.
     std::vector<double> get_mz() const;
 
+    // --- Task 2 Phase 2.4: async retire / refill (Task 3 requirement) ---
+    // A replica is RETIRED (frozen, no further updates) the step its m_z first
+    // crosses a stop threshold. This gives variable-length trials: a Neel-Brown
+    // switch-time distribution accumulates as replicas retire and are refilled.
+    //   reason 1 = SWITCHED (m_z < mz_switch),  reason 2 = RESET (m_z > mz_reset).
+    // Disabled by default (mz_switch=-2, mz_reset=+2 -> never fires).
+    void enable_retire(double mz_switch, double mz_reset = 2.0);
+
+    // Per-replica state (length R):
+    std::vector<int>  get_active() const;   // 1 = active, 0 = retired
+    std::vector<int>  get_reason() const;   // 0 active, else stop code
+    std::vector<long> get_stepcount() const;  // active steps taken (= switch step)
+
+    // Refill the given replica slots: reset m to +easy (or `state` [len*3] if
+    // given), active=1, step_counter=0, and advance the RNG stream id so the
+    // refilled trial draws a FRESH, non-repeating noise sequence.
+    void refill(const std::vector<int>& slots,
+                const std::vector<double>& state = {});
+
     int  R()          const { return R_; }
     long step_index() const { return step_index_; }
+    int  num_active() const;   // count of active replicas (D2H)
 
 private:
     int      R_;
@@ -87,10 +107,19 @@ private:
     long     step_index_ = 0;
     BatchedMacrospinConfig cfg_;
 
+    // retire/refill config
+    bool     retire_on_ = false;
+    double   mz_switch_ = -2.0;
+    double   mz_reset_  =  2.0;
+
     // device buffers
-    void*  d_m_  = nullptr;   // GReal [R*3]
-    void*  d_J_  = nullptr;   // double [R]
-    void*  d_T_  = nullptr;   // double [R]
+    void*  d_m_     = nullptr;   // GReal [R*3]
+    void*  d_J_     = nullptr;   // double [R]
+    void*  d_T_     = nullptr;   // double [R]
+    void*  d_active_= nullptr;   // int    [R]  (1 active, 0 retired)
+    void*  d_reason_= nullptr;   // int    [R]  (stop code)
+    void*  d_scount_= nullptr;   // long   [R]  (active step counter)
+    void*  d_rngid_ = nullptr;   // unsigned [R] (RNG stream id, bumped on refill)
 };
 
 }  // namespace micromag

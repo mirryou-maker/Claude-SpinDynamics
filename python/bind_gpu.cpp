@@ -657,6 +657,16 @@ void bind_gpu(py::module_& m) {
         .def("run",       &BatchedMacrospinGPU::run,       py::arg("n_steps"))
         .def("get_state", &BatchedMacrospinGPU::get_state)
         .def("get_mz",    &BatchedMacrospinGPU::get_mz)
+        .def("enable_retire", &BatchedMacrospinGPU::enable_retire,
+             py::arg("mz_switch"), py::arg("mz_reset") = 2.0,
+             "Retire a replica the step m_z crosses a threshold (Phase 2.4).")
+        .def("get_active",    &BatchedMacrospinGPU::get_active)
+        .def("get_reason",    &BatchedMacrospinGPU::get_reason)
+        .def("get_stepcount", &BatchedMacrospinGPU::get_stepcount)
+        .def("num_active",    &BatchedMacrospinGPU::num_active)
+        .def("refill",        &BatchedMacrospinGPU::refill,
+             py::arg("slots"), py::arg("state") = std::vector<double>{},
+             "Refill retired slots with a fresh RNG stream (Phase 2.4).")
         .def_property_readonly("R", &BatchedMacrospinGPU::R)
         .def_property_readonly("step_index", &BatchedMacrospinGPU::step_index);
 
