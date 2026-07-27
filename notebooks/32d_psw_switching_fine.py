@@ -31,7 +31,7 @@ L, tz = 80e-9, 1.5e-9
 l_ex = np.sqrt(2*A/(mu0*Ms**2))
 MESHES = [8, 16, 32, 64]
 JC0 = {8: 0.75e12, 16: 0.60e12, 32: 0.60e12, 64: 0.60e12}   # from nb32 (T=0)
-N_TRIALS = {8: 128, 16: 128, 32: 96, 64: 32}
+N_TRIALS = {8: 128, 16: 128, 32: 96, 64: 64}   # 64x64 doubled (32->64) to cut noise
 t_max = 2.0e-9
 JFAC = np.round(np.arange(0.70, 1.051, 0.025), 4)           # FINE, switching window
 
@@ -50,8 +50,11 @@ data = json.loads(CACHE.read_text()) if CACHE.exists() else {}
 
 for n in MESHES:
     key = str(n)
-    if key in data and len(data[key]["P"]) == len(JFAC):
-        print(f"[{n}x{n}] cached"); continue
+    npz_ok = (HERE / f"32d_raw_mesh{n}.npz").exists()
+    # skip only when fully done at the CURRENT N *and* the per-replica npz exists
+    if (key in data and len(data[key]["P"]) == len(JFAC)
+            and data[key].get("N") == N_TRIALS[n] and npz_ok):
+        print(f"[{n}x{n}] cached (N={N_TRIALS[n]}, npz ok)"); continue
     dxy = L/n; dt = dt_for(dxy); nstep = int(t_max/dt); Ntr = N_TRIALS[n]
     grid = mm.StructuredGrid(n, n, 1, dxy, dxy, tz); Jc0 = JC0[n]
     Jv, Pv, Nswv, mz_all = [], [], [], []; t0 = time.time()
