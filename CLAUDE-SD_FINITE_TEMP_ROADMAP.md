@@ -486,6 +486,53 @@ Task 3 Phase 4 (mumax3 백엔드)
 
 ---
 
+## 6b. 장기 계획 — 다중 벤더 GPU 지원 (Intel / AMD, 2026-07-27 조사)
+
+**목표**: NVIDIA(CUDA) 외에 AMD(ROCm)·Intel(oneAPI/Level-Zero) GPU에서도 GPU 백엔드를
+돌린다. 현재 GPU 코드가 이식에 얼마나 유리한지 실측 조사한 결과를 근거로 단계 계획을 둔다.
+
+### 현 CUDA 결합도 (실측, 21개 `.cu`, 92 커널 런치)
+- **이식을 막는 난해 구조가 없다** (가장 중요): warp shuffle/ballot **0건**, texture memory **0건**.
+  `__shared__` 3파일(단순 block-reduction), `atomicAdd` 2파일 — 전부 HIP/SYCL/OpenCL로 자명 이식.
+- CUDA 런타임 API ~38종(`cudaMalloc/Memcpy/Stream/Event/Graph`) — 전부 HIP에 1:1 대응(`hipMalloc`…).
+- **cuFFT** 13심볼(표준 `PlanMany`/`ExecD2Z`) — 벤더 FFT 필요: rocFFT(AMD)·oneMKL DFT(Intel)·
+  **VkFFT**(범용). VkFFT는 이미 부분 통합돼 있음(단 CUDA-Graph와 비호환 — 배칭 demag 경로는 graph
+  미사용이라 무방).
+- **cuRAND** 4파일: host generator + device Philox(`curandStatePhilox`). 배칭 엔진의 핵심 —
+  rocRAND·oneMKL RNG 모두 Philox 지원.
+- `GReal`(gpu_real.hpp)이 이미 float/double + cufft 타입을 매크로로 추상화 — **백엔드 seam으로 재사용 가능**.
+- CUDA Graphs(`cudaGraph*`) 사용처 있음 — HIP `hipGraph` 대응, SYCL은 command-graph(신규). 배칭
+  엔진은 graph 불필요.
+
+### 이식 경로 3안 (커버리지 × 노력)
+| 경로 | 커버 | 노력 | 비고 |
+|---|---|---|---|
+| **HIP (ROCm)** | AMD (+NVIDIA via HIP) | **낮음** | `hipify`로 기계적 변환; `__global__`/`<<<>>>` 유지. rocFFT+rocRAND. Intel 미포함 |
+| **SYCL (DPC++/AdaptiveCpp)** | **Intel+AMD+NVIDIA** | 중~높음 | 커널을 `parallel_for` 람다로 재작성(단, 난해 intrinsic 없어 기계적). oneMKL DFT/RNG. 단일 소스로 3벤더 |
+| **Vulkan+VkFFT** | 범용(모바일 포함) | 높음 | 커널을 GLSL/SPIR-V 컴퓨트 셰이더로 전면 재작성. 최고 이식성/최고 비용 |
+
+### 권장 단계 계획
+- **선결 — 백엔드 seam 도입** (벤더 무관, 지금 해도 이득): `cudaMalloc/Memcpy/Stream/Launch`를
+  얇은 `gpu_backend.hpp` 래퍼로 감싸고 커널 런치를 매크로화. `GReal`처럼 컴파일타임 스위치.
+  현재도 유지보수성↑, 이후 어느 경로든 착지점이 된다.
+- **Phase G-AMD (HIP)**: `hipify-perl`로 `.cu`→`.hip` 변환, `find_package(hip/rocfft/rocrand)` CMake
+  프리셋 `linux-hip`. NVIDIA는 HIP-over-CUDA로 회귀 유지. 검증: 기존 GPU 테스트 118종 + 배칭 R=1 회귀.
+- **Phase G-INTEL/범용 (SYCL)**: 커널을 SYCL로 재작성(seam 위에서). **AdaptiveCpp**(오픈소스, CUDA/HIP/
+  OpenMP/Level-Zero 백엔드)로 단일 소스 3벤더. FFT는 oneMKL DFT 또는 VkFFT. Intel Arc/Data Center
+  Max + NVIDIA/AMD 동시 커버.
+- **FFT 공통화**: 벤더 FFT 3종을 `IDemagFFT` 인터페이스로 추상화(이미 `IDemagGPU` 존재). VkFFT를
+  범용 폴백으로.
+
+### 제약·미확인 (사용자 보고 필요)
+- **로컬 하드웨어 부재**: 개발 PC는 NVIDIA(RTX 5060 Ti)뿐, iREMB도 P100/V100(NVIDIA)뿐 →
+  **AMD/Intel GPU 실기 검증 수단이 현재 없음**. CI는 벤더 GPU 러너 또는 클라우드(AMD MI-계열,
+  Intel Max) 필요 — 전역 규칙상 **클라우드는 사전 요청 대상**.
+- SYCL 재작성은 커널 92개 런치 전면 수정 — 기능 회귀 위험. 백엔드 seam + R=1 bitwise 회귀로 방어.
+- **우선순위 판단**: 실사용 타깃 하드웨어가 정해지면(예: iREMB 차기 도입 GPU, 특정 클러스터) 그 벤더
+  경로부터. 미정이면 seam 도입까지만 진행하고 실기 확보 시 착수 권장.
+
+---
+
 ## 7. 참고문헌
 
 **Adaptive stepping (Task 1)**
