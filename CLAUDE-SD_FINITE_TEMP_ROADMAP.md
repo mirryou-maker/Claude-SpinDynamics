@@ -527,6 +527,19 @@ Task 3 Phase 4 (mumax3 백엔드)
 - **로컬 하드웨어 부재**: 개발 PC는 NVIDIA(RTX 5060 Ti)뿐, iREMB도 P100/V100(NVIDIA)뿐 →
   **AMD/Intel GPU 실기 검증 수단이 현재 없음**. CI는 벤더 GPU 러너 또는 클라우드(AMD MI-계열,
   Intel Max) 필요 — 전역 규칙상 **클라우드는 사전 요청 대상**.
+
+#### 벤더별 클라우드 매핑 (2026-01 지식 기준, 착수 전 재확인 필요)
+| 타깃 | AWS | 적합한 곳 |
+|---|---|---|
+| AMD Instinct (ROCm/HIP) | **✗** — G4ad의 Radeon Pro V520은 RDNA1 그래픽용, ROCm 컴퓨트 미지원. Instinct(MI-계열) 인스턴스 없음 | **Azure ND-MI300X v5**, **Oracle OCI** |
+| Intel Max/Arc (SYCL/Level-Zero) | **✗** — Habana Gaudi(DL1/Gaudi2)는 AI ASIC(SynapseAI), oneAPI GPU 아님 | **Intel Tiber Developer Cloud** (무료~저가) |
+| NVIDIA | ◎ P3~P5, G4~G6 다수 | iREMB로 충분 |
+
+- **결론: AWS는 AMD/Intel *컴퓨트* GPU 이식 검증에 부적합.** AMD는 Azure/OCI, Intel은 Intel Tiber.
+- **SYCL-on-NVIDIA 우회 (권장 개발 흐름)**: AdaptiveCpp/DPC++는 NVIDIA에서도 SYCL을 돌리므로
+  (CUDA 백엔드), **SYCL 백엔드 재작성·정확성 회귀(R=1 bitwise)를 이미 가진 iREMB/로컬 NVIDIA에서
+  대부분 완료**하고, 벤더 실기(Intel Tiber / Azure MI300X)는 마지막 성능·호환 확인에만 짧게 사용
+  → 클라우드 비용·의존 최소화. HIP 경로는 AMD Instinct 실기가 전제라 AWS 불가 → Azure/OCI 요청 필요.
 - SYCL 재작성은 커널 92개 런치 전면 수정 — 기능 회귀 위험. 백엔드 seam + R=1 bitwise 회귀로 방어.
 - **우선순위 판단**: 실사용 타깃 하드웨어가 정해지면(예: iREMB 차기 도입 GPU, 특정 클러스터) 그 벤더
   경로부터. 미정이면 seam 도입까지만 진행하고 실기 확보 시 착수 권장.
