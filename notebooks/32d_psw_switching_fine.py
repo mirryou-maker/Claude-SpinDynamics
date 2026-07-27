@@ -54,17 +54,24 @@ for n in MESHES:
         print(f"[{n}x{n}] cached"); continue
     dxy = L/n; dt = dt_for(dxy); nstep = int(t_max/dt); Ntr = N_TRIALS[n]
     grid = mm.StructuredGrid(n, n, 1, dxy, dxy, tz); Jc0 = JC0[n]
-    Jv, Pv = [], []; t0 = time.time()
+    Jv, Pv, Nswv, mz_all = [], [], [], []; t0 = time.time()
     for f in JFAC:
         J = f*Jc0
         b = mm.BatchedLLGGPU(Ntr, grid, cfg(), dt, seed=2024); b.enable_demag()
         b.set_J([J]*Ntr); b.set_T([300.0]*Ntr); b.set_uniform(0,0,1)
         b.run(nstep)
         mz = np.array(b.get_avg_m()).reshape(Ntr,3)[:,2]
-        Jv.append(J); Pv.append(float((mz < -0.5).mean()))
-    data[key] = dict(dxy=dxy, Jc0=Jc0, dt=dt, N=Ntr, J=Jv, P=Pv)
+        Jv.append(J); Nswv.append(int((mz < -0.5).sum())); Pv.append(float((mz < -0.5).mean()))
+        mz_all.append(mz)                             # per-replica final <mz> (raw)
+    # aggregated (curve-reconstruction) data + explicit switch counts
+    data[key] = dict(dxy=dxy, Jc0=Jc0, dt=dt, N=Ntr, J=Jv, P=Pv, n_sw=Nswv)
     CACHE.write_text(json.dumps(data))
-    print(f"[{n}x{n}] {dxy*1e9:.2f} nm  {len(JFAC)} fine pts  ({time.time()-t0:.0f}s)")
+    # RAW per-replica final mz, one .npz per mesh (nJ x N_trials), for later reuse
+    np.savez_compressed(HERE / f"32d_raw_mesh{n}.npz",
+                        J=np.array(Jv), mz=np.array(mz_all), Jc0=Jc0, dt=dt,
+                        dxy=dxy, N=Ntr, JFAC=JFAC)
+    print(f"[{n}x{n}] {dxy*1e9:.2f} nm  {len(JFAC)} fine pts  ({time.time()-t0:.0f}s)  "
+          f"-> 32d_raw_mesh{n}.npz")
 
 # ---------------------------------------------------------------------------
 import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt
@@ -85,6 +92,21 @@ fig.suptitle(f'MTJ switching transition — fine-J sampling ({len(JFAC)} pts/mes
 fig.tight_layout(rect=[0,0,1,0.94])
 fig.savefig(HERE / "32d_psw_switching_fine.png", dpi=150)
 print("wrote 32d_psw_switching_fine.png")
+
+# tabular raw export (human-readable, spreadsheet-friendly)
+import csv
+with open(HERE / "32d_psw_fine.csv", "w", newline="") as fh:
+    w = csv.writer(fh)
+    w.writerow(["mesh_n", "cell_nm", "dt_s", "Jc0_A_per_m2", "J_A_per_m2",
+                "J_over_Jc0", "n_switched", "N_trials", "P_sw"])
+    for n in MESHES:
+        r = data[str(n)]
+        nsw = r.get("n_sw", [int(round(p*r["N"])) for p in r["P"]])
+        for J, p, ns in zip(r["J"], r["P"], nsw):
+            w.writerow([n, round(r["dxy"]*1e9, 3), r["dt"], r["Jc0"], J,
+                        round(J/r["Jc0"], 4), ns, r["N"], p])
+print("wrote 32d_psw_fine.csv")
+
 for n in MESHES:
     r = data[str(n)]; Jn = np.array(r["J"])/r["Jc0"]; Psw = np.array(r["P"])
     print(f"  {n:2d}x{n:<2d} ({r['dxy']*1e9:5.2f} nm): J/Jc0(P=0.5)={Jn[np.argmin(np.abs(Psw-0.5))]:.3f}")
