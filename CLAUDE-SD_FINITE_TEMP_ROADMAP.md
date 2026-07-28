@@ -583,7 +583,16 @@ Task 3 Phase 4 (mumax3 백엔드)
 `include/micromag/gpu_backend.hpp`(런타임+GPU_LAUNCH)·`gpu_fft.hpp`(GpuFftManyRC, demag가 첫 소비자)·
 `gpu_rng.hpp`(device Philox)·CMake `MICROMAG_GPU_BACKEND` 스위치. 배칭 3파일에 순수 1:1 치환 적용,
 DoD 충족 — R=1 회귀 bitwise(2.0 |diff|=0, 2.1 5.9e-15, 2.2 demag 1.3e-10), retire/refill 무변,
-throughput 55×. 남은 18개 `.cu`로 점진 확대 + HIP/SYCL 백엔드 arm 구현이 다음 단계.
+throughput 55×.
+
+**✅ HIP arm 구현 (2026-07-29, 커밋 ac4c8f1)**: cuda*↔hip*·cufft*↔hipfft*·curand*↔hiprand*가
+name-for-name 1:1이라, seam 3헤더를 prefix 매크로(`GPU_FN`/`GPU_FFT_FN`/`GPU_RNG_*`)로 **단일 본문에서
+양 arm 생성**. `MICROMAG_GPU_BACKEND_HIP` 선택 시 `<hip/hip_runtime.h>`·`<hipfft/hipfft.h>`·
+`<hiprand/hiprand_kernel.h>` 포함, GPU_LAUNCH triple-chevron 공용(hipcc 지원). HIP arm은
+correct-by-construction으로 ROCm에서 컴파일 가능. CUDA arm도 같은 매크로로 리팩터 후 bitwise 재검증.
+- **남은 것**: ① CMake HIP 툴체인 배선(`enable_language(HIP)`+`find_package(hip hipfft hiprand)`+hipcc)
+  후 **HIP-over-CUDA(NVIDIA)로 컴파일·118테스트·R=1 검증** · ② 나머지 18개 `.cu` seam 확대 ·
+  ③ SYCL arm. ①②는 실기 없이 NVIDIA에서 가능(ROCm 툴킷만 설치).
 
 ---
 
