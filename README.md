@@ -53,6 +53,30 @@ embedded PTX. `micromag.gpu_diagnostic()` reports compatibility; include its out
 
 ---
 
+## GPU portability — beyond NVIDIA (AMD / Intel)
+
+The GPU layer is written against a thin **compile-time backend seam**
+(`gpu_backend.hpp` / `gpu_fft.hpp` / `gpu_rng.hpp`) so the runtime, kernel launch,
+FFT, and RNG are not hard-wired to CUDA. Because the kernels use **no
+vendor-specific intrinsics** (no warp-shuffle/ballot, no texture memory), porting
+is mechanical rather than structural:
+
+- **NVIDIA (CUDA)** — the fully built, tested, and benchmarked backend (this repo).
+- **AMD (ROCm/HIP)** — a HIP backend arm ships in the seam headers
+  (`MICROMAG_GPU_BACKEND=hip`). Its runtime, launch, and RNG paths are **validated
+  today via HIP-over-CUDA** (`hipcc`, `HIP_PLATFORM=nvidia`); see
+  `tests/hip_seam_check.cpp`. Native AMD (rocFFT/rocRAND) bring-up is in progress.
+- **Intel (oneAPI/SYCL)** — planned via SYCL (AdaptiveCpp/DPC++), which also runs
+  on CPU and NVIDIA, so most of it can be validated without Intel silicon.
+
+**Want to run Claude-SpinDynamics on your AMD or Intel GPU?** The design is ready
+for it and we actively welcome **collaboration** — if you have target hardware or
+a use case, [open an issue](../../issues) or contact
+[cyyou@dgist.ac.kr](mailto:cyyou@dgist.ac.kr) and we can develop and validate the
+vendor backend together as a joint effort.
+
+---
+
 ## Performance
 
 Full LLG step time (Exchange + Demag + Zeeman, RK4):
