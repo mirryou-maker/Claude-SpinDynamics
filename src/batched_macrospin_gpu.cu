@@ -2,29 +2,26 @@
 // One thread per replica advances a full Depondt–Mertens step (predictor +
 // corrector) for one single-cell macrospin. See the header for the physics.
 //
+// Phase 0 (multi-vendor seam): runtime/launch/RNG go through gpu_backend.hpp /
+// gpu_rng.hpp instead of raw CUDA — a pure 1:1 substitution (bitwise identical).
+//
 // Requires MICROMAG_CUDA=1.
 
 #ifdef MICROMAG_CUDA
 
-#include <cuda_runtime.h>
-#include <curand_kernel.h>
 #include <cmath>
 #include <stdexcept>
-#include <string>
+#include <vector>
 
 #include "micromag/batched_macrospin_gpu.hpp"
+#include "micromag/gpu_backend.hpp"   // G0-1 runtime wrappers, G0-2 GPU_LAUNCH
+#include "micromag/gpu_rng.hpp"       // G0-4 device Philox helper
 #include "micromag/gpu_real.hpp"
 #include "micromag/types.hpp"
 
-#define CUDA_CHECK(call)                                                \
-    do {                                                                \
-        cudaError_t _e = (call);                                        \
-        if (_e != cudaSuccess)                                          \
-            throw std::runtime_error(std::string("CUDA error: ") +      \
-                                     cudaGetErrorString(_e));           \
-    } while (0)
-
 namespace micromag {
+
+namespace mg = micromag::gpu;
 
 namespace {
 
@@ -126,13 +123,8 @@ __global__ void macrospin_step_kernel(
 
     // one Philox draw of 3 normals per replica per step (reused predictor+corrector)
     D3 eta = {0, 0, 0};
-    if (sigma > 0.0) {
-        curandStatePhilox4_32_10_t st;
-        curand_init((unsigned long long)seed, sub, off, &st);
-        eta.x = curand_normal_double(&st);
-        eta.y = curand_normal_double(&st);
-        eta.z = curand_normal_double(&st);
-    }
+    if (sigma > 0.0)
+        mg::philox_normal3(seed, sub, off, eta.x, eta.y, eta.z);
 
     // predictor
     D3 w1 = omega_of(mv, gp, alpha, two_K1_over_mu0Ms, easy, Hext, eta, sigma,
@@ -175,13 +167,13 @@ BatchedMacrospinGPU::BatchedMacrospinGPU(int R, const BatchedMacrospinConfig& cf
     const Real pn = std::sqrt(cfg_.p.dot(cfg_.p));
     if (pn > Real{1e-30}) cfg_.p = cfg_.p / pn;
 
-    CUDA_CHECK(cudaMalloc(&d_m_, size_t(R_) * 3 * sizeof(GReal)));
-    CUDA_CHECK(cudaMalloc(&d_J_, size_t(R_) * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_T_, size_t(R_) * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_active_, size_t(R_) * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_reason_, size_t(R_) * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_scount_, size_t(R_) * sizeof(long long)));
-    CUDA_CHECK(cudaMalloc(&d_rngid_,  size_t(R_) * sizeof(unsigned)));
+    d_m_      = mg::malloc(size_t(R_) * 3 * sizeof(GReal));
+    d_J_      = mg::malloc(size_t(R_) * sizeof(double));
+    d_T_      = mg::malloc(size_t(R_) * sizeof(double));
+    d_active_ = mg::malloc(size_t(R_) * sizeof(int));
+    d_reason_ = mg::malloc(size_t(R_) * sizeof(int));
+    d_scount_ = mg::malloc(size_t(R_) * sizeof(long long));
+    d_rngid_  = mg::malloc(size_t(R_) * sizeof(unsigned));
 
     // initial state m = +easy, J = 0, T = 0
     std::vector<GReal> m0(size_t(R_) * 3);
@@ -190,40 +182,32 @@ BatchedMacrospinGPU::BatchedMacrospinGPU(int R, const BatchedMacrospinConfig& cf
         m0[r*3+1] = static_cast<GReal>(cfg_.easy.y);
         m0[r*3+2] = static_cast<GReal>(cfg_.easy.z);
     }
-    CUDA_CHECK(cudaMemcpy(d_m_, m0.data(), m0.size() * sizeof(GReal),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(d_J_, 0, size_t(R_) * sizeof(double)));
-    CUDA_CHECK(cudaMemset(d_T_, 0, size_t(R_) * sizeof(double)));
+    mg::memcpy(d_m_, m0.data(), m0.size() * sizeof(GReal), mg::MemcpyKind::H2D);
+    mg::memset(d_J_, 0, size_t(R_) * sizeof(double));
+    mg::memset(d_T_, 0, size_t(R_) * sizeof(double));
     // all replicas active, reason 0, step counter 0, RNG stream id 0
     std::vector<int> ones(R_, 1);
-    CUDA_CHECK(cudaMemcpy(d_active_, ones.data(), size_t(R_)*sizeof(int), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(d_reason_, 0, size_t(R_) * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_scount_, 0, size_t(R_) * sizeof(long long)));
-    CUDA_CHECK(cudaMemset(d_rngid_,  0, size_t(R_) * sizeof(unsigned)));
+    mg::memcpy(d_active_, ones.data(), size_t(R_)*sizeof(int), mg::MemcpyKind::H2D);
+    mg::memset(d_reason_, 0, size_t(R_) * sizeof(int));
+    mg::memset(d_scount_, 0, size_t(R_) * sizeof(long long));
+    mg::memset(d_rngid_,  0, size_t(R_) * sizeof(unsigned));
 }
 
 BatchedMacrospinGPU::~BatchedMacrospinGPU() {
-    if (d_m_) cudaFree(d_m_);
-    if (d_J_) cudaFree(d_J_);
-    if (d_T_) cudaFree(d_T_);
-    if (d_active_) cudaFree(d_active_);
-    if (d_reason_) cudaFree(d_reason_);
-    if (d_scount_) cudaFree(d_scount_);
-    if (d_rngid_)  cudaFree(d_rngid_);
+    mg::free(d_m_);      mg::free(d_J_);      mg::free(d_T_);
+    mg::free(d_active_); mg::free(d_reason_); mg::free(d_scount_); mg::free(d_rngid_);
 }
 
 void BatchedMacrospinGPU::set_J(const std::vector<double>& J) {
     if (int(J.size()) != R_)
         throw std::invalid_argument("BatchedMacrospinGPU::set_J: size != R");
-    CUDA_CHECK(cudaMemcpy(d_J_, J.data(), J.size() * sizeof(double),
-                          cudaMemcpyHostToDevice));
+    mg::memcpy(d_J_, J.data(), J.size() * sizeof(double), mg::MemcpyKind::H2D);
 }
 
 void BatchedMacrospinGPU::set_T(const std::vector<double>& T) {
     if (int(T.size()) != R_)
         throw std::invalid_argument("BatchedMacrospinGPU::set_T: size != R");
-    CUDA_CHECK(cudaMemcpy(d_T_, T.data(), T.size() * sizeof(double),
-                          cudaMemcpyHostToDevice));
+    mg::memcpy(d_T_, T.data(), T.size() * sizeof(double), mg::MemcpyKind::H2D);
 }
 
 void BatchedMacrospinGPU::set_state(const std::vector<double>& m) {
@@ -238,8 +222,7 @@ void BatchedMacrospinGPU::set_state(const std::vector<double>& m) {
         buf[r*3+1] = static_cast<GReal>(y);
         buf[r*3+2] = static_cast<GReal>(z);
     }
-    CUDA_CHECK(cudaMemcpy(d_m_, buf.data(), buf.size() * sizeof(GReal),
-                          cudaMemcpyHostToDevice));
+    mg::memcpy(d_m_, buf.data(), buf.size() * sizeof(GReal), mg::MemcpyKind::H2D);
 }
 
 void BatchedMacrospinGPU::run(int n_steps) {
@@ -262,7 +245,7 @@ void BatchedMacrospinGPU::run(int n_steps) {
     const unsigned* d_rngid = static_cast<const unsigned*>(d_rngid_);
 
     for (int s = 0; s < n_steps; ++s) {
-        macrospin_step_kernel<<<nblocks(R_), TPB>>>(
+        GPU_LAUNCH(macrospin_step_kernel, nblocks(R_), TPB, 0, /*stream=*/0,
             d_m, d_J, d_T, R_,
             double(cfg_.Ms), alpha, gp, double(cfg_.V),
             two_K1_over_mu0Ms, double(cfg_.easy.x), double(cfg_.easy.y), double(cfg_.easy.z),
@@ -273,16 +256,15 @@ void BatchedMacrospinGPU::run(int n_steps) {
             dt, seed_,
             d_active, d_reason, d_scount, d_rngid,
             retire_on_ ? 1 : 0, mz_switch_, mz_reset_);
-        CUDA_CHECK(cudaGetLastError());
+        mg::check_last("macrospin_step_kernel");
         ++step_index_;
     }
-    CUDA_CHECK(cudaDeviceSynchronize());
+    mg::device_sync();
 }
 
 std::vector<double> BatchedMacrospinGPU::get_state() const {
     std::vector<GReal> buf(size_t(R_) * 3);
-    CUDA_CHECK(cudaMemcpy(buf.data(), d_m_, buf.size() * sizeof(GReal),
-                          cudaMemcpyDeviceToHost));
+    mg::memcpy(buf.data(), d_m_, buf.size() * sizeof(GReal), mg::MemcpyKind::D2H);
     std::vector<double> out(size_t(R_) * 3);
     for (size_t i = 0; i < out.size(); ++i) out[i] = double(buf[i]);
     return out;
@@ -304,17 +286,17 @@ void BatchedMacrospinGPU::enable_retire(double mz_switch, double mz_reset) {
 
 std::vector<int> BatchedMacrospinGPU::get_active() const {
     std::vector<int> v(R_);
-    CUDA_CHECK(cudaMemcpy(v.data(), d_active_, size_t(R_)*sizeof(int), cudaMemcpyDeviceToHost));
+    mg::memcpy(v.data(), d_active_, size_t(R_)*sizeof(int), mg::MemcpyKind::D2H);
     return v;
 }
 std::vector<int> BatchedMacrospinGPU::get_reason() const {
     std::vector<int> v(R_);
-    CUDA_CHECK(cudaMemcpy(v.data(), d_reason_, size_t(R_)*sizeof(int), cudaMemcpyDeviceToHost));
+    mg::memcpy(v.data(), d_reason_, size_t(R_)*sizeof(int), mg::MemcpyKind::D2H);
     return v;
 }
 std::vector<long> BatchedMacrospinGPU::get_stepcount() const {
     std::vector<long long> t(R_);
-    CUDA_CHECK(cudaMemcpy(t.data(), d_scount_, size_t(R_)*sizeof(long long), cudaMemcpyDeviceToHost));
+    mg::memcpy(t.data(), d_scount_, size_t(R_)*sizeof(long long), mg::MemcpyKind::D2H);
     return std::vector<long>(t.begin(), t.end());
 }
 
@@ -336,11 +318,11 @@ void BatchedMacrospinGPU::refill(const std::vector<int>& slots,
     std::vector<int> active(R_), reason(R_);
     std::vector<long long> scount(R_);
     std::vector<unsigned> rngid(R_);
-    CUDA_CHECK(cudaMemcpy(m.data(),      d_m_,      m.size()*sizeof(GReal),   cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(active.data(), d_active_, size_t(R_)*sizeof(int),   cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(reason.data(), d_reason_, size_t(R_)*sizeof(int),   cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(scount.data(), d_scount_, size_t(R_)*sizeof(long long), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(rngid.data(),  d_rngid_,  size_t(R_)*sizeof(unsigned), cudaMemcpyDeviceToHost));
+    mg::memcpy(m.data(),      d_m_,      m.size()*sizeof(GReal),       mg::MemcpyKind::D2H);
+    mg::memcpy(active.data(), d_active_, size_t(R_)*sizeof(int),       mg::MemcpyKind::D2H);
+    mg::memcpy(reason.data(), d_reason_, size_t(R_)*sizeof(int),       mg::MemcpyKind::D2H);
+    mg::memcpy(scount.data(), d_scount_, size_t(R_)*sizeof(long long), mg::MemcpyKind::D2H);
+    mg::memcpy(rngid.data(),  d_rngid_,  size_t(R_)*sizeof(unsigned),  mg::MemcpyKind::D2H);
 
     for (size_t k = 0; k < slots.size(); ++k) {
         int r = slots[k];
@@ -354,11 +336,11 @@ void BatchedMacrospinGPU::refill(const std::vector<int>& slots,
         active[r] = 1; reason[r] = 0; scount[r] = 0;
         rngid[r] += 1;   // FRESH, non-repeating noise stream for the new trial
     }
-    CUDA_CHECK(cudaMemcpy(d_m_,      m.data(),      m.size()*sizeof(GReal),   cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_active_, active.data(), size_t(R_)*sizeof(int),   cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_reason_, reason.data(), size_t(R_)*sizeof(int),   cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_scount_, scount.data(), size_t(R_)*sizeof(long long), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_rngid_,  rngid.data(),  size_t(R_)*sizeof(unsigned), cudaMemcpyHostToDevice));
+    mg::memcpy(d_m_,      m.data(),      m.size()*sizeof(GReal),       mg::MemcpyKind::H2D);
+    mg::memcpy(d_active_, active.data(), size_t(R_)*sizeof(int),       mg::MemcpyKind::H2D);
+    mg::memcpy(d_reason_, reason.data(), size_t(R_)*sizeof(int),       mg::MemcpyKind::H2D);
+    mg::memcpy(d_scount_, scount.data(), size_t(R_)*sizeof(long long), mg::MemcpyKind::H2D);
+    mg::memcpy(d_rngid_,  rngid.data(),  size_t(R_)*sizeof(unsigned),  mg::MemcpyKind::H2D);
 }
 
 }  // namespace micromag

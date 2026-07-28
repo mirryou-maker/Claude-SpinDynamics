@@ -4,24 +4,19 @@
 
 #ifdef MICROMAG_CUDA
 
-#include <cuda_runtime.h>
-#include <cufft.h>
+#include <algorithm>
 #include <vector>
 #include <stdexcept>
-#include <string>
 
-#include "micromag/batched_demag_gpu.hpp"
+#include "micromag/batched_demag_gpu.hpp"   // pulls gpu_fft.hpp (GpuFftManyRC, cufft types)
 #include "micromag/demag.hpp"       // DemagField::nxx / nxy (public static)
+#include "micromag/gpu_backend.hpp" // G0-1 runtime wrappers, G0-2 GPU_LAUNCH
 #include "micromag/gpu_real.hpp"
 
-#define CUDA_CHECK(call)                                                \
-    do { cudaError_t _e=(call); if(_e!=cudaSuccess)                     \
-        throw std::runtime_error(std::string("CUDA error: ")+cudaGetErrorString(_e)); } while(0)
-#define CUFFT_CHECK(call)                                               \
-    do { cufftResult _e=(call); if(_e!=CUFFT_SUCCESS)                   \
-        throw std::runtime_error("cuFFT error "+std::to_string((int)_e)); } while(0)
-
 namespace micromag {
+
+namespace mg = micromag::gpu;
+
 namespace {
 
 constexpr int TPB = 256;
@@ -105,49 +100,42 @@ BatchedDemagGPU::BatchedDemagGPU(const StructuredGrid& grid, int R)
     cplx_sz_ = size_t(fft_nx_)*pad_ny_*pad_nz_;
     norm_    = 1.0 / double(real_sz_);
 
-    CUDA_CHECK(cudaMalloc(&d_Kxx_, cplx_sz_*sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_Kyy_, cplx_sz_*sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_Kzz_, cplx_sz_*sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_Kxy_, cplx_sz_*sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_Kxz_, cplx_sz_*sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_Kyz_, cplx_sz_*sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_M_,  size_t(R_)*3*real_sz_*sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_MF_, size_t(R_)*3*cplx_sz_*sizeof(cufftDoubleComplex)));
+    d_Kxx_ = mg::malloc(cplx_sz_*sizeof(double));
+    d_Kyy_ = mg::malloc(cplx_sz_*sizeof(double));
+    d_Kzz_ = mg::malloc(cplx_sz_*sizeof(double));
+    d_Kxy_ = mg::malloc(cplx_sz_*sizeof(double));
+    d_Kxz_ = mg::malloc(cplx_sz_*sizeof(double));
+    d_Kyz_ = mg::malloc(cplx_sz_*sizeof(double));
+    d_M_   = mg::malloc(size_t(R_)*3*real_sz_*sizeof(double));
+    d_MF_  = mg::malloc(size_t(R_)*3*cplx_sz_*sizeof(mg::fft_complex_t));
 
-    // batched plans (batch = 3R). n in cuFFT order = {pad_nz, pad_ny, pad_nx}.
+    // batched fwd(D2Z)+inv(Z2D) plans, batch = 3R (G0-3 FFT seam). n in FFT
+    // order = {pad_nz, pad_ny, pad_nx}.
     int rank = (pad_nz_==1) ? 2 : 3;
     int n3[3] = {pad_nz_, pad_ny_, pad_nx_};
     int* n = (rank==2) ? (n3+1) : n3;
-    CUFFT_CHECK(cufftPlanMany(&plan_fwd_, rank, n, nullptr,1,int(real_sz_),
-                              nullptr,1,int(cplx_sz_), CUFFT_D2Z, 3*R_));
-    CUFFT_CHECK(cufftPlanMany(&plan_inv_, rank, n, nullptr,1,int(cplx_sz_),
-                              nullptr,1,int(real_sz_), CUFFT_Z2D, 3*R_));
+    fft_ = new mg::GpuFftManyRC(rank, n, int(real_sz_), int(cplx_sz_), 3*R_);
 
     precompute_kernel_(grid.dx(), grid.dy(), grid.dz());
 }
 
 BatchedDemagGPU::~BatchedDemagGPU() {
-    if (plan_fwd_) cufftDestroy(plan_fwd_);
-    if (plan_inv_) cufftDestroy(plan_inv_);
-    if (plan_fwd1_) cufftDestroy(plan_fwd1_);
-    if (d_Kxx_) cudaFree(d_Kxx_); if (d_Kyy_) cudaFree(d_Kyy_); if (d_Kzz_) cudaFree(d_Kzz_);
-    if (d_Kxy_) cudaFree(d_Kxy_); if (d_Kxz_) cudaFree(d_Kxz_); if (d_Kyz_) cudaFree(d_Kyz_);
-    if (d_M_) cudaFree(d_M_); if (d_MF_) cudaFree(d_MF_);
+    delete fft_; delete fft1_;
+    mg::free(d_Kxx_); mg::free(d_Kyy_); mg::free(d_Kzz_);
+    mg::free(d_Kxy_); mg::free(d_Kxz_); mg::free(d_Kyz_);
+    mg::free(d_M_);   mg::free(d_MF_);
 }
 
 void BatchedDemagGPU::precompute_kernel_(double dx, double dy, double dz) {
     // Build the 6 real-space padded Newell components on host (same fill as
     // DemagField::precompute_kernel), FFT once, keep the (real) transform.
     std::vector<double> rbuf(real_sz_);
-    cufftDoubleComplex* d_c = nullptr;
-    double* d_r = nullptr;
-    CUDA_CHECK(cudaMalloc(&d_r, real_sz_*sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_c, cplx_sz_*sizeof(cufftDoubleComplex)));
+    mg::fft_complex_t* d_c = static_cast<mg::fft_complex_t*>(mg::malloc(cplx_sz_*sizeof(mg::fft_complex_t)));
+    double* d_r = static_cast<double*>(mg::malloc(real_sz_*sizeof(double)));
     int rank = (pad_nz_==1) ? 2 : 3;
     int n3[3] = {pad_nz_, pad_ny_, pad_nx_};
     int* n = (rank==2) ? (n3+1) : n3;
-    CUFFT_CHECK(cufftPlanMany(&plan_fwd1_, rank, n, nullptr,1,int(real_sz_),
-                              nullptr,1,int(cplx_sz_), CUFFT_D2Z, 1));
+    fft1_ = new mg::GpuFftManyRC(rank, n, int(real_sz_), int(cplx_sz_), 1);
 
     auto put = [&](int px,int py,int pz,double v){
         if(px<0)px+=pad_nx_; if(py<0)py+=pad_ny_; if(pz<0)pz+=pad_nz_;
@@ -163,14 +151,14 @@ void BatchedDemagGPU::precompute_kernel_(double dx, double dy, double dz) {
             if(ky>0&&kz>0)put(kx,-ky,-kz,v);
             if(kx>0&&ky>0&&kz>0)put(-kx,-ky,-kz,v);
         }
-        CUDA_CHECK(cudaMemcpy(d_r, rbuf.data(), real_sz_*sizeof(double), cudaMemcpyHostToDevice));
-        CUFFT_CHECK(cufftExecD2Z(plan_fwd1_, d_r, d_c));
+        mg::memcpy(d_r, rbuf.data(), real_sz_*sizeof(double), mg::MemcpyKind::H2D);
+        fft1_->exec_fwd(d_r, d_c);
         // keep real part (kernel FFT is real by symmetry)
-        std::vector<cufftDoubleComplex> hc(cplx_sz_);
-        CUDA_CHECK(cudaMemcpy(hc.data(), d_c, cplx_sz_*sizeof(cufftDoubleComplex), cudaMemcpyDeviceToHost));
+        std::vector<mg::fft_complex_t> hc(cplx_sz_);
+        mg::memcpy(hc.data(), d_c, cplx_sz_*sizeof(mg::fft_complex_t), mg::MemcpyKind::D2H);
         std::vector<double> kr(cplx_sz_);
         for(size_t i=0;i<cplx_sz_;++i) kr[i]=hc[i].x;
-        CUDA_CHECK(cudaMemcpy(d_K, kr.data(), cplx_sz_*sizeof(double), cudaMemcpyHostToDevice));
+        mg::memcpy(d_K, kr.data(), cplx_sz_*sizeof(double), mg::MemcpyKind::H2D);
     };
     auto fill_off = [&](void* d_K,int sx,int sy,int sz,auto fn){
         std::fill(rbuf.begin(), rbuf.end(), 0.0);
@@ -182,13 +170,13 @@ void BatchedDemagGPU::precompute_kernel_(double dx, double dy, double dz) {
                 put(ix?-kx:kx, iy?-ky:ky, iz?-kz:kz, s*v);
             }
         }
-        CUDA_CHECK(cudaMemcpy(d_r, rbuf.data(), real_sz_*sizeof(double), cudaMemcpyHostToDevice));
-        CUFFT_CHECK(cufftExecD2Z(plan_fwd1_, d_r, d_c));
-        std::vector<cufftDoubleComplex> hc(cplx_sz_);
-        CUDA_CHECK(cudaMemcpy(hc.data(), d_c, cplx_sz_*sizeof(cufftDoubleComplex), cudaMemcpyDeviceToHost));
+        mg::memcpy(d_r, rbuf.data(), real_sz_*sizeof(double), mg::MemcpyKind::H2D);
+        fft1_->exec_fwd(d_r, d_c);
+        std::vector<mg::fft_complex_t> hc(cplx_sz_);
+        mg::memcpy(hc.data(), d_c, cplx_sz_*sizeof(mg::fft_complex_t), mg::MemcpyKind::D2H);
         std::vector<double> kr(cplx_sz_);
         for(size_t i=0;i<cplx_sz_;++i) kr[i]=hc[i].x;
-        CUDA_CHECK(cudaMemcpy(d_K, kr.data(), cplx_sz_*sizeof(double), cudaMemcpyHostToDevice));
+        mg::memcpy(d_K, kr.data(), cplx_sz_*sizeof(double), mg::MemcpyKind::H2D);
     };
 
     fill_diag(d_Kxx_, [&](double x,double y,double z){return DemagField::nxx(x,y,z,dx,dy,dz);});
@@ -198,34 +186,32 @@ void BatchedDemagGPU::precompute_kernel_(double dx, double dy, double dz) {
     fill_off(d_Kxz_, -1,+1,-1, [&](double x,double y,double z){return DemagField::nxy(x,z,y,dx,dz,dy);});
     fill_off(d_Kyz_, +1,-1,-1, [&](double x,double y,double z){return DemagField::nxy(y,z,x,dy,dz,dx);});
 
-    cudaFree(d_r); cudaFree(d_c);
+    mg::free(d_r); mg::free(d_c);
 }
 
 void BatchedDemagGPU::set_stream(void* stream) {
-    auto s = reinterpret_cast<cudaStream_t>(stream);
-    CUFFT_CHECK(cufftSetStream(plan_fwd_, s));
-    CUFFT_CHECK(cufftSetStream(plan_inv_, s));
+    fft_->set_stream(reinterpret_cast<mg::stream_t>(stream));
 }
 
 void BatchedDemagGPU::accumulate_add(const GReal* d_m, GReal* d_H, double Ms, void* stream) {
-    auto s = reinterpret_cast<cudaStream_t>(stream);
+    auto s = reinterpret_cast<mg::stream_t>(stream);
     double* M = static_cast<double*>(d_M_);
-    cufftDoubleComplex* MF = static_cast<cufftDoubleComplex*>(d_MF_);
+    mg::fft_complex_t* MF = static_cast<mg::fft_complex_t*>(d_MF_);
     const long RN = long(R_)*N_;
 
-    CUDA_CHECK(cudaMemsetAsync(M, 0, size_t(R_)*3*real_sz_*sizeof(double), s));
-    scatter_kernel<<<nblocks(RN),TPB,0,s>>>(M, d_m, R_, nx_, ny_, nz_,
+    mg::memset_async(M, 0, size_t(R_)*3*real_sz_*sizeof(double), s);
+    GPU_LAUNCH(scatter_kernel, nblocks(RN), TPB, 0, s, M, d_m, R_, nx_, ny_, nz_,
         pad_nx_, pad_ny_, long(real_sz_), Ms);
-    CUFFT_CHECK(cufftExecD2Z(plan_fwd_, M, MF));
+    fft_->exec_fwd(M, MF);
     const long RC = long(R_)*long(cplx_sz_);
-    mac_kernel<<<nblocks(RC),TPB,0,s>>>(MF,
+    GPU_LAUNCH(mac_kernel, nblocks(RC), TPB, 0, s, MF,
         static_cast<double*>(d_Kxx_), static_cast<double*>(d_Kyy_), static_cast<double*>(d_Kzz_),
         static_cast<double*>(d_Kxy_), static_cast<double*>(d_Kxz_), static_cast<double*>(d_Kyz_),
         R_, long(cplx_sz_));
-    CUFFT_CHECK(cufftExecZ2D(plan_inv_, MF, M));
-    extract_add_kernel<<<nblocks(RN),TPB,0,s>>>(d_H, M, R_, nx_, ny_, nz_,
+    fft_->exec_inv(MF, M);
+    GPU_LAUNCH(extract_add_kernel, nblocks(RN), TPB, 0, s, d_H, M, R_, nx_, ny_, nz_,
         pad_nx_, pad_ny_, long(real_sz_), norm_);
-    CUDA_CHECK(cudaGetLastError());
+    mg::check_last("batched_demag accumulate");
 }
 
 }  // namespace micromag

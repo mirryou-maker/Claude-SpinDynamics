@@ -213,7 +213,18 @@ add_executable(bloch_dw apps/bloch_dw.cpp)
 target_link_libraries(bloch_dw PRIVATE micromag_core)
 
 # CUDA/cuFFT GPU backend (Phase 3) -----------------------------------------
+# G0-5: multi-vendor backend switch. Only 'cuda' is implemented (Phase 0);
+# 'hip'/'sycl' are reserved extension points. Selects the MICROMAG_GPU_BACKEND_*
+# compile macro consumed by gpu_backend.hpp / gpu_fft.hpp / gpu_rng.hpp.
+set(MICROMAG_GPU_BACKEND "cuda" CACHE STRING "GPU backend: cuda | hip | sycl")
+set_property(CACHE MICROMAG_GPU_BACKEND PROPERTY STRINGS cuda hip sycl)
+
 if(MICROMAG_USE_CUDA)
+    if(NOT MICROMAG_GPU_BACKEND STREQUAL "cuda")
+        message(FATAL_ERROR
+            "MICROMAG_GPU_BACKEND=${MICROMAG_GPU_BACKEND} not implemented yet "
+            "(Phase 0 ships the CUDA backend + seam only).")
+    endif()
     enable_language(CUDA)
     find_package(CUDAToolkit REQUIRED COMPONENTS cufft curand)
 
@@ -308,6 +319,10 @@ if(MICROMAG_USE_CUDA)
     # Propagate the MICROMAG_CUDA flag so headers can guard GPU code
     target_compile_definitions(micromag_cuda PUBLIC MICROMAG_CUDA=1)
     target_compile_definitions(micromag_core PUBLIC MICROMAG_CUDA=1)
+    # G0-5: backend-selection macro consumed by gpu_backend/gpu_fft/gpu_rng.hpp
+    string(TOUPPER "${MICROMAG_GPU_BACKEND}" _mm_gpu_be)
+    target_compile_definitions(micromag_cuda PUBLIC MICROMAG_GPU_BACKEND_${_mm_gpu_be}=1)
+    target_compile_definitions(micromag_core PUBLIC MICROMAG_GPU_BACKEND_${_mm_gpu_be}=1)
     # P11: optional float32 GPU mode.
     # PUBLIC on micromag_core/micromag_cuda propagates MICROMAG_FLOAT32 to every
     # consumer that links them (including the _micromag Python module created

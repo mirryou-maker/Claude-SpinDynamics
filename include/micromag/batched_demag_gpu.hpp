@@ -17,9 +17,8 @@
 #ifdef MICROMAG_CUDA
 
 #include "micromag/gpu_real.hpp"
+#include "micromag/gpu_fft.hpp"   // G0-3 batched FFT seam
 #include "micromag/grid.hpp"
-
-using cufftHandle = int;   // forward alias; real type from cufft.h in the .cu
 
 namespace micromag {
 
@@ -53,11 +52,10 @@ private:
     void* d_Kxy_ = nullptr; void* d_Kxz_ = nullptr; void* d_Kyz_ = nullptr;
     // batched scratch
     void* d_M_  = nullptr;   // double [R·3·real_sz]  (padded M; reused for inverse output)
-    void* d_MF_ = nullptr;   // cufftDoubleComplex [R·3·cplx_sz]
+    void* d_MF_ = nullptr;   // fft_complex_t [R·3·cplx_sz]
 
-    cufftHandle plan_fwd1_ = 0;   // single D2Z for kernel precompute
-    cufftHandle plan_fwd_  = 0;   // batch = 3R  D2Z
-    cufftHandle plan_inv_  = 0;   // batch = 3R  Z2D
+    gpu::GpuFftManyRC* fft_  = nullptr;   // batched fwd(D2Z)+inv(Z2D), batch = 3R
+    gpu::GpuFftManyRC* fft1_ = nullptr;   // single-transform fwd, kernel precompute
 };
 
 }  // namespace micromag

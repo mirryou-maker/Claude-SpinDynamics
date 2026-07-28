@@ -5,26 +5,21 @@
 
 #ifdef MICROMAG_CUDA
 
-#include <cuda_runtime.h>
-#include <curand_kernel.h>
 #include <cmath>
 #include <stdexcept>
-#include <string>
+#include <vector>
 
 #include "micromag/batched_llg_gpu.hpp"
 #include "micromag/batched_demag_gpu.hpp"
+#include "micromag/gpu_backend.hpp"   // G0-1 runtime wrappers, G0-2 GPU_LAUNCH
+#include "micromag/gpu_rng.hpp"       // G0-4 device Philox helper
 #include "micromag/gpu_real.hpp"
 #include "micromag/types.hpp"
 
-#define CUDA_CHECK(call)                                                \
-    do {                                                                \
-        cudaError_t _e = (call);                                        \
-        if (_e != cudaSuccess)                                          \
-            throw std::runtime_error(std::string("CUDA error: ") +      \
-                                     cudaGetErrorString(_e));           \
-    } while (0)
-
 namespace micromag {
+
+namespace mg = micromag::gpu;
+
 namespace {
 
 constexpr int TPB = 256;
@@ -93,12 +88,12 @@ __global__ void thermal_kernel(GReal* __restrict__ H, const double* __restrict__
     const double gamma0 = 1.760859630e11;
     const double sigma = sqrt(2.0 * alpha * 1.380649e-23 * T /
                               (mu0*mu0 * Ms * gamma0 * V * dt));
-    curandStatePhilox4_32_10_t st;
-    curand_init((unsigned long long)seed, (unsigned long long)tid, offset, &st);
+    double e0, e1, e2;
+    gpu::philox_normal3(seed, (unsigned long long)tid, offset, e0, e1, e2);
     const long base = long(r) * 3 * N;
-    H[base + 0*N + idx] = static_cast<GReal>(double(H[base+0*N+idx]) + sigma*curand_normal_double(&st));
-    H[base + 1*N + idx] = static_cast<GReal>(double(H[base+1*N+idx]) + sigma*curand_normal_double(&st));
-    H[base + 2*N + idx] = static_cast<GReal>(double(H[base+2*N+idx]) + sigma*curand_normal_double(&st));
+    H[base + 0*N + idx] = static_cast<GReal>(double(H[base+0*N+idx]) + sigma*e0);
+    H[base + 1*N + idx] = static_cast<GReal>(double(H[base+1*N+idx]) + sigma*e1);
+    H[base + 2*N + idx] = static_cast<GReal>(double(H[base+2*N+idx]) + sigma*e2);
 }
 
 // ω = gp(H + α m×H) + ω_STT,  ω_STT = −a_J(m×p̂) − b_J p̂,
@@ -184,23 +179,23 @@ BatchedLLGGPU::BatchedLLGGPU(int R, const StructuredGrid& grid,
     if (pn > Real{1e-30}) cfg_.p = cfg_.p / pn;
 
     const size_t n3 = size_t(R_) * 3 * N_;
-    CUDA_CHECK(cudaMalloc(&d_m_,  n3 * sizeof(GReal)));
-    CUDA_CHECK(cudaMalloc(&d_m0_, n3 * sizeof(GReal)));
-    CUDA_CHECK(cudaMalloc(&d_H_,  n3 * sizeof(GReal)));
-    CUDA_CHECK(cudaMalloc(&d_w1_, n3 * sizeof(GReal)));
-    CUDA_CHECK(cudaMalloc(&d_w2_, n3 * sizeof(GReal)));
-    CUDA_CHECK(cudaMalloc(&d_J_,  size_t(R_) * sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&d_T_,  size_t(R_) * sizeof(double)));
-    CUDA_CHECK(cudaMemset(d_J_, 0, size_t(R_) * sizeof(double)));
-    CUDA_CHECK(cudaMemset(d_T_, 0, size_t(R_) * sizeof(double)));
+    d_m_  = mg::malloc(n3 * sizeof(GReal));
+    d_m0_ = mg::malloc(n3 * sizeof(GReal));
+    d_H_  = mg::malloc(n3 * sizeof(GReal));
+    d_w1_ = mg::malloc(n3 * sizeof(GReal));
+    d_w2_ = mg::malloc(n3 * sizeof(GReal));
+    d_J_  = mg::malloc(size_t(R_) * sizeof(double));
+    d_T_  = mg::malloc(size_t(R_) * sizeof(double));
+    mg::memset(d_J_, 0, size_t(R_) * sizeof(double));
+    mg::memset(d_T_, 0, size_t(R_) * sizeof(double));
     set_uniform(cfg_.easy.x, cfg_.easy.y, cfg_.easy.z);
 }
 
 BatchedLLGGPU::~BatchedLLGGPU() {
     delete demag_;
-    if (d_m_) cudaFree(d_m_);  if (d_m0_) cudaFree(d_m0_); if (d_H_) cudaFree(d_H_);
-    if (d_w1_) cudaFree(d_w1_); if (d_w2_) cudaFree(d_w2_);
-    if (d_J_) cudaFree(d_J_);  if (d_T_) cudaFree(d_T_);
+    mg::free(d_m_);  mg::free(d_m0_); mg::free(d_H_);
+    mg::free(d_w1_); mg::free(d_w2_);
+    mg::free(d_J_);  mg::free(d_T_);
 }
 
 void BatchedLLGGPU::enable_demag() {
@@ -211,11 +206,11 @@ void BatchedLLGGPU::enable_demag() {
 
 void BatchedLLGGPU::set_J(const std::vector<double>& J) {
     if (int(J.size()) != R_) throw std::invalid_argument("set_J: size != R");
-    CUDA_CHECK(cudaMemcpy(d_J_, J.data(), J.size()*sizeof(double), cudaMemcpyHostToDevice));
+    mg::memcpy(d_J_, J.data(), J.size()*sizeof(double), mg::MemcpyKind::H2D);
 }
 void BatchedLLGGPU::set_T(const std::vector<double>& T) {
     if (int(T.size()) != R_) throw std::invalid_argument("set_T: size != R");
-    CUDA_CHECK(cudaMemcpy(d_T_, T.data(), T.size()*sizeof(double), cudaMemcpyHostToDevice));
+    mg::memcpy(d_T_, T.data(), T.size()*sizeof(double), mg::MemcpyKind::H2D);
 }
 
 void BatchedLLGGPU::set_uniform(double mx, double my, double mz) {
@@ -226,7 +221,7 @@ void BatchedLLGGPU::set_uniform(double mx, double my, double mz) {
         GReal* b = buf.data() + size_t(r)*3*N_;
         for (int i = 0; i < N_; ++i) { b[0*N_+i]=GReal(mx); b[1*N_+i]=GReal(my); b[2*N_+i]=GReal(mz); }
     }
-    CUDA_CHECK(cudaMemcpy(d_m_, buf.data(), buf.size()*sizeof(GReal), cudaMemcpyHostToDevice));
+    mg::memcpy(d_m_, buf.data(), buf.size()*sizeof(GReal), mg::MemcpyKind::H2D);
 }
 
 void BatchedLLGGPU::set_state(const std::vector<double>& m) {
@@ -241,7 +236,7 @@ void BatchedLLGGPU::set_state(const std::vector<double>& m) {
             b[0*N_+i]=GReal(x); b[1*N_+i]=GReal(y); b[2*N_+i]=GReal(z);
         }
     }
-    CUDA_CHECK(cudaMemcpy(d_m_, buf.data(), buf.size()*sizeof(GReal), cudaMemcpyHostToDevice));
+    mg::memcpy(d_m_, buf.data(), buf.size()*sizeof(GReal), mg::MemcpyKind::H2D);
 }
 
 void BatchedLLGGPU::substep_(unsigned long long noise_offset) {
@@ -267,25 +262,25 @@ void BatchedLLGGPU::substep_(unsigned long long noise_offset) {
     const double* J = static_cast<const double*>(d_J_);
     const double* T = static_cast<const double*>(d_T_);
 
-    CUDA_CHECK(cudaMemcpy(m0, m, RN3*sizeof(GReal), cudaMemcpyDeviceToDevice));
+    mg::memcpy(m0, m, RN3*sizeof(GReal), mg::MemcpyKind::D2D);
     // predictor
-    field_kernel<<<nblocks(RN), TPB>>>(H, m0, R_, nx_, ny_, nz_, pre_x, pre_y, pre_z,
+    GPU_LAUNCH(field_kernel, nblocks(RN), TPB, 0, 0, H, m0, R_, nx_, ny_, nz_, pre_x, pre_y, pre_z,
         twoK, cfg_.easy.x, cfg_.easy.y, cfg_.easy.z, cfg_.H_ext.x, cfg_.H_ext.y, cfg_.H_ext.z);
     if (demag_) demag_->accumulate_add(m0, H, double(cfg_.Ms), nullptr);
-    thermal_kernel<<<nblocks(RN), TPB>>>(H, T, R_, N, double(cfg_.Ms), alpha, V, dt, seed_, noise_offset);
-    omega_kernel<<<nblocks(RN), TPB>>>(w1, m0, H, J, R_, N, gp, alpha, g0hbar,
+    GPU_LAUNCH(thermal_kernel, nblocks(RN), TPB, 0, 0, H, T, R_, N, double(cfg_.Ms), alpha, V, dt, seed_, noise_offset);
+    GPU_LAUNCH(omega_kernel, nblocks(RN), TPB, 0, 0, w1, m0, H, J, R_, N, gp, alpha, g0hbar,
         double(cfg_.P), lam2, double(cfg_.beta), cfg_.p.x, cfg_.p.y, cfg_.p.z);
-    rotate_kernel<<<nblocks(RN), TPB>>>(m, m0, w1, R_, N, dt);
+    GPU_LAUNCH(rotate_kernel, nblocks(RN), TPB, 0, 0, m, m0, w1, R_, N, dt);
     // corrector (same noise realisation)
-    field_kernel<<<nblocks(RN), TPB>>>(H, m, R_, nx_, ny_, nz_, pre_x, pre_y, pre_z,
+    GPU_LAUNCH(field_kernel, nblocks(RN), TPB, 0, 0, H, m, R_, nx_, ny_, nz_, pre_x, pre_y, pre_z,
         twoK, cfg_.easy.x, cfg_.easy.y, cfg_.easy.z, cfg_.H_ext.x, cfg_.H_ext.y, cfg_.H_ext.z);
     if (demag_) demag_->accumulate_add(m, H, double(cfg_.Ms), nullptr);
-    thermal_kernel<<<nblocks(RN), TPB>>>(H, T, R_, N, double(cfg_.Ms), alpha, V, dt, seed_, noise_offset);
-    omega_kernel<<<nblocks(RN), TPB>>>(w2, m, H, J, R_, N, gp, alpha, g0hbar,
+    GPU_LAUNCH(thermal_kernel, nblocks(RN), TPB, 0, 0, H, T, R_, N, double(cfg_.Ms), alpha, V, dt, seed_, noise_offset);
+    GPU_LAUNCH(omega_kernel, nblocks(RN), TPB, 0, 0, w2, m, H, J, R_, N, gp, alpha, g0hbar,
         double(cfg_.P), lam2, double(cfg_.beta), cfg_.p.x, cfg_.p.y, cfg_.p.z);
-    avg_kernel<<<nblocks(RN3), TPB>>>(w1, w1, w2, RN3);
-    rotate_kernel<<<nblocks(RN), TPB>>>(m, m0, w1, R_, N, dt);
-    CUDA_CHECK(cudaGetLastError());
+    GPU_LAUNCH(avg_kernel, nblocks(RN3), TPB, 0, 0, w1, w1, w2, RN3);
+    GPU_LAUNCH(rotate_kernel, nblocks(RN), TPB, 0, 0, m, m0, w1, R_, N, dt);
+    mg::check_last("batched_llg substep");
 }
 
 void BatchedLLGGPU::run(int n_steps) {
@@ -293,12 +288,12 @@ void BatchedLLGGPU::run(int n_steps) {
         substep_((unsigned long long)step_index_);
         ++step_index_;
     }
-    CUDA_CHECK(cudaDeviceSynchronize());
+    mg::device_sync();
 }
 
 std::vector<double> BatchedLLGGPU::get_state() const {
     std::vector<GReal> buf(size_t(R_) * 3 * N_);
-    CUDA_CHECK(cudaMemcpy(buf.data(), d_m_, buf.size()*sizeof(GReal), cudaMemcpyDeviceToHost));
+    mg::memcpy(buf.data(), d_m_, buf.size()*sizeof(GReal), mg::MemcpyKind::D2H);
     return std::vector<double>(buf.begin(), buf.end());
 }
 
