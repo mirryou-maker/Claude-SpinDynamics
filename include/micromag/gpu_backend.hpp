@@ -65,7 +65,7 @@ inline void* malloc(std::size_t bytes) {
     detail::check(GPU_FN(Malloc)(&p, bytes), "malloc");
     return p;
 }
-inline void free(void* p) { if (p) GPU_FN(Free)(p); }
+inline void free(void* p) { if (p) (void)GPU_FN(Free)(p); }  // dtor path: ignore err
 
 inline void memcpy(void* dst, const void* src, std::size_t bytes, MemcpyKind k) {
     detail::check(GPU_FN(Memcpy)(dst, src, bytes,
@@ -86,7 +86,7 @@ inline void memset_async(void* p, int v, std::size_t bytes, stream_t s) {
 inline stream_t stream_create() {
     stream_t s; detail::check(GPU_FN(StreamCreate)(&s), "stream_create"); return s;
 }
-inline void stream_destroy(stream_t s) { if (s) GPU_FN(StreamDestroy)(s); }
+inline void stream_destroy(stream_t s) { if (s) (void)GPU_FN(StreamDestroy)(s); }
 inline void stream_sync(stream_t s) {
     detail::check(GPU_FN(StreamSynchronize)(s), "stream_sync");
 }

@@ -590,9 +590,21 @@ name-for-name 1:1이라, seam 3헤더를 prefix 매크로(`GPU_FN`/`GPU_FFT_FN`/
 양 arm 생성**. `MICROMAG_GPU_BACKEND_HIP` 선택 시 `<hip/hip_runtime.h>`·`<hipfft/hipfft.h>`·
 `<hiprand/hiprand_kernel.h>` 포함, GPU_LAUNCH triple-chevron 공용(hipcc 지원). HIP arm은
 correct-by-construction으로 ROCm에서 컴파일 가능. CUDA arm도 같은 매크로로 리팩터 후 bitwise 재검증.
-- **남은 것**: ① CMake HIP 툴체인 배선(`enable_language(HIP)`+`find_package(hip hipfft hiprand)`+hipcc)
-  후 **HIP-over-CUDA(NVIDIA)로 컴파일·118테스트·R=1 검증** · ② 나머지 18개 `.cu` seam 확대 ·
-  ③ SYCL arm. ①②는 실기 없이 NVIDIA에서 가능(ROCm 툴킷만 설치).
+**✅ HIP arm 실기검증 (2026-07-29, ubuntu98 RTX 3070 Ti, HIP-over-CUDA)**: Ubuntu 24.04의
+`hipcc`(5.7.1, `hipconfig --platform`=nvidia)로 seam을 실제 컴파일·실행.
+- **런타임 + GPU_LAUNCH + RNG arm 완전 검증**: `tests/hip_seam_check.cpp`가 `hipcc -ccbin g++-11
+  -DMICROMAG_GPU_BACKEND_HIP=1`로 빌드→3070 Ti에서 실행, philox_normal3(hiprand→curand)
+  N=12288 draws mean=0.008/var=1.001. **실기(AMD) 없이 2번째 백엔드에서 seam 동작 확인**.
+- **FFT arm(hipfft)**: 컴파일 성공, 그러나 Ubuntu 패키지 `libhipfft`(5.7.1)의 nvidia 백엔드가
+  **모든 plan 생성 실패**(`hipfftPlan1d`조차 error 12 PARSE_ERROR) — **배포판 패키징 한계**(seam
+  설계 문제 아님). 실기 AMD(rocFFT 네이티브) 또는 CUDA-백엔드 hipfft 빌드에서 검증 필요(로드맵 예측:
+  "벤더 FFT on-device는 실기 필요"와 일치).
+- **결론**: seam의 런타임/런치/RNG 3개 서브시스템이 HIP에서 검증됨 → "실기 없이 ~85–90%" 주장 실증.
+
+**남은 것**: ① CMake HIP 툴체인 배선(`enable_language(HIP)`+hipcc)으로 **전체 GPU 모듈**을 HIP-over-CUDA
+빌드+118테스트(FFT는 위 배포판 이슈 회피 필요) · ② 나머지 18개 `.cu` seam 확대(패턴 HIP-검증됨, 저위험) ·
+③ **SYCL arm은 헤더 교체가 아니라 커널 본문 재작성**(`__global__`/`<<<>>>` → `parallel_for` 람다) —
+로드맵 Phase 2의 별도 대공사(AdaptiveCpp로 NVIDIA+CPU 검증).
 
 ---
 
