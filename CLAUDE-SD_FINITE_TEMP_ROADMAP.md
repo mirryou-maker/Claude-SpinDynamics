@@ -544,6 +544,41 @@ Task 3 Phase 4 (mumax3 백엔드)
 - **우선순위 판단**: 실사용 타깃 하드웨어가 정해지면(예: iREMB 차기 도입 GPU, 특정 클러스터) 그 벤더
   경로부터. 미정이면 seam 도입까지만 진행하고 실기 확보 시 착수 권장.
 
+### 실기 없이 도달 가능 범위 (~85–90%, 2026-07-29 분석)
+대상 백엔드가 **NVIDIA·CPU 위에서도 실행**되므로, AMD/Intel 실기 없이도 "코드가 3벤더에서 옳게
+도는가"까지 검증을 끝낼 수 있다.
+
+- **왜 가능**: HIP는 CUDA 백엔드(`HIP_PLATFORM=nvidia`)로 NVIDIA에서 컴파일·실행(hipFFT/hipRAND→
+  cuFFT/cuRAND). SYCL(DPC++/AdaptiveCpp)은 NVIDIA(CUDA 백엔드)+**CPU**에서 실행, oneMKL DFT/RNG도
+  **CPU device**로 검증 가능. 우리 코드는 warp/texture 의존 0건이라 NVIDIA/CPU 검증이 실기로 거의 그대로 이전.
+- **실기 없이 완료 가능**: 백엔드 seam(100%) · 전체 소스 변환(HIP/SYCL) · **정확성 검증 전부**
+  (R=1 bitwise 회귀 + GPU 118 테스트 + NB30/31/32를 HIP-over-CUDA·SYCL-on-NVIDIA·**SYCL-on-CPU**로) ·
+  oneAPI 스택 CPU 검증 · CPU-SYCL CI(GitHub Actions 무료).
+- **실기 필수(~10–15%, 마지막 bring-up/tune)**: 대상 ISA 실행·검증(AMD gfx9xx, Intel Xe/Level-Zero) ·
+  벤더 FFT/RNG on-device 수치(fp64/denormal) · **성능 측정·튜닝 전부**(occupancy, AMD wavefront=64 vs
+  warp=32, LDS 크기, 대역폭) · 실기에서만 드러나는 드라이버/컴파일러 버그.
+- **결론**: NVIDIA+CPU만으로 정확성 완성 → 실기는 "실제 그 칩에서 도는가·얼마나 빠른가"에만 사용.
+
+### Phase 0 — 백엔드 seam 착수 계획 (실기 불필요, 지금 시작 가능)
+**목표**: CUDA 런타임/커널 런치/FFT/RNG를 얇은 컴파일타임 추상층으로 감싸, 이후 HIP·SYCL이 **한 곳만
+교체**하면 되게 한다. NVIDIA에서 기존 결과를 bitwise 유지하는 순수 리팩터(기능 무변경).
+
+- **G0-1 런타임 래퍼** `include/micromag/gpu_backend.hpp`: `gpuMalloc/Free/Memcpy(Async)/Memset/
+  StreamCreate/Destroy/Synchronize/EventRecord/Elapsed`를 `mm::gpu::` 얇은 inline로. CUDA 빌드에선
+  `cudaMalloc`…로 1:1 매핑(제로 오버헤드). `GReal`(gpu_real.hpp)와 같은 매크로 seam 패턴 재사용.
+- **G0-2 커널 런치 매크로** `GPU_LAUNCH(kernel, grid, block, shmem, stream, args...)`: CUDA는
+  `<<<>>>`로 전개. 92개 런치를 이 매크로로 치환(기계적). 커널 정의(`__global__`)는 Phase 1/2에서 변환.
+- **G0-3 FFT 인터페이스** `IGpuFFT`(이미 `IDemagGPU` 있음 위에): `planMany/execFwd/execInv/setStream`.
+  CUDA 구현 `CufftBackend`. 배칭 demag(batch=3R)가 첫 소비자. rocFFT/oneMKL/VkFFT는 이 인터페이스 뒤로.
+- **G0-4 RNG 인터페이스** `IGpuRng`(device Philox): 배칭 엔진의 `curand_init/curand_normal_double`을
+  얇은 device 헬퍼 `gpu_philox_normal3(seed, sub, off)`로. CUDA는 curand로 구현.
+- **G0-5 빌드 스위치**: `MICROMAG_GPU_BACKEND={cuda|hip|sycl}` CMake 옵션(기본 cuda). CUDA 경로는
+  현행과 동일 산출물. `find_package`/컴파일러 선택을 백엔드별 분기.
+- **DoD (전부 NVIDIA에서)**: 리팩터 후 **GPU 118 테스트 + R=1 배칭 bitwise 회귀 통과**,
+  성능 회귀 ≤1%(seam은 inline이라 무비용), diff는 "치환만"임을 리뷰로 확인. **커널 로직 변경 금지**.
+- **착수 지점**: 배칭 엔진 3파일(`batched_macrospin/llg/demag_gpu.cu`)을 파일럿으로 seam 적용 →
+  검증 후 나머지 18개 `.cu`로 확대. iREMB/로컬/ubuntu98(모두 NVIDIA) 어디서나 진행 가능.
+
 ---
 
 ## 7. 참고문헌
