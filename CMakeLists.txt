@@ -221,9 +221,14 @@ set_property(CACHE MICROMAG_GPU_BACKEND PROPERTY STRINGS cuda hip sycl)
 
 if(MICROMAG_USE_CUDA)
     if(NOT MICROMAG_GPU_BACKEND STREQUAL "cuda")
+        # The C++ seam (gpu_backend/gpu_fft/gpu_rng.hpp) already carries the HIP
+        # arm (cuda*<->hip* 1:1), so only the CMake toolchain wiring is missing:
+        # enable_language(HIP) + find_package(hip hipfft hiprand) + hipcc, then
+        # build/validate via HIP-over-CUDA on NVIDIA. Reserved until then.
         message(FATAL_ERROR
-            "MICROMAG_GPU_BACKEND=${MICROMAG_GPU_BACKEND} not implemented yet "
-            "(Phase 0 ships the CUDA backend + seam only).")
+            "MICROMAG_GPU_BACKEND=${MICROMAG_GPU_BACKEND}: C++ seam is ready but "
+            "the CMake ${MICROMAG_GPU_BACKEND} toolchain is not wired yet "
+            "(Phase 0 builds/tests the CUDA arm).")
     endif()
     enable_language(CUDA)
     find_package(CUDAToolkit REQUIRED COMPONENTS cufft curand)

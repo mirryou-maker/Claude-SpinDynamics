@@ -1,13 +1,14 @@
 // gpu_backend.hpp — Task 2 multi-vendor Phase 0 (G0-1/G0-2/G0-5).
 //
-// Thin compile-time seam over the GPU runtime + kernel launch so a later HIP or
-// SYCL backend replaces ONE header instead of touching every .cu. Under CUDA the
-// wrappers are inline 1:1 maps (zero overhead) — the batched engine's results
-// stay bitwise-identical. Mirrors the GReal type-seam pattern (gpu_real.hpp).
+// Thin compile-time seam over the GPU runtime + kernel launch so a HIP or SYCL
+// backend replaces ONE header instead of touching every .cu. The CUDA and HIP
+// runtimes are name-for-name 1:1 (cuda*<->hip*), so both are generated from a
+// single body via the GPU_FN(prefix) macro — the HIP arm is correct by
+// construction (compiles under ROCm; the CUDA arm is what this repo builds/tests
+// on the available NVIDIA hardware). Mirrors the GReal type-seam (gpu_real.hpp).
 //
 // Backend selection (G0-5): MICROMAG_GPU_BACKEND_{CUDA,HIP,SYCL} is set by CMake
-// from -DMICROMAG_GPU_BACKEND=... (default cuda). Only CUDA is implemented now;
-// the HIP/SYCL arms are declared so the extension points are visible.
+// from -DMICROMAG_GPU_BACKEND=... (default cuda). SYCL is a reserved arm.
 //
 // Requires MICROMAG_CUDA=1 (the header is only pulled into GPU translation units).
 #pragma once
@@ -26,77 +27,81 @@
 
 #if defined(MICROMAG_GPU_BACKEND_CUDA)
 #  include <cuda_runtime.h>
+#  define GPU_FN(name) cuda##name          // cuda* <-> hip* are 1:1
+#elif defined(MICROMAG_GPU_BACKEND_HIP)
+#  include <hip/hip_runtime.h>
+#  define GPU_FN(name) hip##name
 #else
-#  error "gpu_backend.hpp: only the CUDA backend is implemented (Phase 0)."
+#  error "gpu_backend.hpp: SYCL backend not implemented (Phase 0 = cuda|hip)."
 #endif
 
 namespace micromag {
 namespace gpu {
 
-// ---- backend-specific opaque types --------------------------------------
-#if defined(MICROMAG_GPU_BACKEND_CUDA)
-using stream_t = cudaStream_t;
+// ---- backend-neutral runtime aliases ------------------------------------
+using error_t  = GPU_FN(Error_t);
+using stream_t = GPU_FN(Stream_t);
+static constexpr error_t success = GPU_FN(Success);
+
 enum class MemcpyKind { H2D, D2H, D2D };
 namespace detail {
-inline cudaMemcpyKind to_native(MemcpyKind k) {
+inline int to_native(MemcpyKind k) {
     switch (k) {
-        case MemcpyKind::H2D: return cudaMemcpyHostToDevice;
-        case MemcpyKind::D2H: return cudaMemcpyDeviceToHost;
-        default:              return cudaMemcpyDeviceToDevice;
+        case MemcpyKind::H2D: return GPU_FN(MemcpyHostToDevice);
+        case MemcpyKind::D2H: return GPU_FN(MemcpyDeviceToHost);
+        default:              return GPU_FN(MemcpyDeviceToDevice);
     }
 }
-inline void check(cudaError_t e, const char* what) {
-    if (e != cudaSuccess)
+inline void check(error_t e, const char* what) {
+    if (e != success)
         throw std::runtime_error(std::string("GPU error [") + what + "]: " +
-                                 cudaGetErrorString(e));
+                                 GPU_FN(GetErrorString)(e));
 }
 }  // namespace detail
-#endif
 
 // ---- G0-1 runtime wrappers (throw std::runtime_error on failure) ---------
 inline void* malloc(std::size_t bytes) {
     void* p = nullptr;
-    detail::check(cudaMalloc(&p, bytes), "malloc");
+    detail::check(GPU_FN(Malloc)(&p, bytes), "malloc");
     return p;
 }
-inline void free(void* p) { if (p) cudaFree(p); }
+inline void free(void* p) { if (p) GPU_FN(Free)(p); }
 
 inline void memcpy(void* dst, const void* src, std::size_t bytes, MemcpyKind k) {
-    detail::check(cudaMemcpy(dst, src, bytes, detail::to_native(k)), "memcpy");
+    detail::check(GPU_FN(Memcpy)(dst, src, bytes,
+                  (GPU_FN(MemcpyKind))detail::to_native(k)), "memcpy");
 }
 inline void memcpy_async(void* dst, const void* src, std::size_t bytes,
                          MemcpyKind k, stream_t s) {
-    detail::check(cudaMemcpyAsync(dst, src, bytes, detail::to_native(k), s),
-                  "memcpy_async");
+    detail::check(GPU_FN(MemcpyAsync)(dst, src, bytes,
+                  (GPU_FN(MemcpyKind))detail::to_native(k), s), "memcpy_async");
 }
 inline void memset(void* p, int v, std::size_t bytes) {
-    detail::check(cudaMemset(p, v, bytes), "memset");
+    detail::check(GPU_FN(Memset)(p, v, bytes), "memset");
 }
 inline void memset_async(void* p, int v, std::size_t bytes, stream_t s) {
-    detail::check(cudaMemsetAsync(p, v, bytes, s), "memset_async");
+    detail::check(GPU_FN(MemsetAsync)(p, v, bytes, s), "memset_async");
 }
 
 inline stream_t stream_create() {
-    stream_t s; detail::check(cudaStreamCreate(&s), "stream_create"); return s;
+    stream_t s; detail::check(GPU_FN(StreamCreate)(&s), "stream_create"); return s;
 }
-inline void stream_destroy(stream_t s) { if (s) cudaStreamDestroy(s); }
+inline void stream_destroy(stream_t s) { if (s) GPU_FN(StreamDestroy)(s); }
 inline void stream_sync(stream_t s) {
-    detail::check(cudaStreamSynchronize(s), "stream_sync");
+    detail::check(GPU_FN(StreamSynchronize)(s), "stream_sync");
 }
-inline void device_sync() { detail::check(cudaDeviceSynchronize(), "device_sync"); }
+inline void device_sync() { detail::check(GPU_FN(DeviceSynchronize)(), "device_sync"); }
 
-// post-launch error check (cudaGetLastError); call after GPU_LAUNCH.
-inline void check_last(const char* ctx) {
-    detail::check(cudaGetLastError(), ctx);
-}
+// post-launch error check; call after GPU_LAUNCH.
+inline void check_last(const char* ctx) { detail::check(GPU_FN(GetLastError)(), ctx); }
 
 }  // namespace gpu
 }  // namespace micromag
 
 // ---- G0-2 kernel-launch macro -------------------------------------------
-// Under CUDA expands to <<<...>>>. A HIP backend maps this to
-// hipLaunchKernelGGL; a SYCL backend replaces the kernel bodies (Phase 2).
-#if defined(MICROMAG_GPU_BACKEND_CUDA)
+// Both nvcc and hipcc accept the triple-chevron launch syntax, so one macro
+// serves CUDA and HIP; a SYCL backend replaces the kernel bodies (Phase 2).
+#if defined(MICROMAG_GPU_BACKEND_CUDA) || defined(MICROMAG_GPU_BACKEND_HIP)
 #  define GPU_LAUNCH(kernel, grid, block, shmem, stream, ...) \
       kernel<<<(grid), (block), (shmem), (stream)>>>(__VA_ARGS__)
 #endif
