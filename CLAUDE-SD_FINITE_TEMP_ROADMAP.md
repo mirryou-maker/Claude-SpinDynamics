@@ -579,6 +579,12 @@ Task 3 Phase 4 (mumax3 백엔드)
 - **착수 지점**: 배칭 엔진 3파일(`batched_macrospin/llg/demag_gpu.cu`)을 파일럿으로 seam 적용 →
   검증 후 나머지 18개 `.cu`로 확대. iREMB/로컬/ubuntu98(모두 NVIDIA) 어디서나 진행 가능.
 
+**✅ Phase 0 파일럿 완료 (2026-07-29, 커밋 8e78f8f)**: G0-1..G0-5 전부 구현.
+`include/micromag/gpu_backend.hpp`(런타임+GPU_LAUNCH)·`gpu_fft.hpp`(GpuFftManyRC, demag가 첫 소비자)·
+`gpu_rng.hpp`(device Philox)·CMake `MICROMAG_GPU_BACKEND` 스위치. 배칭 3파일에 순수 1:1 치환 적용,
+DoD 충족 — R=1 회귀 bitwise(2.0 |diff|=0, 2.1 5.9e-15, 2.2 demag 1.3e-10), retire/refill 무변,
+throughput 55×. 남은 18개 `.cu`로 점진 확대 + HIP/SYCL 백엔드 arm 구현이 다음 단계.
+
 ---
 
 ## 7. 참고문헌
