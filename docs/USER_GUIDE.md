@@ -686,12 +686,19 @@ Current-perpendicular-to-plane (CPP) STT:
 
 ```
 τ_STT = a_J [m × (m × p̂)] + b_J [m × p̂]
-a_J = γ₀ ħ J P / (2 e Ms d)   [rad/s]   (damping-like)
-b_J = −β a_J                            (field-like)
+a_J = γ₀ ħ J / (2 e Ms d) · ε(m·p̂)   [rad/s]   (damping-like)
+ε(m·p̂) = P Λ² / [ (Λ²+1) + (Λ²−1)(m·p̂) ]      (mumax3 angular efficiency)
+b_J = −β a_J                                    (field-like)
 ```
 
 - **p̂** fixed-layer polarization direction; **J** [A/m²] current density (J < 0 switches AP→P);
   **P** ∈ [0,1] spin polarization; **d** [m] free-layer thickness.
+- **Λ** Slonczewski angular-asymmetry parameter (mumax3 `Lambda`). **Λ = 1 (default)** gives
+  ε = P/2 (mumax3 default); **Λ → ∞** recovers the constant ε = P (legacy form). Pass it as the
+  last argument: `mm.SlonczewskiSTT(J, P, d, p, beta=0.0, Lambda=1.0)` (CPU and GPU).
+- **Sign** (measured): `sign(a_J) = sign(J)`. Positive J is antidamping and destabilizes m ∥ p̂
+  (drives P→AP); negative J stabilizes m ∥ p̂ (AP→P). The T=0 antidamping instability threshold
+  is measured from a slightly tilted seed (the exact m ∥ p̂ pole has zero STT torque).
 
 ### 6.4 Spin-orbit torque (SOT)
 
@@ -989,6 +996,19 @@ Notebook `notebooks/30_thermal_stt_batched_gpu.py` reproduces the notebook-30
 Néel–Brown P_sw(J)/P_sw(T) sweeps this way (Part B: 5000 replicas × 20000 steps
 in ~0.6 s vs ~2.5 h for the per-trial loop). VRAM scales with `R` — on an 8 GB
 card, R≈1024 fits comfortably for ~10³-cell grids; larger grids cap `R`.
+
+### 8.11 GPU backend portability (AMD / Intel)
+
+The GPU layer sits on a thin compile-time seam (`gpu_backend.hpp` / `gpu_fft.hpp`
+/ `gpu_rng.hpp`) selected by `-DMICROMAG_GPU_BACKEND={cuda|hip|sycl}`, and the
+kernels use no vendor-specific intrinsics (no warp-shuffle/ballot, no texture
+memory), so porting is mechanical. **CUDA** is the fully built/tested backend. A
+**HIP** arm (AMD ROCm) ships in the headers; its runtime, launch, and RNG paths
+are validated today via HIP-over-CUDA (`hipcc`, `HIP_PLATFORM=nvidia`; see
+`tests/hip_seam_check.cpp`), with native AMD (rocFFT/rocRAND) bring-up in
+progress. An **Intel** path via SYCL (AdaptiveCpp/DPC++, which also runs on CPU
+and NVIDIA) is planned. Native AMD/Intel builds are available through
+collaboration — open an issue or contact <cyyou@dgist.ac.kr>.
 
 ---
 
