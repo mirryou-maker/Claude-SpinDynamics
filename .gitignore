@@ -86,3 +86,4 @@ paraview_demo/
 
 # mumax3 comparison run outputs
 benchmarks/skyrmion_compare/*.out/
+notebooks/old/
