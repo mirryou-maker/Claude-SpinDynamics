@@ -1,5 +1,5 @@
 """
-Notebook 26: SOT Skyrmion Nucleation (SpinOrbitTorqueGPU + ZeemanFieldGPU)
+Notebook 26b: SOT Skyrmion Nucleation (SpinOrbitTorqueGPU + ZeemanFieldGPU)
 
 Demonstrates current-pulse induced skyrmion nucleation in a Pt/Co disc via SOT.
 SOT (sigma=+y DL torque) with in-plane bias H_x breaks symmetry, causing the
@@ -263,7 +263,7 @@ try:
         f'D={D*1e3:.1f}mJ/m2, K={K/1e6:.1f}MJ/m3',
         fontsize=9)
     plt.tight_layout()
-    out = os.path.join(os.path.dirname(__file__), '26_sot_skyrmion_nucleation_gpu.png')
+    out = os.path.join(os.path.dirname(__file__), '26b_sot_skyrmion_nucleation_gpu.png')
     plt.savefig(out, dpi=110); print(f"\nPlot saved: {out}")
 except Exception as e:
     print(f"Plot error: {e}")

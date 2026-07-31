@@ -24,12 +24,15 @@ PER_NB_TIMEOUT = 1500   # s
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8", "KMP_DUPLICATE_LIB_OK": "TRUE",
        "MPLBACKEND": "Agg"}
 
-# every NN_*.py with NN in 01..40 (the runnable example notebooks; 41-50 are the
-# separate mumax3 cross-comparison suite handled by rerun_all_nbs.py)
+# every NN_*.py / NNx_*.py with NN in 01..40 (the runnable example notebooks;
+# 41-50 are the separate mumax3 cross-comparison suite handled by
+# rerun_all_nbs.py). Matches lettered companions too (e.g. 23b_, 26b_) --
+# a plain "[0-3][0-9]_*.py" glob would both miss NB40 and skip lettered
+# files, since the character after the two digits isn't "_" for those.
 def discover():
     out = []
-    for p in sorted(HERE.glob("[0-3][0-9]_*.py")):
-        m = re.match(r"(\d+)_", p.name)
+    for p in sorted(HERE.glob("*.py")):
+        m = re.match(r"(\d+)[a-z]?_", p.name)
         if m and 1 <= int(m.group(1)) <= 40:
             out.append(p.name)
     return out

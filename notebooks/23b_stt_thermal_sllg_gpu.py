@@ -1,5 +1,5 @@
 """
-Notebook 23: Thermal-Assisted STT Switching (SLLG + SlonczewskiSTTGPU)
+Notebook 23b: Thermal-Assisted STT Switching (SLLG + SlonczewskiSTTGPU)
 
 Shows how finite temperature (Stratonovich-Langevin LLG via HeunIntegratorGPU)
 assists Slonczewski STT switching:
@@ -30,7 +30,7 @@ add_micromag_to_path()
 import numpy as np
 import micromag as mm
 
-print("Notebook 23: Thermal-Assisted STT Switching (SLLG + SlonczewskiSTTGPU)")
+print("Notebook 23b: Thermal-Assisted STT Switching (SLLG + SlonczewskiSTTGPU)")
 print(f"  CUDA: {mm.cuda_available()}")
 
 # ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ try:
         fontsize=8)
     plt.tight_layout()
 
-    out_path = os.path.join(os.path.dirname(__file__), '23_stt_thermal_sllg_gpu.png')
+    out_path = os.path.join(os.path.dirname(__file__), '23b_stt_thermal_sllg_gpu.png')
     plt.savefig(out_path, dpi=120)
     print(f"\nPlot saved: {out_path}")
 

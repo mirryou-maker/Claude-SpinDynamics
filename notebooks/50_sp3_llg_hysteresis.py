@@ -239,7 +239,7 @@ try:
     ax.set_title("SP#3: LLG protocol vs minimize — H_sw comparison")
     ax.legend(fontsize=8); ax.grid(alpha=0.25)
     plt.tight_layout()
-    plt.savefig(str(pathlib.Path(__file__).parent / "50_sp3_llg.png"), dpi=120)
-    print("\nPlot: 50_sp3_llg.png")
+    plt.savefig(str(pathlib.Path(__file__).parent / "50_sp3_llg_hysteresis.png"), dpi=120)
+    print("\nPlot: 50_sp3_llg_hysteresis.png")
 except Exception as e:
     print(f"Plot error: {e}")

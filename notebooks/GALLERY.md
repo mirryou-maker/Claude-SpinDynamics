@@ -42,7 +42,7 @@ for the user manual and as paper source figures.
 | `08_stt_switching.py` | stt_switching.png, stt_critical_current.png |
 | `22_stt_switching_gpu.py` | 22_stt_switching_gpu.png |
 | `26_sot_skyrmion_motion_gpu.py` | 26_sot_skyrmion_motion_gpu.png |
-| `26_sot_skyrmion_nucleation_gpu.py` | 26_sot_skyrmion_nucleation_gpu.png |
+| `26b_sot_skyrmion_nucleation_gpu.py` | 26b_sot_skyrmion_nucleation_gpu.png |
 
 ## Skyrmions
 
@@ -58,9 +58,9 @@ for the user manual and as paper source figures.
 |---|---|
 | `03_thermal_sp4.py` | sp4_thermal_comparison.png, sp4_thermal_realizations.png |
 | `05_thermal_gpu.py` | sp4_thermal_gpu.png, sp4_thermal_gpu_realizations.png |
-| `23_stt_thermal_sllg_gpu.py` | 23_stt_thermal_sllg_gpu.png |
+| `23b_stt_thermal_sllg_gpu.py` | 23b_stt_thermal_sllg_gpu.png |
 | `23_sot_thermal_switching_gpu.py` | 23_sot_thermal_switching_gpu.png |
-| `30_thermal_stt_statistics_gpu.py` | 30_thermal_stt_statistics_gpu.png |
+| `30_thermal_stt_batched_gpu.py` | 30_thermal_stt_batched_gpu.png |
 
 ## Geometry / multi-region / performance
 
@@ -69,6 +69,6 @@ for the user manual and as paper source figures.
 | `14_inter_exchange_and_rotating_geometry.py` | inter_exchange.png, rotating_geometry.png |
 | `16_spinning_hard_disk.py` | hard_disk.png |
 | `17_afm_and_zhangli.py` | afm_and_zhangli.png |
-| `18_periodic_demag_gpu_bench.py` | 14_periodic_demag_gpu_bench.png |
+| `18_periodic_demag_gpu_bench.py` | 18_periodic_demag_gpu_bench.png |
 | `19_periodic_gpu_llg_loop.py` | 19_periodic_gpu_llg_loop.png |
 | `25_stt_gpu_bench.py` | 25_stt_gpu_bench.png |

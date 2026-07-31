@@ -1,5 +1,5 @@
 """
-Master runner: executes notebooks 41-45 sequentially and
+Master runner: executes notebooks 41-50 sequentially and
 compiles results into BENCHMARK_REPORT.md.
 
 Usage:
@@ -10,13 +10,18 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 HERE = pathlib.Path(__file__).parent
 NOTEBOOKS = [
-    ("41_sp4_comparison.py",         "SP#4 Field A (muMAG benchmark, adaptive DOPRI5)"),
-    ("42_stt_comparison.py",         "STT Slonczewski switching (Pt/Co macrospin)"),
-    ("43_sot_thermal_comparison.py", "SOT thermal switching (Pt/Co, T=300K, Heun)"),
-    ("44_dw_motion_comparison.py",   "Zhang-Li DW motion (Py strip, Walker breakdown)"),
-    ("45_skyrmion_comparison.py",    "SOT skyrmion nucleation (Co/Pt, DMI)"),
+    ("41_sp4_comparison.py",              "SP#4 Field A (muMAG benchmark, adaptive DOPRI5)"),
+    ("42_stt_comparison.py",              "STT Slonczewski switching (Pt/Co macrospin)"),
+    ("43_sot_thermal_comparison.py",      "SOT thermal switching (Pt/Co, T=300K, Heun)"),
+    ("44_dw_motion_comparison.py",        "Zhang-Li DW motion (Py strip, Walker breakdown)"),
+    ("45_skyrmion_comparison.py",         "SOT skyrmion nucleation (Co/Pt, DMI)"),
+    ("46_sp1_comparison.py",              "SP#1 vortex-nucleation phase diagram"),
+    ("47_sp3_comparison.py",              "SP#3 hysteresis (energy minimizer)"),
+    ("48_fmr_comparison.py",              "FMR spectrum (Py macrospin/thin-film)"),
+    ("49_walker_breakdown_comparison.py", "Zhang-Li Walker breakdown (flat strip)"),
+    ("50_sp3_llg_hysteresis.py",          "SP#3 hysteresis (damped-LLG protocol)"),
 ]
-RESULT_FILES = [f"{i+41}_results.json" for i in range(5)]
+RESULT_FILES = [f"{i+41}_results.json" for i in range(len(NOTEBOOKS))]
 
 
 def run_notebook(path):

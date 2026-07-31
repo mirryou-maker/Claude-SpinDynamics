@@ -1,4 +1,4 @@
-"""Notebook 14 — DemagFieldPeriodicGPU vs DemagFieldGPU: Performance Benchmark
+"""Notebook 18 — DemagFieldPeriodicGPU vs DemagFieldGPU: Performance Benchmark
 
 Measures wall-clock time per LLG step for periodic-BC (DemagFieldPeriodicGPU)
 versus open-BC (DemagFieldGPU) on the same grid.
@@ -127,6 +127,6 @@ for bar, s in zip(bars, speedups):
              f"{s:.2f}×", ha="center", va="bottom")
 
 plt.tight_layout()
-out = os.path.join(os.path.dirname(__file__), "14_periodic_demag_gpu_bench.png")
+out = os.path.join(os.path.dirname(__file__), "18_periodic_demag_gpu_bench.png")
 plt.savefig(out, dpi=150)
 print(f"\nPlot saved: {out}")
